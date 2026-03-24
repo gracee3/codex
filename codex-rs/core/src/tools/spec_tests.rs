@@ -11,6 +11,7 @@ use codex_app_server_protocol::AppInfo;
 use codex_protocol::openai_models::InputModality;
 use codex_protocol::openai_models::ModelInfo;
 use codex_protocol::openai_models::ModelsResponse;
+use codex_protocol::openai_models::PromptDialect;
 use codex_utils_absolute_path::AbsolutePathBuf;
 use pretty_assertions::assert_eq;
 use std::path::PathBuf;
@@ -56,6 +57,21 @@ fn search_capable_model_info() -> ModelInfo {
         ModelsManager::construct_model_info_offline_for_tests("gpt-5-codex", &config);
     model_info.supports_search_tool = true;
     model_info
+}
+
+fn function_tool(name: &str, description: &str) -> ToolSpec {
+    ToolSpec::Function(ResponsesApiTool {
+        name: name.to_string(),
+        description: description.to_string(),
+        strict: false,
+        defer_loading: None,
+        parameters: JsonSchema::Object {
+            properties: Default::default(),
+            required: None,
+            additional_properties: Some(false.into()),
+        },
+        output_schema: None,
+    })
 }
 
 #[test]
@@ -252,6 +268,51 @@ fn deferred_responses_api_tool_serializes_with_defer_loading() {
             }
         })
     );
+}
+
+#[test]
+fn qwen_prompt_instructions_render_tool_block() {
+    let rendered = render_prompt_instructions(
+        PromptDialect::QwenChatMlHermes,
+        "Base instructions",
+        &[function_tool("shell", "Run shell commands.")],
+    )
+    .expect("render qwen instructions");
+
+    let expected = serde_json::json!([
+        {
+            "type": "function",
+            "name": "shell",
+            "description": "Run shell commands.",
+            "strict": false,
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": false
+            }
+        }
+    ]);
+    let prefix = "Base instructions\n\nAvailable tools:\n<tools>\n";
+    let suffix = "\n</tools>";
+    let tool_block = rendered
+        .strip_prefix(prefix)
+        .and_then(|text| text.strip_suffix(suffix))
+        .expect("rendered qwen prompt block");
+    let actual: serde_json::Value = serde_json::from_str(tool_block).expect("valid tool json");
+
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn harmony_prompt_instructions_leave_tools_unrendered() {
+    let rendered = render_prompt_instructions(
+        PromptDialect::Harmony,
+        "Base instructions",
+        &[function_tool("shell", "Run shell commands.")],
+    )
+    .expect("render harmony instructions");
+
+    assert_eq!(rendered, "Base instructions");
 }
 
 fn tool_name(tool: &ToolSpec) -> &str {
