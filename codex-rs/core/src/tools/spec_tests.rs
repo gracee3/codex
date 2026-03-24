@@ -304,6 +304,45 @@ fn qwen_prompt_instructions_render_tool_block() {
 }
 
 #[test]
+fn qwen_prompt_instructions_filter_unsupported_tools() {
+    let rendered = render_prompt_instructions(
+        PromptDialect::QwenChatMlHermes,
+        "Base instructions",
+        &[
+            function_tool("shell", "Run shell commands."),
+            function_tool("tool_search", "Search available tools."),
+            ToolSpec::LocalShell {},
+        ],
+    )
+    .expect("render qwen instructions");
+
+    let prefix = "Base instructions\n\nAvailable tools:\n<tools>\n";
+    let suffix = "\n</tools>";
+    let tool_block = rendered
+        .strip_prefix(prefix)
+        .and_then(|text| text.strip_suffix(suffix))
+        .expect("rendered qwen prompt block");
+    let actual: serde_json::Value = serde_json::from_str(tool_block).expect("valid tool json");
+
+    assert_eq!(
+        actual,
+        serde_json::json!([
+            {
+                "type": "function",
+                "name": "shell",
+                "description": "Run shell commands.",
+                "strict": false,
+                "parameters": {
+                    "type": "object",
+                    "properties": {},
+                    "additionalProperties": false
+                }
+            }
+        ])
+    );
+}
+
+#[test]
 fn harmony_prompt_instructions_leave_tools_unrendered() {
     let rendered = render_prompt_instructions(
         PromptDialect::Harmony,
