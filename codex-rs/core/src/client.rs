@@ -122,19 +122,33 @@ const MEMORIES_SUMMARIZE_ENDPOINT: &str = "/memories/trace_summarize";
 pub(crate) const WEBSOCKET_CONNECT_TIMEOUT: Duration =
     Duration::from_millis(crate::model_provider_info::DEFAULT_WEBSOCKET_CONNECT_TIMEOUT_MS);
 
+fn is_local_gpt_oss_provider(provider_base_url: &str, model_slug: &str) -> bool {
+    matches!(model_slug, "gpt-oss-20b" | "local-model")
+        && (provider_base_url.contains("127.0.0.1") || provider_base_url.contains("localhost"))
+}
+
 pub(crate) fn sanitize_prompt_input_for_provider(
     provider_base_url: &str,
     model_slug: &str,
     input: &mut Vec<ResponseItem>,
 ) {
-    let is_local_gpt_oss = matches!(model_slug, "gpt-oss-20b" | "local-model")
-        && (provider_base_url.contains("127.0.0.1") || provider_base_url.contains("localhost"));
-
-    if !is_local_gpt_oss {
+    if !is_local_gpt_oss_provider(provider_base_url, model_slug) {
         return;
     }
 
     input.retain(|item| !matches!(item, ResponseItem::Reasoning { .. }));
+}
+
+pub(crate) fn sanitize_tools_for_provider(
+    provider_base_url: &str,
+    model_slug: &str,
+    tools: &mut Vec<serde_json::Value>,
+) {
+    if !is_local_gpt_oss_provider(provider_base_url, model_slug) {
+        return;
+    }
+
+    tools.retain(|tool| tool.get("type").and_then(serde_json::Value::as_str) != Some("web_search"));
 }
 
 /// Session-scoped state shared by all [`ModelClient`] clones.
@@ -705,7 +719,8 @@ impl ModelClientSession {
         let instructions = &prompt.base_instructions.text;
         let mut input = prompt.get_formatted_input();
         sanitize_prompt_input_for_provider(&provider.base_url, &model_info.slug, &mut input);
-        let tools = create_tools_json_for_responses_api(&prompt.tools)?;
+        let mut tools = create_tools_json_for_responses_api(&prompt.tools)?;
+        sanitize_tools_for_provider(&provider.base_url, &model_info.slug, &mut tools);
         let default_reasoning_effort = model_info.default_reasoning_level;
         let reasoning = if model_info.supports_reasoning_summaries {
             Some(Reasoning {

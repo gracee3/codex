@@ -4,6 +4,7 @@ use super::PendingUnauthorizedRetry;
 use super::ResponseItem;
 use super::UnauthorizedRecoveryExecution;
 use super::sanitize_prompt_input_for_provider;
+use super::sanitize_tools_for_provider;
 use codex_otel::SessionTelemetry;
 use codex_protocol::ThreadId;
 use codex_protocol::openai_models::ModelInfo;
@@ -51,6 +52,30 @@ fn sanitize_prompt_input_for_vllm_drops_reasoning_items() {
 
     assert_eq!(input.len(), 1);
     assert!(matches!(input[0], ResponseItem::Message { .. }));
+}
+
+#[test]
+fn sanitize_tools_for_vllm_drops_web_search_tool() {
+    let mut tools = vec![
+        json!({
+            "type": "web_search",
+            "external_web_access": false,
+        }),
+        json!({
+            "type": "function",
+            "name": "apply_patch",
+        }),
+    ];
+
+    sanitize_tools_for_provider("http://127.0.0.1:8000/v1", "gpt-oss-20b", &mut tools);
+
+    assert_eq!(
+        tools,
+        vec![json!({
+            "type": "function",
+            "name": "apply_patch",
+        })]
+    );
 }
 
 fn test_model_info() -> ModelInfo {
