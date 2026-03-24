@@ -275,11 +275,15 @@ fn qwen_prompt_instructions_render_tool_block() {
     let rendered = render_prompt_instructions(
         PromptDialect::QwenChatMlHermes,
         "Base instructions",
-        &[function_tool("shell", "Run shell commands.")],
+        &[
+            function_tool("shell", "Run shell commands."),
+            function_tool("tool_search", "Search available tools."),
+            ToolSpec::LocalShell {},
+        ],
     )
     .expect("render qwen instructions");
 
-    let expected = serde_json::json!([
+    let expected_tools = serde_json::to_string(&serde_json::json!([
         {
             "type": "function",
             "name": "shell",
@@ -290,43 +294,44 @@ fn qwen_prompt_instructions_render_tool_block() {
                 "properties": {},
                 "additionalProperties": false
             }
+        },
+        {
+            "type": "function",
+            "name": "tool_search",
+            "description": "Search available tools.",
+            "strict": false,
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": false
+            }
+        },
+        {
+            "type": "local_shell"
         }
-    ]);
-    let prefix = "Base instructions\n\nAvailable tools:\n<tools>\n";
-    let suffix = "\n</tools>";
-    let tool_block = rendered
-        .strip_prefix(prefix)
-        .and_then(|text| text.strip_suffix(suffix))
-        .expect("rendered qwen prompt block");
-    let actual: serde_json::Value = serde_json::from_str(tool_block).expect("valid tool json");
+    ]))
+    .expect("serialize tool json");
+    let expected = format!(
+        "Base instructions\n\n# Tools\n\nYou have access to the following functions:\n\n<tools>\n{expected_tools}\n</tools>\n\nIf you choose to call a function ONLY reply in the following format with NO suffix:\n\n<tool_call>\n<function=example_function_name>\n<parameter=example_parameter_1>\nvalue_1\n</parameter>\n<parameter=example_parameter_2>\nThis is the value for the second parameter\nthat can span\nmultiple lines\n</parameter>\n</function>\n</tool_call>\n\n<IMPORTANT>\nReminder:\n- Function calls MUST follow the specified format: an inner <function=...></function> block must be nested within <tool_call></tool_call> XML tags\n- Required parameters MUST be specified\n- You may provide optional reasoning for your function call in natural language BEFORE the function call, but NOT after\n- If there is no function call available, answer the question like normal with your current knowledge and do not tell the user about function calls\n</IMPORTANT>"
+    );
 
-    assert_eq!(actual, expected);
+    assert_eq!(rendered, expected);
 }
 
 #[test]
-fn qwen_prompt_instructions_filter_unsupported_tools() {
+fn qwen_prompt_instructions_move_existing_suffix_after_tools() {
+    let suffix = PromptDialect::QwenChatMlHermes.instruction_suffix();
+    let base = format!("Base instructions\n\n{suffix}");
     let rendered = render_prompt_instructions(
         PromptDialect::QwenChatMlHermes,
-        "Base instructions",
-        &[
-            function_tool("shell", "Run shell commands."),
-            function_tool("tool_search", "Search available tools."),
-            ToolSpec::LocalShell {},
-        ],
+        &base,
+        &[function_tool("shell", "Run shell commands.")],
     )
     .expect("render qwen instructions");
 
-    let prefix = "Base instructions\n\nAvailable tools:\n<tools>\n";
-    let suffix = "\n</tools>";
-    let tool_block = rendered
-        .strip_prefix(prefix)
-        .and_then(|text| text.strip_suffix(suffix))
-        .expect("rendered qwen prompt block");
-    let actual: serde_json::Value = serde_json::from_str(tool_block).expect("valid tool json");
-
-    assert_eq!(
-        actual,
-        serde_json::json!([
+    let expected = format!(
+        "Base instructions\n\n# Tools\n\nYou have access to the following functions:\n\n<tools>\n{}\n</tools>\n\n{suffix}",
+        serde_json::to_string(&serde_json::json!([
             {
                 "type": "function",
                 "name": "shell",
@@ -338,8 +343,11 @@ fn qwen_prompt_instructions_filter_unsupported_tools() {
                     "additionalProperties": false
                 }
             }
-        ])
+        ]))
+        .expect("serialize tool json")
     );
+
+    assert_eq!(rendered, expected);
 }
 
 #[test]

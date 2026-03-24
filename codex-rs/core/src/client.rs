@@ -105,7 +105,6 @@ use crate::response_debug_context::extract_response_debug_context_from_api_error
 use crate::response_debug_context::telemetry_api_error_message;
 use crate::response_debug_context::telemetry_transport_error_message;
 use crate::tools::spec::create_tools_json_for_responses_api;
-use crate::tools::spec::qwen_prompt_tools;
 use crate::tools::spec::render_prompt_instructions;
 use crate::util::FeedbackRequestTags;
 use crate::util::emit_feedback_auth_recovery_tags;
@@ -365,14 +364,13 @@ impl ModelClient {
             ApiCompactClient::new(transport, client_setup.api_provider, client_setup.api_auth)
                 .with_telemetry(Some(request_telemetry));
 
-        let prompt_tools = qwen_prompt_tools(&prompt.tools);
         let instructions = render_prompt_instructions(
             model_info.prompt_dialect(),
             &prompt.base_instructions.text,
-            &prompt_tools,
+            &prompt.tools,
         )?;
         let input = prompt.get_formatted_input();
-        let tools = create_tools_json_for_responses_api(&prompt_tools)?;
+        let tools = create_tools_json_for_responses_api(&prompt.tools)?;
         let reasoning = Self::build_reasoning(model_info, effort, summary);
         let verbosity = if model_info.support_verbosity {
             self.state.model_verbosity.or(model_info.default_verbosity)
@@ -692,14 +690,13 @@ impl ModelClientSession {
         summary: ReasoningSummaryConfig,
         service_tier: Option<ServiceTier>,
     ) -> Result<ResponsesApiRequest> {
-        let prompt_tools = qwen_prompt_tools(&prompt.tools);
         let instructions = render_prompt_instructions(
             model_info.prompt_dialect(),
             &prompt.base_instructions.text,
-            &prompt_tools,
+            &prompt.tools,
         )?;
         let input = prompt.get_formatted_input();
-        let tools = create_tools_json_for_responses_api(&prompt_tools)?;
+        let tools = create_tools_json_for_responses_api(&prompt.tools)?;
         let default_reasoning_effort = model_info.default_reasoning_level;
         let reasoning = if model_info.supports_reasoning_summaries {
             Some(Reasoning {

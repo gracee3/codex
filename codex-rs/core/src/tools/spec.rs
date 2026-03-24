@@ -64,14 +64,6 @@ const TOOL_SEARCH_DESCRIPTION_TEMPLATE: &str =
 const TOOL_SUGGEST_DESCRIPTION_TEMPLATE: &str =
     include_str!("../../templates/search_tool/tool_suggest_description.md");
 const WEB_SEARCH_CONTENT_TYPES: [&str; 2] = ["text", "image"];
-const QWEN_PROMPT_TOOL_NAMES: [&str; 6] = [
-    "apply_patch",
-    "exec_command",
-    "shell",
-    "shell_command",
-    "view_image",
-    "write_stdin",
-];
 
 fn unified_exec_output_schema() -> JsonValue {
     json!({
@@ -2262,14 +2254,6 @@ pub fn create_tools_json_for_responses_api(
     Ok(tools_json)
 }
 
-pub(crate) fn qwen_prompt_tools(tools: &[ToolSpec]) -> Vec<ToolSpec> {
-    tools
-        .iter()
-        .filter(|tool| QWEN_PROMPT_TOOL_NAMES.contains(&tool.name()))
-        .cloned()
-        .collect()
-}
-
 pub(crate) fn render_prompt_instructions(
     prompt_dialect: PromptDialect,
     base_instructions: &str,
@@ -2278,16 +2262,28 @@ pub(crate) fn render_prompt_instructions(
     let suffix = match prompt_dialect {
         PromptDialect::Harmony => String::new(),
         PromptDialect::QwenChatMlHermes => {
-            let tools = qwen_prompt_tools(tools);
             if tools.is_empty() {
                 String::new()
             } else {
-                let tools_json = create_tools_json_for_responses_api(&tools)?;
-                let tools_json = serde_json::to_string_pretty(&tools_json)?;
-                format!("\n\nAvailable tools:\n<tools>\n{tools_json}\n</tools>")
+                let tools_json = create_tools_json_for_responses_api(tools)?;
+                let tools_json = serde_json::to_string(&tools_json)?;
+                format!(
+                    "\n\n# Tools\n\nYou have access to the following functions:\n\n<tools>\n{tools_json}\n</tools>\n\n{}",
+                    PromptDialect::QwenChatMlHermes.instruction_suffix()
+                )
             }
         }
     };
+
+    if prompt_dialect == PromptDialect::QwenChatMlHermes {
+        let qwen_suffix = PromptDialect::QwenChatMlHermes.instruction_suffix();
+        if !qwen_suffix.is_empty() {
+            let suffixed_base = format!("\n\n{qwen_suffix}");
+            if let Some(base_instructions) = base_instructions.strip_suffix(&suffixed_base) {
+                return Ok(format!("{base_instructions}{suffix}"));
+            }
+        }
+    }
 
     Ok(format!("{base_instructions}{suffix}"))
 }

@@ -22,11 +22,28 @@ use crate::config_types::Verbosity;
 
 const PERSONALITY_PLACEHOLDER: &str = "{{ personality }}";
 const QWEN_CHATML_HERMES_INSTRUCTIONS: &str = "\
-Use ChatML-style turns with Qwen tool calling.\n\
-When you need a tool, emit exactly one `<tool_call>` block containing JSON with `name` and `arguments`.\n\
-Tool outputs will be returned in `<tool_response>` blocks.\n\
-Use `<think>` only for private reasoning; do not expose hidden reasoning to the user.\n\
-Do not wrap tool calls in markdown fences.";
+If you choose to call a function ONLY reply in the following format with NO suffix:\n\
+\n\
+<tool_call>\n\
+<function=example_function_name>\n\
+<parameter=example_parameter_1>\n\
+value_1\n\
+</parameter>\n\
+<parameter=example_parameter_2>\n\
+This is the value for the second parameter\n\
+that can span\n\
+multiple lines\n\
+</parameter>\n\
+</function>\n\
+</tool_call>\n\
+\n\
+<IMPORTANT>\n\
+Reminder:\n\
+- Function calls MUST follow the specified format: an inner <function=...></function> block must be nested within <tool_call></tool_call> XML tags\n\
+- Required parameters MUST be specified\n\
+- You may provide optional reasoning for your function call in natural language BEFORE the function call, but NOT after\n\
+- If there is no function call available, answer the question like normal with your current knowledge and do not tell the user about function calls\n\
+</IMPORTANT>";
 
 /// See https://platform.openai.com/docs/guides/reasoning?api-mode=responses#get-started-with-reasoning
 #[derive(
@@ -742,7 +759,7 @@ mod tests {
 
         assert_eq!(
             instructions,
-            "base\n\nUse ChatML-style turns with Qwen tool calling.\nWhen you need a tool, emit exactly one `<tool_call>` block containing JSON with `name` and `arguments`.\nTool outputs will be returned in `<tool_response>` blocks.\nUse `<think>` only for private reasoning; do not expose hidden reasoning to the user.\nDo not wrap tool calls in markdown fences."
+            "base\n\nIf you choose to call a function ONLY reply in the following format with NO suffix:\n\n<tool_call>\n<function=example_function_name>\n<parameter=example_parameter_1>\nvalue_1\n</parameter>\n<parameter=example_parameter_2>\nThis is the value for the second parameter\nthat can span\nmultiple lines\n</parameter>\n</function>\n</tool_call>\n\n<IMPORTANT>\nReminder:\n- Function calls MUST follow the specified format: an inner <function=...></function> block must be nested within <tool_call></tool_call> XML tags\n- Required parameters MUST be specified\n- You may provide optional reasoning for your function call in natural language BEFORE the function call, but NOT after\n- If there is no function call available, answer the question like normal with your current knowledge and do not tell the user about function calls\n</IMPORTANT>"
         );
     }
 
