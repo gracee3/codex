@@ -67,6 +67,7 @@ use codex_protocol::config_types::ServiceTier;
 use codex_protocol::config_types::Verbosity as VerbosityConfig;
 use codex_protocol::models::ResponseItem;
 use codex_protocol::openai_models::ModelInfo;
+use codex_protocol::openai_models::PromptDialect;
 use codex_protocol::openai_models::ReasoningEffort as ReasoningEffortConfig;
 use codex_protocol::protocol::SessionSource;
 use eventsource_stream::Event;
@@ -369,7 +370,31 @@ impl ModelClient {
             &prompt.base_instructions.text,
             &prompt.tools,
         )?;
-        let input = prompt.get_formatted_input();
+        let input = if model_info.prompt_dialect() == PromptDialect::QwenChatMlHermes {
+            let input: Vec<ResponseItem> = prompt
+                .get_formatted_input()
+                .into_iter()
+                .filter(|item| {
+                    !matches!(
+                        item,
+                        ResponseItem::Message { role, .. } if role == "developer" || role == "system"
+                    )
+                })
+                .collect();
+            trace!(
+                roles = ?input
+                    .iter()
+                    .filter_map(|item| match item {
+                        ResponseItem::Message { role, .. } => Some(role.as_str()),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>(),
+                "qwen responses input roles"
+            );
+            input
+        } else {
+            prompt.get_formatted_input()
+        };
         let tools = create_tools_json_for_responses_api(&prompt.tools)?;
         let reasoning = Self::build_reasoning(model_info, effort, summary);
         let verbosity = if model_info.support_verbosity {
@@ -695,7 +720,31 @@ impl ModelClientSession {
             &prompt.base_instructions.text,
             &prompt.tools,
         )?;
-        let input = prompt.get_formatted_input();
+        let input = if model_info.prompt_dialect() == PromptDialect::QwenChatMlHermes {
+            let input: Vec<ResponseItem> = prompt
+                .get_formatted_input()
+                .into_iter()
+                .filter(|item| {
+                    !matches!(
+                        item,
+                        ResponseItem::Message { role, .. } if role == "developer" || role == "system"
+                    )
+                })
+                .collect();
+            trace!(
+                roles = ?input
+                    .iter()
+                    .filter_map(|item| match item {
+                        ResponseItem::Message { role, .. } => Some(role.as_str()),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>(),
+                "qwen responses input roles"
+            );
+            input
+        } else {
+            prompt.get_formatted_input()
+        };
         let tools = create_tools_json_for_responses_api(&prompt.tools)?;
         let default_reasoning_effort = model_info.default_reasoning_level;
         let reasoning = if model_info.supports_reasoning_summaries {

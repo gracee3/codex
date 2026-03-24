@@ -403,6 +403,7 @@ impl ModelInfo {
 fn is_qwen_chatml_hermes_model(slug: &str) -> bool {
     let slug = slug.to_ascii_lowercase();
     slug.contains("qwen3.5")
+        || slug.contains("qwen35")
         || slug.contains("qwen3_5")
         || slug.contains("qwen3")
         || slug.contains("qwen2.5")
@@ -900,6 +901,9 @@ mod tests {
     fn prompt_dialect_detects_qwen_family_models() {
         let mut model = test_model(None);
         model.slug = "Qwen/Qwen3.5-9B-Base".to_string();
+        assert_eq!(model.prompt_dialect(), PromptDialect::QwenChatMlHermes);
+
+        model.slug = "Qwen/Qwen35-9B".to_string();
         assert_eq!(model.prompt_dialect(), PromptDialect::QwenChatMlHermes);
 
         model.slug = "Qwen/Qwen3-32B".to_string();
