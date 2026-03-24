@@ -122,6 +122,21 @@ const MEMORIES_SUMMARIZE_ENDPOINT: &str = "/memories/trace_summarize";
 pub(crate) const WEBSOCKET_CONNECT_TIMEOUT: Duration =
     Duration::from_millis(crate::model_provider_info::DEFAULT_WEBSOCKET_CONNECT_TIMEOUT_MS);
 
+pub(crate) fn sanitize_prompt_input_for_provider(
+    provider_base_url: &str,
+    model_slug: &str,
+    input: &mut Vec<ResponseItem>,
+) {
+    let is_local_gpt_oss = matches!(model_slug, "gpt-oss-20b" | "local-model")
+        && (provider_base_url.contains("127.0.0.1") || provider_base_url.contains("localhost"));
+
+    if !is_local_gpt_oss {
+        return;
+    }
+
+    input.retain(|item| !matches!(item, ResponseItem::Reasoning { .. }));
+}
+
 /// Session-scoped state shared by all [`ModelClient`] clones.
 ///
 /// This is intentionally kept minimal so `ModelClient` does not need to hold a full `Config`. Most
@@ -359,12 +374,14 @@ impl ModelClient {
             RequestRouteTelemetry::for_endpoint(RESPONSES_COMPACT_ENDPOINT),
             self.state.auth_env_telemetry.clone(),
         );
+        let provider_base_url = client_setup.api_provider.base_url.clone();
         let client =
             ApiCompactClient::new(transport, client_setup.api_provider, client_setup.api_auth)
                 .with_telemetry(Some(request_telemetry));
 
         let instructions = prompt.base_instructions.text.clone();
-        let input = prompt.get_formatted_input();
+        let mut input = prompt.get_formatted_input();
+        sanitize_prompt_input_for_provider(&provider_base_url, &model_info.slug, &mut input);
         let tools = create_tools_json_for_responses_api(&prompt.tools)?;
         let reasoning = Self::build_reasoning(model_info, effort, summary);
         let verbosity = if model_info.support_verbosity {
@@ -686,7 +703,8 @@ impl ModelClientSession {
         service_tier: Option<ServiceTier>,
     ) -> Result<ResponsesApiRequest> {
         let instructions = &prompt.base_instructions.text;
-        let input = prompt.get_formatted_input();
+        let mut input = prompt.get_formatted_input();
+        sanitize_prompt_input_for_provider(&provider.base_url, &model_info.slug, &mut input);
         let tools = create_tools_json_for_responses_api(&prompt.tools)?;
         let default_reasoning_effort = model_info.default_reasoning_level;
         let reasoning = if model_info.supports_reasoning_summaries {
@@ -1128,6 +1146,11 @@ impl ModelClientSession {
                 client_metadata: build_ws_client_metadata(turn_metadata_header),
                 ..ResponseCreateWsRequest::from(&request)
             };
+            sanitize_prompt_input_for_provider(
+                &client_setup.api_provider.base_url,
+                &model_info.slug,
+                &mut ws_payload.input,
+            );
             if warmup {
                 ws_payload.generate = Some(false);
             }
