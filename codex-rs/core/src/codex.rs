@@ -520,11 +520,20 @@ impl Codex {
         // 2. conversation history => session_meta.base_instructions
         // 3. base_instructions for current model
         let model_info = models_manager.get_model_info(model.as_str(), &config).await;
-        let base_instructions = config
+        let explicit_base_instructions = config
             .base_instructions
             .clone()
-            .or_else(|| conversation_history.get_base_instructions().map(|s| s.text))
-            .unwrap_or_else(|| model_info.get_model_instructions(config.personality));
+            .or_else(|| conversation_history.get_base_instructions().map(|s| s.text));
+        let prompt_suffix = model_info.prompt_dialect().instruction_suffix();
+        let base_instructions = if let Some(base_instructions) = explicit_base_instructions {
+            if prompt_suffix.is_empty() {
+                base_instructions
+            } else {
+                format!("{base_instructions}\n\n{prompt_suffix}")
+            }
+        } else {
+            model_info.get_model_instructions(config.personality)
+        };
 
         // Respect thread-start tools. When missing (resumed/forked threads), read from the db
         // first, then fall back to rollout-file tools.

@@ -985,6 +985,7 @@ impl ModelClientSession {
         skip_all,
         fields(
             model = %model_info.slug,
+            prompt_dialect = %model_info.prompt_dialect(),
             wire_api = %self.client.state.provider.wire_api,
             transport = "responses_http",
             http.method = "POST",
@@ -1082,6 +1083,7 @@ impl ModelClientSession {
         skip_all,
         fields(
             model = %model_info.slug,
+            prompt_dialect = %model_info.prompt_dialect(),
             wire_api = %self.client.state.provider.wire_api,
             transport = "responses_websocket",
             api.path = "responses",
