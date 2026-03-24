@@ -1,4 +1,5 @@
 use codex_protocol::config_types::ReasoningSummary;
+use codex_protocol::openai_models::ApplyPatchToolType;
 use codex_protocol::openai_models::ConfigShellToolType;
 use codex_protocol::openai_models::ModelInfo;
 use codex_protocol::openai_models::ModelInstructionsVariables;
@@ -45,6 +46,12 @@ pub(crate) fn with_config_overrides(mut model: ModelInfo, config: &Config) -> Mo
                 TruncationPolicyConfig::tokens(limit)
             }
         };
+    }
+
+    if matches!(config.model_provider.name.as_str(), "vLLM")
+        && matches!(model.slug.as_str(), "gpt-oss-20b" | "local-model")
+    {
+        model.apply_patch_tool_type = Some(ApplyPatchToolType::Function);
     }
 
     if let Some(base_instructions) = &config.base_instructions {
