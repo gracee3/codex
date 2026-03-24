@@ -724,7 +724,7 @@ mod tests {
     #[test]
     fn get_model_instructions_appends_qwen_prompt_suffix() {
         let model = ModelInfo {
-            slug: "Qwen3.5-9B".to_string(),
+            slug: "Qwen/Qwen3.5-9B-Base".to_string(),
             display_name: "Test Model".to_string(),
             description: None,
             default_reasoning_level: None,
