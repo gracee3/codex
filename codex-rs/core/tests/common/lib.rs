@@ -150,13 +150,27 @@ pub async fn load_default_config_for_test(codex_home: &TempDir) -> Config {
         .expect("defaults for test should always succeed")
 }
 
+pub fn resolve_test_codex_exe() -> Option<PathBuf> {
+    if let Ok(path) = codex_utils_cargo_bin::cargo_bin("codex") {
+        Some(path)
+    } else if let Ok(exe) = std::env::current_exe()
+        && let Some(path) = exe
+            .parent()
+            .and_then(|parent| parent.parent())
+            .map(|parent| parent.join("codex"))
+        && path.is_file()
+    {
+        Some(path)
+    } else {
+        None
+    }
+}
+
 #[cfg(target_os = "linux")]
 fn default_test_overrides() -> ConfigOverrides {
     ConfigOverrides {
-        codex_linux_sandbox_exe: Some(
-            codex_utils_cargo_bin::cargo_bin("codex-linux-sandbox")
-                .expect("should find binary for codex-linux-sandbox"),
-        ),
+        // The main codex binary handles arg0 dispatch for codex-linux-sandbox and apply_patch.
+        codex_linux_sandbox_exe: resolve_test_codex_exe(),
         ..ConfigOverrides::default()
     }
 }
@@ -481,10 +495,10 @@ macro_rules! codex_linux_sandbox_exe_or_skip {
     () => {{
         #[cfg(target_os = "linux")]
         {
-            match codex_utils_cargo_bin::cargo_bin("codex-linux-sandbox") {
-                Ok(path) => Some(path),
-                Err(err) => {
-                    eprintln!("codex-linux-sandbox binary not available, skipping test: {err}");
+            match $crate::resolve_test_codex_exe() {
+                Some(path) => Some(path),
+                None => {
+                    eprintln!("codex binary not available for sandbox dispatch, skipping test");
                     return;
                 }
             }
@@ -497,10 +511,10 @@ macro_rules! codex_linux_sandbox_exe_or_skip {
     ($return_value:expr $(,)?) => {{
         #[cfg(target_os = "linux")]
         {
-            match codex_utils_cargo_bin::cargo_bin("codex-linux-sandbox") {
-                Ok(path) => Some(path),
-                Err(err) => {
-                    eprintln!("codex-linux-sandbox binary not available, skipping test: {err}");
+            match $crate::resolve_test_codex_exe() {
+                Some(path) => Some(path),
+                None => {
+                    eprintln!("codex binary not available for sandbox dispatch, skipping test");
                     return $return_value;
                 }
             }
