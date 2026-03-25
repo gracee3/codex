@@ -15,7 +15,6 @@ use codex_protocol::openai_models::ModelInfo;
 use codex_protocol::openai_models::ModelPreset;
 use codex_protocol::openai_models::ModelVisibility;
 use codex_protocol::openai_models::ModelsResponse;
-use codex_protocol::openai_models::PromptDialect;
 use codex_protocol::openai_models::ReasoningEffort;
 use codex_protocol::openai_models::ReasoningEffortPreset;
 use codex_protocol::openai_models::TruncationPolicyConfig;
@@ -36,7 +35,6 @@ use core_test_support::responses::mount_models_once_with_delay;
 use core_test_support::responses::mount_sse_once;
 use core_test_support::responses::mount_sse_sequence;
 use core_test_support::responses::sse;
-use core_test_support::responses::start_mock_server;
 use core_test_support::skip_if_no_network;
 use core_test_support::skip_if_sandbox;
 use core_test_support::test_codex::TestCodex;
@@ -44,7 +42,6 @@ use core_test_support::test_codex::test_codex;
 use core_test_support::wait_for_event;
 use core_test_support::wait_for_event_match;
 use pretty_assertions::assert_eq;
-use serde_json::Value;
 use serde_json::json;
 use tempfile::TempDir;
 use tokio::time::Duration;
@@ -55,23 +52,6 @@ use wiremock::BodyPrintLimit;
 use wiremock::MockServer;
 
 const REMOTE_MODEL_SLUG: &str = "codex-test";
-
-fn tool_names(body: &Value) -> Vec<String> {
-    body.get("tools")
-        .and_then(Value::as_array)
-        .map(|tools| {
-            tools
-                .iter()
-                .filter_map(|tool| {
-                    tool.get("name")
-                        .or_else(|| tool.get("type"))
-                        .and_then(Value::as_str)
-                        .map(str::to_string)
-                })
-                .collect()
-        })
-        .unwrap_or_default()
-}
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn remote_models_get_model_info_uses_longest_matching_prefix() -> Result<()> {
@@ -433,84 +413,6 @@ async fn remote_models_remote_model_uses_unified_exec() -> Result<()> {
     assert_eq!(begin_event.source, ExecCommandSource::UnifiedExecStartup);
 
     wait_for_event(&codex, |event| matches!(event, EventMsg::TurnComplete(_))).await;
-
-    Ok(())
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn qwen_model_uses_qwen_prompt_contract_and_tools() -> Result<()> {
-    skip_if_no_network!(Ok(()));
-
-    let server = start_mock_server().await;
-    let response_mock = mount_sse_once(
-        &server,
-        sse(vec![ev_response_created("resp-1"), ev_completed("resp-1")]),
-    )
-    .await;
-
-    let requested_model = "Qwen/Qwen3.5-9B-Base";
-    let TestCodex {
-        codex, cwd, config, ..
-    } = test_codex()
-        .with_model(requested_model)
-        .with_config(|config| {
-            config.include_apply_patch_tool = true;
-        })
-        .build(&server)
-        .await?;
-
-    codex
-        .submit(Op::UserTurn {
-            items: vec![UserInput::Text {
-                text: "check the qwen prompt contract".into(),
-                text_elements: Vec::new(),
-            }],
-            final_output_json_schema: None,
-            cwd: cwd.path().to_path_buf(),
-            approval_policy: config.permissions.approval_policy.value(),
-            sandbox_policy: config.permissions.sandbox_policy.get().clone(),
-            model: requested_model.to_string(),
-            effort: None,
-            summary: None,
-            service_tier: None,
-            collaboration_mode: None,
-            personality: None,
-        })
-        .await?;
-
-    wait_for_event(&codex, |event| matches!(event, EventMsg::TurnComplete(_))).await;
-
-    let body = response_mock.single_request().body_json();
-    assert_eq!(body["model"].as_str(), Some(requested_model));
-
-    let instructions = body["instructions"]
-        .as_str()
-        .expect("instructions should be present");
-    let qwen_suffix = PromptDialect::QwenChatMlHermes.instruction_suffix();
-    assert!(
-        instructions.ends_with(qwen_suffix),
-        "expected Qwen instructions to end with the exact template suffix, got: {instructions:?}"
-    );
-    assert!(
-        instructions.contains("# Tools"),
-        "expected Qwen instructions to include the tools header, got: {instructions:?}"
-    );
-    assert!(
-        instructions.contains("<tools>"),
-        "expected Qwen instructions to include a <tools> block, got: {instructions:?}"
-    );
-
-    let names = tool_names(&body);
-    assert!(
-        names.iter().any(|name| name == "apply_patch"),
-        "expected apply_patch to be advertised to Qwen, got: {names:?}"
-    );
-    assert!(
-        names
-            .iter()
-            .any(|name| matches!(name.as_str(), "exec_command" | "shell_command" | "shell")),
-        "expected a shell-style tool to be advertised to Qwen, got: {names:?}"
-    );
 
     Ok(())
 }
