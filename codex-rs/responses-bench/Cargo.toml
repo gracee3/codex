@@ -1,0 +1,29 @@
+[package]
+name = "codex-responses-bench"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "codex_responses_bench"
+path = "src/lib.rs"
+
+[[bin]]
+name = "codex-responses-bench"
+path = "src/main.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+clap = { workspace = true, features = ["derive", "env"] }
+eventsource-stream = { workspace = true }
+futures = { workspace = true, features = ["std"] }
+reqwest = { workspace = true, features = ["json", "rustls-tls", "stream"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+[dev-dependencies]
+pretty_assertions = { workspace = true }
