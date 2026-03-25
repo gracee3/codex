@@ -40,6 +40,7 @@ members = [
     "protocol",
     "rmcp-client",
     "responses-api-proxy",
+    "responses-bench",
     "stdio-to-uds",
     "otel",
     "tui",
@@ -70,6 +71,16 @@ members = [
     "test-macros",
     "package-manager",
     "artifacts",
+]
+# Keep the full member list for upstream compatibility, but make local `cargo build`
+# and `cargo test` default to the crates we actively work on most often.
+default-members = [
+    "app-server",
+    "cli",
+    "core",
+    "protocol",
+    "responses-bench",
+    "tui",
 ]
 resolver = "2"
 
