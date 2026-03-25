@@ -45,6 +45,7 @@ use codex_protocol::openai_models::ConfigShellToolType;
 use codex_protocol::openai_models::InputModality;
 use codex_protocol::openai_models::ModelInfo;
 use codex_protocol::openai_models::ModelPreset;
+use codex_protocol::openai_models::PromptDialect;
 use codex_protocol::openai_models::WebSearchToolType;
 use codex_protocol::protocol::SandboxPolicy;
 use codex_protocol::protocol::SessionSource;
@@ -2251,6 +2252,40 @@ pub fn create_tools_json_for_responses_api(
     }
 
     Ok(tools_json)
+}
+
+pub(crate) fn render_prompt_instructions(
+    prompt_dialect: PromptDialect,
+    base_instructions: &str,
+    tools: &[ToolSpec],
+) -> crate::error::Result<String> {
+    let suffix = match prompt_dialect {
+        PromptDialect::Harmony => String::new(),
+        PromptDialect::QwenChatMlHermes => {
+            if tools.is_empty() {
+                String::new()
+            } else {
+                let tools_json = create_tools_json_for_responses_api(tools)?;
+                let tools_json = serde_json::to_string(&tools_json)?;
+                format!(
+                    "\n\n# Tools\n\nYou have access to the following functions:\n\n<tools>\n{tools_json}\n</tools>\n\n{}",
+                    PromptDialect::QwenChatMlHermes.instruction_suffix()
+                )
+            }
+        }
+    };
+
+    if prompt_dialect == PromptDialect::QwenChatMlHermes {
+        let qwen_suffix = PromptDialect::QwenChatMlHermes.instruction_suffix();
+        if !qwen_suffix.is_empty() {
+            let suffixed_base = format!("\n\n{qwen_suffix}");
+            if let Some(base_instructions) = base_instructions.strip_suffix(&suffixed_base) {
+                return Ok(format!("{base_instructions}{suffix}"));
+            }
+        }
+    }
+
+    Ok(format!("{base_instructions}{suffix}"))
 }
 
 fn push_tool_spec(

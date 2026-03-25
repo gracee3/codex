@@ -4,6 +4,7 @@
 //! are used to preserve compatibility when older payloads omit newly introduced attributes.
 
 use std::collections::HashMap;
+use std::fmt;
 use std::str::FromStr;
 
 use schemars::JsonSchema;
@@ -20,6 +21,29 @@ use crate::config_types::ReasoningSummary;
 use crate::config_types::Verbosity;
 
 const PERSONALITY_PLACEHOLDER: &str = "{{ personality }}";
+const QWEN_CHATML_HERMES_INSTRUCTIONS: &str = "\
+If you choose to call a function ONLY reply in the following format with NO suffix:\n\
+\n\
+<tool_call>\n\
+<function=example_function_name>\n\
+<parameter=example_parameter_1>\n\
+value_1\n\
+</parameter>\n\
+<parameter=example_parameter_2>\n\
+This is the value for the second parameter\n\
+that can span\n\
+multiple lines\n\
+</parameter>\n\
+</function>\n\
+</tool_call>\n\
+\n\
+<IMPORTANT>\n\
+Reminder:\n\
+- Function calls MUST follow the specified format: an inner <function=...></function> block must be nested within <tool_call></tool_call> XML tags\n\
+- Required parameters MUST be specified\n\
+- You may provide optional reasoning for your function call in natural language BEFORE the function call, but NOT after\n\
+- If there is no function call available, answer the question like normal with your current knowledge and do not tell the user about function calls\n\
+</IMPORTANT>";
 
 /// See https://platform.openai.com/docs/guides/reasoning?api-mode=responses#get-started-with-reasoning
 #[derive(
@@ -47,6 +71,32 @@ pub enum ReasoningEffort {
     Medium,
     High,
     XHigh,
+}
+
+/// Prompt/tool dialects understood by Codex.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PromptDialect {
+    Harmony,
+    QwenChatMlHermes,
+}
+
+impl fmt::Display for PromptDialect {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let value = match self {
+            Self::Harmony => "harmony",
+            Self::QwenChatMlHermes => "qwen_chatml_hermes",
+        };
+        f.write_str(value)
+    }
+}
+
+impl PromptDialect {
+    pub fn instruction_suffix(self) -> &'static str {
+        match self {
+            Self::Harmony => "",
+            Self::QwenChatMlHermes => QWEN_CHATML_HERMES_INSTRUCTIONS,
+        }
+    }
 }
 
 impl FromStr for ReasoningEffort {
@@ -314,7 +364,7 @@ impl ModelInfo {
     }
 
     pub fn get_model_instructions(&self, personality: Option<Personality>) -> String {
-        if let Some(model_messages) = &self.model_messages
+        let instructions = if let Some(model_messages) = &self.model_messages
             && let Some(template) = &model_messages.instructions_template
         {
             // if we have a template, always use it
@@ -331,8 +381,33 @@ impl ModelInfo {
             self.base_instructions.clone()
         } else {
             self.base_instructions.clone()
+        };
+
+        let suffix = self.prompt_dialect().instruction_suffix();
+        if suffix.is_empty() {
+            instructions
+        } else {
+            format!("{instructions}\n\n{suffix}")
         }
     }
+
+    pub fn prompt_dialect(&self) -> PromptDialect {
+        if is_qwen_chatml_hermes_model(&self.slug) {
+            PromptDialect::QwenChatMlHermes
+        } else {
+            PromptDialect::Harmony
+        }
+    }
+}
+
+fn is_qwen_chatml_hermes_model(slug: &str) -> bool {
+    let slug = slug.to_ascii_lowercase();
+    slug.contains("qwen3.5")
+        || slug.contains("qwen35")
+        || slug.contains("qwen3_5")
+        || slug.contains("qwen3")
+        || slug.contains("qwen2.5")
+        || slug.contains("qwq")
 }
 
 /// A strongly-typed template for assembling model instructions and developer messages. If
@@ -648,6 +723,48 @@ mod tests {
     }
 
     #[test]
+    fn get_model_instructions_appends_qwen_prompt_suffix() {
+        let model = ModelInfo {
+            slug: "Qwen/Qwen3.5-9B-Base".to_string(),
+            display_name: "Test Model".to_string(),
+            description: None,
+            default_reasoning_level: None,
+            supported_reasoning_levels: vec![],
+            shell_type: ConfigShellToolType::ShellCommand,
+            visibility: ModelVisibility::List,
+            supported_in_api: true,
+            priority: 1,
+            availability_nux: None,
+            upgrade: None,
+            base_instructions: "base".to_string(),
+            model_messages: None,
+            supports_reasoning_summaries: false,
+            default_reasoning_summary: ReasoningSummary::Auto,
+            support_verbosity: false,
+            default_verbosity: None,
+            apply_patch_tool_type: None,
+            web_search_tool_type: WebSearchToolType::Text,
+            truncation_policy: TruncationPolicyConfig::bytes(10_000),
+            supports_parallel_tool_calls: false,
+            supports_image_detail_original: false,
+            context_window: None,
+            auto_compact_token_limit: None,
+            effective_context_window_percent: 95,
+            experimental_supported_tools: vec![],
+            input_modalities: default_input_modalities(),
+            used_fallback_model_metadata: false,
+            supports_search_tool: false,
+        };
+
+        let instructions = model.get_model_instructions(None);
+
+        assert_eq!(
+            instructions,
+            "base\n\nIf you choose to call a function ONLY reply in the following format with NO suffix:\n\n<tool_call>\n<function=example_function_name>\n<parameter=example_parameter_1>\nvalue_1\n</parameter>\n<parameter=example_parameter_2>\nThis is the value for the second parameter\nthat can span\nmultiple lines\n</parameter>\n</function>\n</tool_call>\n\n<IMPORTANT>\nReminder:\n- Function calls MUST follow the specified format: an inner <function=...></function> block must be nested within <tool_call></tool_call> XML tags\n- Required parameters MUST be specified\n- You may provide optional reasoning for your function call in natural language BEFORE the function call, but NOT after\n- If there is no function call available, answer the question like normal with your current knowledge and do not tell the user about function calls\n</IMPORTANT>"
+        );
+    }
+
+    #[test]
     fn get_personality_message_returns_default_when_personality_is_none() {
         let personality_template = personality_variables();
         assert_eq!(
@@ -772,5 +889,27 @@ mod tests {
                 message: "Try Spark.".to_string(),
             })
         );
+    }
+
+    #[test]
+    fn prompt_dialect_defaults_to_harmony() {
+        let model = test_model(None);
+        assert_eq!(model.prompt_dialect(), PromptDialect::Harmony);
+    }
+
+    #[test]
+    fn prompt_dialect_detects_qwen_family_models() {
+        let mut model = test_model(None);
+        model.slug = "Qwen/Qwen3.5-9B-Base".to_string();
+        assert_eq!(model.prompt_dialect(), PromptDialect::QwenChatMlHermes);
+
+        model.slug = "Qwen/Qwen35-9B".to_string();
+        assert_eq!(model.prompt_dialect(), PromptDialect::QwenChatMlHermes);
+
+        model.slug = "Qwen/Qwen3-32B".to_string();
+        assert_eq!(model.prompt_dialect(), PromptDialect::QwenChatMlHermes);
+
+        model.slug = "Qwen/QwQ-32B".to_string();
+        assert_eq!(model.prompt_dialect(), PromptDialect::QwenChatMlHermes);
     }
 }

@@ -67,6 +67,7 @@ use codex_protocol::config_types::ServiceTier;
 use codex_protocol::config_types::Verbosity as VerbosityConfig;
 use codex_protocol::models::ResponseItem;
 use codex_protocol::openai_models::ModelInfo;
+use codex_protocol::openai_models::PromptDialect;
 use codex_protocol::openai_models::ReasoningEffort as ReasoningEffortConfig;
 use codex_protocol::protocol::SessionSource;
 use eventsource_stream::Event;
@@ -105,6 +106,7 @@ use crate::response_debug_context::extract_response_debug_context_from_api_error
 use crate::response_debug_context::telemetry_api_error_message;
 use crate::response_debug_context::telemetry_transport_error_message;
 use crate::tools::spec::create_tools_json_for_responses_api;
+use crate::tools::spec::render_prompt_instructions;
 use crate::util::FeedbackRequestTags;
 use crate::util::emit_feedback_auth_recovery_tags;
 use crate::util::emit_feedback_request_tags_with_auth_env;
@@ -363,8 +365,36 @@ impl ModelClient {
             ApiCompactClient::new(transport, client_setup.api_provider, client_setup.api_auth)
                 .with_telemetry(Some(request_telemetry));
 
-        let instructions = prompt.base_instructions.text.clone();
-        let input = prompt.get_formatted_input();
+        let instructions = render_prompt_instructions(
+            model_info.prompt_dialect(),
+            &prompt.base_instructions.text,
+            &prompt.tools,
+        )?;
+        let input = if model_info.prompt_dialect() == PromptDialect::QwenChatMlHermes {
+            let input: Vec<ResponseItem> = prompt
+                .get_formatted_input()
+                .into_iter()
+                .filter(|item| {
+                    !matches!(
+                        item,
+                        ResponseItem::Message { role, .. } if role == "developer" || role == "system"
+                    )
+                })
+                .collect();
+            trace!(
+                roles = ?input
+                    .iter()
+                    .filter_map(|item| match item {
+                        ResponseItem::Message { role, .. } => Some(role.as_str()),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>(),
+                "qwen responses input roles"
+            );
+            input
+        } else {
+            prompt.get_formatted_input()
+        };
         let tools = create_tools_json_for_responses_api(&prompt.tools)?;
         let reasoning = Self::build_reasoning(model_info, effort, summary);
         let verbosity = if model_info.support_verbosity {
@@ -685,8 +715,36 @@ impl ModelClientSession {
         summary: ReasoningSummaryConfig,
         service_tier: Option<ServiceTier>,
     ) -> Result<ResponsesApiRequest> {
-        let instructions = &prompt.base_instructions.text;
-        let input = prompt.get_formatted_input();
+        let instructions = render_prompt_instructions(
+            model_info.prompt_dialect(),
+            &prompt.base_instructions.text,
+            &prompt.tools,
+        )?;
+        let input = if model_info.prompt_dialect() == PromptDialect::QwenChatMlHermes {
+            let input: Vec<ResponseItem> = prompt
+                .get_formatted_input()
+                .into_iter()
+                .filter(|item| {
+                    !matches!(
+                        item,
+                        ResponseItem::Message { role, .. } if role == "developer" || role == "system"
+                    )
+                })
+                .collect();
+            trace!(
+                roles = ?input
+                    .iter()
+                    .filter_map(|item| match item {
+                        ResponseItem::Message { role, .. } => Some(role.as_str()),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>(),
+                "qwen responses input roles"
+            );
+            input
+        } else {
+            prompt.get_formatted_input()
+        };
         let tools = create_tools_json_for_responses_api(&prompt.tools)?;
         let default_reasoning_effort = model_info.default_reasoning_level;
         let reasoning = if model_info.supports_reasoning_summaries {
@@ -724,7 +782,7 @@ impl ModelClientSession {
         let prompt_cache_key = Some(self.client.state.conversation_id.to_string());
         let request = ResponsesApiRequest {
             model: model_info.slug.clone(),
-            instructions: instructions.clone(),
+            instructions,
             input,
             tools,
             tool_choice: "auto".to_string(),
@@ -985,6 +1043,7 @@ impl ModelClientSession {
         skip_all,
         fields(
             model = %model_info.slug,
+            prompt_dialect = %model_info.prompt_dialect(),
             wire_api = %self.client.state.provider.wire_api,
             transport = "responses_http",
             http.method = "POST",
@@ -1082,6 +1141,7 @@ impl ModelClientSession {
         skip_all,
         fields(
             model = %model_info.slug,
+            prompt_dialect = %model_info.prompt_dialect(),
             wire_api = %self.client.state.provider.wire_api,
             transport = "responses_websocket",
             api.path = "responses",
