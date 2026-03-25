@@ -610,7 +610,7 @@
     {
       "support_verbosity": true,
       "default_verbosity": null,
-      "apply_patch_tool_type": "freeform",
+      "apply_patch_tool_type": "function",
       "input_modalities": [
         "text"
       ],
