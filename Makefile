@@ -2,7 +2,7 @@ SHELL := /bin/bash
 
 FORK_SCRIPT := ./scripts/fork-release.sh
 
-.PHONY: sync-main new-release new-alpha-release list-release-tags
+.PHONY: sync-main new-release new-alpha-release list-release-tags fork-release-ci fork-release-ci-docker
 
 sync-main:
 	$(FORK_SCRIPT) sync-main $(if $(PUSH),--push,)
@@ -15,3 +15,9 @@ new-alpha-release:
 
 list-release-tags:
 	$(FORK_SCRIPT) list-tags
+
+fork-release-ci:
+	./scripts/run-fork-release-ci.sh
+
+fork-release-ci-docker:
+	./scripts/run-fork-release-ci-docker.sh
