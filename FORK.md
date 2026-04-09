@@ -65,6 +65,18 @@ Push the created release branch to the fork:
 make new-release TAG=rust-v0.119.0 PUSH=1
 ```
 
+Run the release-branch checks locally on your current machine:
+
+```bash
+make fork-release-ci
+```
+
+Run the same checks in a disposable Docker container:
+
+```bash
+make fork-release-ci-docker
+```
+
 By design, upstream `README.md` is left untouched to minimize merge churn. Fork-specific notes belong in this file.
 
 ## Release composition
@@ -75,3 +87,12 @@ By design, upstream `README.md` is left untouched to minimize merge churn. Fork-
 - `fork/dev-build-speedups`
 
 That ensures each release branch contains both the release-branch CI workflow and the Cargo speedup patch.
+
+## Local CI parity
+
+The release-branch GitHub Action is mirrored locally by:
+
+- [run-fork-release-ci.sh](/home/emmy/openai/codex/scripts/run-fork-release-ci.sh): runs on the current machine and expects Rust plus `sccache` to already be installed
+- [run-fork-release-ci-docker.sh](/home/emmy/openai/codex/scripts/run-fork-release-ci-docker.sh): runs in a disposable Docker container and installs its own dependencies
+
+The Docker path is the closer match to GitHub Actions because it starts from a fresh environment each time.
