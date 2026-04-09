@@ -6,6 +6,7 @@ Fork-specific behavior lives in two places:
 
 - `fork/maint`: maintenance helpers for syncing upstream and creating release branches.
 - `fork/dev-build-speedups`: a single-commit branch that carries the local Rust build tuning.
+- `fork/tt-runtime-contract`: optional TT-facing docs and contract notes for TT-integrated release branches.
 
 Release branches are created from exact upstream tags and then have the speedup commit cherry-picked on top:
 
@@ -18,6 +19,7 @@ Release branches are created from exact upstream tags and then have the speedup 
 The current fork-only code changes are:
 
 - release branch automation and release-branch CI in [`scripts/fork-release.sh`](/home/emmy/openai/codex/scripts/fork-release.sh), [`Makefile`](/home/emmy/openai/codex/Makefile), and [fork-release-ci.yml](/home/emmy/openai/codex/.github/workflows/fork-release-ci.yml)
+- local installer and source-install tooling in [install-codex.sh](/home/emmy/openai/codex/scripts/install-codex.sh) and [source-install.sh](/home/emmy/openai/codex/scripts/source-install.sh)
 - Rust build tuning in [`codex-rs/.cargo/config.toml`](/home/emmy/openai/codex/codex-rs/.cargo/config.toml)
 
 The Rust build tuning does the following:
@@ -59,6 +61,12 @@ Create a release branch from the latest alpha tag:
 make new-alpha-release
 ```
 
+Create a TT release branch that layers the TT contract overlay on top of the release:
+
+```bash
+make new-tt-release
+```
+
 Push the created release branch to the fork:
 
 ```bash
@@ -96,3 +104,23 @@ The release-branch GitHub Action is mirrored locally by:
 - [run-fork-release-ci-docker.sh](/home/emmy/openai/codex/scripts/run-fork-release-ci-docker.sh): runs in a disposable Docker container and installs its own dependencies
 
 The Docker path is the closer match to GitHub Actions because it starts from a fresh environment each time.
+
+## Installer Model
+
+There are two install paths:
+
+- `make install`
+  Downloads a released `codex` binary from this fork's GitHub releases into `~/.local/bin`
+- `make source-install`
+  Uses a source checkout to create or reuse a tagged release branch, builds `codex` and `codex-app-server`, and installs both into `~/.local/bin`
+
+`make source-install` is the current path for local TT work because release artifacts do not currently publish a standalone `codex-app-server` binary.
+
+## TT Overlay
+
+TT-specific releases can use:
+
+- `make new-tt-release`
+- `make new-tt-alpha-release`
+
+Those commands add `fork/tt-runtime-contract` to the overlay list.
