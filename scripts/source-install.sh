@@ -8,6 +8,7 @@ INSTALL_DIR="${CODEX_INSTALL_DIR:-$HOME/.local/bin}"
 VERSION="${CODEX_INSTALL_VERSION:-latest}"
 PROFILE="${CODEX_SOURCE_PROFILE:-debug}"
 PATCH_BRANCHES="${CODEX_SOURCE_PATCH_BRANCHES:-fork/maint fork/dev-build-speedups}"
+RELEASE_BRANCH_PREFIX="${CODEX_SOURCE_RELEASE_BRANCH_PREFIX:-releases/}"
 
 usage() {
   cat <<EOF
@@ -185,7 +186,7 @@ main() {
   tag="$(resolve_tag "$VERSION" "$alpha")"
   [ -n "$tag" ] || die "Unable to resolve release tag"
 
-  local release_branch="releases/${tag}"
+  local release_branch="${RELEASE_BRANCH_PREFIX}${tag}"
   if git -C "$SOURCE_DIR" show-ref --verify --quiet "refs/heads/${release_branch}" && [ "$refresh" = "1" ]; then
     git -C "$SOURCE_DIR" switch fork/maint >/dev/null
     git -C "$SOURCE_DIR" branch -D "$release_branch" >/dev/null

@@ -69,10 +69,10 @@ new-alpha-release:
 	$(FORK_SCRIPT) new-release --alpha $(if $(TAG),--tag $(TAG),) $(if $(PUSH),--push,)
 
 new-tt-release:
-	PATCH_BRANCHES="fork/maint fork/dev-build-speedups fork/tt-runtime-contract" $(FORK_SCRIPT) new-release $(if $(TAG),--tag $(TAG),) $(if $(PUSH),--push,)
+	PATCH_BRANCHES="fork/maint fork/dev-build-speedups fork/tt-runtime-contract" RELEASE_BRANCH_PREFIX="releases/tt/" $(FORK_SCRIPT) new-release $(if $(TAG),--tag $(TAG),) $(if $(PUSH),--push,)
 
 new-tt-alpha-release:
-	PATCH_BRANCHES="fork/maint fork/dev-build-speedups fork/tt-runtime-contract" $(FORK_SCRIPT) new-release --alpha $(if $(TAG),--tag $(TAG),) $(if $(PUSH),--push,)
+	PATCH_BRANCHES="fork/maint fork/dev-build-speedups fork/tt-runtime-contract" RELEASE_BRANCH_PREFIX="releases/tt/" $(FORK_SCRIPT) new-release --alpha $(if $(TAG),--tag $(TAG),) $(if $(PUSH),--push,)
 
 list-release-tags:
 	$(FORK_SCRIPT) list-tags
@@ -93,7 +93,7 @@ source-install:
 	@"$(SOURCE_INSTALL_SCRIPT)" --dir "$(SOURCE_DIR)" --install-dir "$(INSTALL_DIR)" --tag "$(VERSION)"
 
 tt-source-install:
-	@CODEX_SOURCE_PATCH_BRANCHES="fork/maint fork/dev-build-speedups fork/tt-runtime-contract" "$(SOURCE_INSTALL_SCRIPT)" --dir "$(SOURCE_DIR)" --install-dir "$(INSTALL_DIR)" --tag "$(VERSION)"
+	@CODEX_SOURCE_PATCH_BRANCHES="fork/maint fork/dev-build-speedups fork/tt-runtime-contract" CODEX_SOURCE_RELEASE_BRANCH_PREFIX="releases/tt/" "$(SOURCE_INSTALL_SCRIPT)" --dir "$(SOURCE_DIR)" --install-dir "$(INSTALL_DIR)" --tag "$(VERSION)"
 
 lint:
 	@bash -n $(INSTALL_SCRIPT) $(SOURCE_INSTALL_SCRIPT) $(FORK_SCRIPT) scripts/run-fork-release-ci.sh scripts/run-fork-release-ci-docker.sh
