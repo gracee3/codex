@@ -8,6 +8,7 @@ UPSTREAM_REMOTE="${UPSTREAM_REMOTE:-upstream}"
 FORK_REMOTE="${FORK_REMOTE:-origin}"
 MIRROR_BRANCH="${MIRROR_BRANCH:-main}"
 PATCH_BRANCH="${PATCH_BRANCH:-fork/dev-build-speedups}"
+PATCH_BRANCHES="${PATCH_BRANCHES:-fork/maint fork/dev-build-speedups}"
 RELEASE_BRANCH_PREFIX="${RELEASE_BRANCH_PREFIX:-releases/}"
 TAG_PREFIX="rust-v"
 
@@ -29,7 +30,7 @@ Environment overrides:
   UPSTREAM_REMOTE         default: upstream
   FORK_REMOTE             default: origin
   MIRROR_BRANCH           default: main
-  PATCH_BRANCH            default: fork/dev-build-speedups
+  PATCH_BRANCHES          default: "fork/maint fork/dev-build-speedups"
   RELEASE_BRANCH_PREFIX   default: releases/
 EOF
 }
@@ -83,16 +84,27 @@ latest_alpha_tag() {
   git -C "$REPO_ROOT" tag -l 'rust-v*' | grep -E '^rust-v[0-9]+(\.[0-9]+){2}-alpha\.[0-9]+$' | sort -V | tail -n 1
 }
 
-resolve_patch_commit() {
-  git -C "$REPO_ROOT" show-ref --verify --quiet "refs/heads/$PATCH_BRANCH" || die "Missing patch branch: $PATCH_BRANCH"
-
+resolve_patch_commits() {
+  local branch
   local merge_base
-  merge_base="$(git -C "$REPO_ROOT" merge-base "$PATCH_BRANCH" "$MIRROR_BRANCH")"
+  local branch_commits
+  local seen=()
 
-  mapfile -t patch_commits < <(git -C "$REPO_ROOT" rev-list --reverse "${merge_base}..${PATCH_BRANCH}")
-  [ "${#patch_commits[@]}" -eq 1 ] || die "Expected exactly one fork patch commit on $PATCH_BRANCH, found ${#patch_commits[@]}"
+  for branch in $PATCH_BRANCHES; do
+    git -C "$REPO_ROOT" show-ref --verify --quiet "refs/heads/$branch" || die "Missing patch branch: $branch"
+    merge_base="$(git -C "$REPO_ROOT" merge-base "$branch" "$MIRROR_BRANCH")"
+    mapfile -t branch_commits < <(git -C "$REPO_ROOT" rev-list --reverse "${merge_base}..${branch}")
+    [ "${#branch_commits[@]}" -gt 0 ] || die "Patch branch has no commits ahead of $MIRROR_BRANCH: $branch"
 
-  printf '%s\n' "${patch_commits[0]}"
+    local commit
+    for commit in "${branch_commits[@]}"; do
+      if [[ " ${seen[*]} " == *" ${commit} "* ]]; then
+        continue
+      fi
+      seen+=("$commit")
+      printf '%s\n' "$commit"
+    done
+  done
 }
 
 sync_main() {
@@ -119,11 +131,11 @@ create_release_branch() {
   local release_branch="${RELEASE_BRANCH_PREFIX}${tag}"
   git -C "$REPO_ROOT" show-ref --verify --quiet "refs/heads/$release_branch" && die "Release branch already exists: $release_branch"
 
-  local patch_commit
-  patch_commit="$(resolve_patch_commit)"
+  mapfile -t patch_commits < <(resolve_patch_commits)
+  [ "${#patch_commits[@]}" -gt 0 ] || die "No patch commits resolved"
 
   git -C "$REPO_ROOT" switch -c "$release_branch" "$tag" >/dev/null
-  git -C "$REPO_ROOT" cherry-pick "$patch_commit"
+  git -C "$REPO_ROOT" cherry-pick "${patch_commits[@]}"
 
   if [ "$push" = "1" ]; then
     git -C "$REPO_ROOT" push -u "$FORK_REMOTE" "$release_branch"
