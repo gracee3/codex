@@ -3715,6 +3715,7 @@ impl CodexMessageProcessor {
         connection_ids: Vec<ConnectionId>,
     ) {
         if let Ok(thread) = self.thread_manager.get_thread(thread_id).await {
+            thread.ensure_rollout_materialized().await;
             let config_snapshot = thread.config_snapshot().await;
             let loaded_thread =
                 build_thread_from_snapshot(thread_id, &config_snapshot, thread.rollout_path());

@@ -116,6 +116,28 @@ There are two install paths:
 
 `make source-install` is the current path for local TT work because release artifacts do not currently publish a standalone `codex-app-server` binary.
 
+## Local Build
+
+If you want to build the TT release branch directly instead of installing from release artifacts, use:
+
+```bash
+git switch releases/tt/rust-v0.119.0  # replace with the TT release branch you want
+cd codex-rs
+cargo build -p codex-cli --bin codex -p codex-app-server --bin codex-app-server
+```
+
+For optimized binaries:
+
+```bash
+cargo build -p codex-cli --bin codex -p codex-app-server --bin codex-app-server --release
+```
+
+If you want the same result installed into your local user bin directory:
+
+```bash
+make tt-source-install VERSION=<release-version>
+```
+
 ## TT Overlay
 
 TT-specific releases can use:
