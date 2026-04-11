@@ -98,7 +98,6 @@ async fn continue_after_stream_error() {
                 text_elements: Vec::new(),
             }],
             final_output_json_schema: None,
-            responsesapi_client_metadata: None,
         })
         .await
         .unwrap();
@@ -118,7 +117,6 @@ async fn continue_after_stream_error() {
                 text_elements: Vec::new(),
             }],
             final_output_json_schema: None,
-            responsesapi_client_metadata: None,
         })
         .await
         .unwrap();

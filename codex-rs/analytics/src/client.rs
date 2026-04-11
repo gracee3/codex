@@ -1,5 +1,4 @@
 use crate::events::AppServerRpcTransport;
-use crate::events::GuardianReviewEventParams;
 use crate::events::TrackEventRequest;
 use crate::events::TrackEventsRequest;
 use crate::events::current_runtime_metadata;
@@ -152,12 +151,6 @@ impl AnalyticsEventsClient {
         ));
     }
 
-    pub fn track_guardian_review(&self, input: GuardianReviewEventParams) {
-        self.record_fact(AnalyticsFact::Custom(CustomAnalyticsFact::GuardianReview(
-            Box::new(input),
-        )));
-    }
-
     pub fn track_app_mentioned(&self, tracking: TrackEventsContext, mentions: Vec<AppInvocation>) {
         if mentions.is_empty() {
             return;
@@ -182,12 +175,6 @@ impl AnalyticsEventsClient {
         }
         self.record_fact(AnalyticsFact::Custom(CustomAnalyticsFact::PluginUsed(
             crate::facts::PluginUsedInput { tracking, plugin },
-        )));
-    }
-
-    pub fn track_compaction(&self, event: crate::facts::CodexCompactionEvent) {
-        self.record_fact(AnalyticsFact::Custom(CustomAnalyticsFact::Compaction(
-            Box::new(event),
         )));
     }
 

@@ -5,7 +5,6 @@ use std::time::Duration;
 pub struct ExecServerClientConnectOptions {
     pub client_name: String,
     pub initialize_timeout: Duration,
-    pub resume_session_id: Option<String>,
 }
 
 /// WebSocket connection arguments for a remote exec-server.
@@ -15,5 +14,4 @@ pub struct RemoteExecServerConnectArgs {
     pub client_name: String,
     pub connect_timeout: Duration,
     pub initialize_timeout: Duration,
-    pub resume_session_id: Option<String>,
 }

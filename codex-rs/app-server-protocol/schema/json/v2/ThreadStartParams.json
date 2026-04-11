@@ -101,13 +101,6 @@
         "flex"
       ],
       "type": "string"
-    },
-    "ThreadStartSource": {
-      "enum": [
-        "startup",
-        "clear"
-      ],
-      "type": "string"
     }
   },
   "properties": {
@@ -212,16 +205,6 @@
               "type": "null"
             }
           ]
-        },
-        {
-          "type": "null"
-        }
-      ]
-    },
-    "sessionStartSource": {
-      "anyOf": [
-        {
-          "$ref": "#/definitions/ThreadStartSource"
         },
         {
           "type": "null"

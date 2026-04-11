@@ -2650,7 +2650,6 @@ async fn inbound_handoff_request_steers_active_turn() -> Result<()> {
                 text_elements: Vec::new(),
             }],
             final_output_json_schema: None,
-            responsesapi_client_metadata: None,
         })
         .await?;
 

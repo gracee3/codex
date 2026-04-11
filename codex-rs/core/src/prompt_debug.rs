@@ -39,7 +39,6 @@ pub async fn build_prompt_input(
                 .enabled(Feature::DefaultModeRequestUserInput),
         },
         Arc::new(EnvironmentManager::from_env()),
-        /*analytics_events_client*/ None,
     );
     let thread = thread_manager.start_thread(config).await?;
 

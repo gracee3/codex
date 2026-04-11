@@ -36,7 +36,6 @@ use codex_app_server_protocol::RequestId;
 use codex_app_server_protocol::Result as JsonRpcResult;
 use codex_app_server_protocol::ServerNotification;
 use codex_app_server_protocol::ServerRequest;
-use codex_utils_rustls_provider::ensure_rustls_crypto_provider;
 use futures::SinkExt;
 use futures::StreamExt;
 use serde::de::DeserializeOwned;
@@ -170,7 +169,6 @@ impl RemoteAppServerClient {
                 })?;
             request.headers_mut().insert(AUTHORIZATION, header_value);
         }
-        ensure_rustls_crypto_provider();
         let stream = timeout(CONNECT_TIMEOUT, connect_async(request))
             .await
             .map_err(|_| {

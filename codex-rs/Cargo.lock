@@ -1414,7 +1414,6 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
- "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "tokio-test",
@@ -1509,7 +1508,6 @@ dependencies = [
  "codex-exec-server",
  "codex-feedback",
  "codex-protocol",
- "codex-utils-rustls-provider",
  "futures",
  "pretty_assertions",
  "serde",
@@ -2113,7 +2111,6 @@ dependencies = [
  "tokio",
  "tokio-tungstenite",
  "tracing",
- "uuid",
 ]
 
 [[package]]
@@ -2931,7 +2928,6 @@ name = "codex-utils-absolute-path"
 version = "0.0.0"
 dependencies = [
  "dirs",
- "dunce",
  "pretty_assertions",
  "schemars 0.8.22",
  "serde",

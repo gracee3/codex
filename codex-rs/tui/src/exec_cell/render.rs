@@ -29,7 +29,6 @@ use unicode_width::UnicodeWidthStr;
 pub(crate) const TOOL_CALL_MAX_LINES: usize = 5;
 const USER_SHELL_TOOL_CALL_MAX_LINES: usize = 50;
 const MAX_INTERACTION_PREVIEW_CHARS: usize = 80;
-const TRANSCRIPT_HINT: &str = "ctrl + t to view transcript";
 
 pub(crate) struct OutputLinesParams {
     pub(crate) line_limit: usize,
@@ -155,7 +154,7 @@ pub(crate) fn output_lines(
     };
     if show_ellipsis {
         let omitted = total - 2 * line_limit;
-        out.push(ExecCell::output_ellipsis_line(omitted));
+        out.push(format!("… +{omitted} lines").into());
     }
 
     let tail_start = if show_ellipsis {
@@ -251,14 +250,6 @@ impl HistoryCell for ExecCell {
 }
 
 impl ExecCell {
-    fn output_ellipsis_text(omitted: usize) -> String {
-        format!("… +{omitted} lines ({TRANSCRIPT_HINT})")
-    }
-
-    fn output_ellipsis_line(omitted: usize) -> Line<'static> {
-        Line::from(vec![Self::output_ellipsis_text(omitted).dim()])
-    }
-
     fn exploring_display_lines(&self, width: u16) -> Vec<Line<'static>> {
         let mut out: Vec<Line<'static>> = Vec::new();
         out.push(Line::from(vec![
@@ -568,24 +559,25 @@ impl ExecCell {
         if total_rows <= max_rows {
             return lines.to_vec();
         }
-        // Reserve space for the transcript hint itself so the returned output
-        // still respects the row budget on narrow terminals.
-        let estimated_omitted = omitted_hint.unwrap_or(0)
-            + lines
+        if max_rows == 1 {
+            // Carry forward any previously omitted count and add any
+            // additionally hidden content lines from this truncation.
+            let base = omitted_hint.unwrap_or(0);
+            // When an existing ellipsis is present, `lines` already includes
+            // that single representation line; exclude it from the count of
+            // additionally omitted content lines.
+            let extra = lines
                 .len()
                 .saturating_sub(usize::from(omitted_hint.is_some()));
-        let ellipsis_rows =
-            Self::output_ellipsis_row_count(estimated_omitted, width, ellipsis_prefix.as_ref());
-        if ellipsis_rows >= max_rows {
-            return vec![Self::output_ellipsis_line_with_prefix(
-                estimated_omitted,
+            let omitted = base + extra;
+            return vec![Self::ellipsis_line_with_prefix(
+                omitted,
                 ellipsis_prefix.as_ref(),
             )];
         }
 
-        let available_rows = max_rows - ellipsis_rows;
-        let head_budget = available_rows / 2;
-        let tail_budget = available_rows - head_budget;
+        let head_budget = (max_rows - 1) / 2;
+        let tail_budget = max_rows - head_budget - 1;
         let mut head_lines: Vec<Line<'static>> = Vec::new();
         let mut head_rows = 0usize;
         let mut head_end = 0usize;
@@ -619,7 +611,7 @@ impl ExecCell {
             .len()
             .saturating_sub(out.len() + tail_lines_reversed.len())
             .saturating_sub(usize::from(omitted_hint.is_some()));
-        out.push(Self::output_ellipsis_line_with_prefix(
+        out.push(Self::ellipsis_line_with_prefix(
             base + additional,
             ellipsis_prefix.as_ref(),
         ));
@@ -633,27 +625,11 @@ impl ExecCell {
         Line::from(vec![format!("… +{omitted} lines").dim()])
     }
 
-    fn output_ellipsis_row_count(
-        omitted: usize,
-        width: u16,
-        prefix: Option<&Line<'static>>,
-    ) -> usize {
-        Paragraph::new(Text::from(vec![Self::output_ellipsis_line_with_prefix(
-            omitted, prefix,
-        )]))
-        .wrap(Wrap { trim: false })
-        .line_count(width)
-        .max(1)
-    }
-
-    /// Builds an output ellipsis line (`… +N lines (ctrl + t to view transcript)`)
-    /// with an optional leading prefix so the ellipsis aligns with the output gutter.
-    fn output_ellipsis_line_with_prefix(
-        omitted: usize,
-        prefix: Option<&Line<'static>>,
-    ) -> Line<'static> {
+    /// Builds an ellipsis line (`… +N lines`) with an optional leading
+    /// prefix so the ellipsis aligns with the output gutter.
+    fn ellipsis_line_with_prefix(omitted: usize, prefix: Option<&Line<'static>>) -> Line<'static> {
         let mut line = prefix.cloned().unwrap_or_default();
-        line.push_span(Self::output_ellipsis_text(omitted).dim());
+        line.push_span(format!("… +{omitted} lines").dim());
         line
     }
 }
@@ -715,13 +691,6 @@ mod tests {
     use super::*;
     use codex_protocol::protocol::ExecCommandSource;
     use pretty_assertions::assert_eq;
-
-    fn render_line_text(line: &Line<'static>) -> String {
-        line.spans
-            .iter()
-            .map(|span| span.content.as_ref())
-            .collect::<String>()
-    }
 
     #[test]
     fn user_shell_output_is_limited_by_screen_lines() {
@@ -816,16 +785,6 @@ mod tests {
             contains_ellipsis,
             "expected truncated output to include an ellipsis line"
         );
-        let normalized = lines
-            .iter()
-            .map(render_line_text)
-            .join(" ")
-            .split_whitespace()
-            .join(" ");
-        assert!(
-            normalized.contains(TRANSCRIPT_HINT),
-            "expected truncated output to advertise transcript shortcut, got {normalized}"
-        );
     }
 
     #[test]
@@ -833,79 +792,30 @@ mod tests {
         let lines = vec![
             Line::from("  └ short"),
             Line::from("    this-is-a-very-long-token-that-wraps-many-rows"),
-            Line::from(format!(
-                "    {}",
-                ExecCell::output_ellipsis_text(/*omitted*/ 4)
-            )),
+            Line::from("    … +4 lines"),
             Line::from("    tail"),
         ];
 
         let truncated = ExecCell::truncate_lines_middle(
             &lines,
             /*max_rows*/ 2,
-            /*width*/ 80,
+            /*width*/ 12,
             Some(4),
             Some(Line::from("    ".dim())),
         );
-        let rendered: Vec<String> = truncated.iter().map(render_line_text).collect();
+        let rendered: Vec<String> = truncated
+            .iter()
+            .map(|line| {
+                line.spans
+                    .iter()
+                    .map(|span| span.content.as_ref())
+                    .collect::<String>()
+            })
+            .collect();
 
         assert!(
-            rendered
-                .iter()
-                .any(|line| line.contains("… +6 lines (ctrl + t to view transcript)")),
+            rendered.iter().any(|line| line.contains("… +6 lines")),
             "expected omitted hint to count hidden lines (not wrapped rows), got: {rendered:?}"
-        );
-    }
-
-    #[test]
-    fn output_lines_ellipsis_includes_transcript_hint() {
-        let output = CommandOutput {
-            exit_code: 0,
-            aggregated_output: (1..=7).map(|n| n.to_string()).join("\n"),
-            formatted_output: String::new(),
-        };
-
-        let rendered: Vec<String> = output_lines(
-            Some(&output),
-            OutputLinesParams {
-                line_limit: 2,
-                only_err: false,
-                include_angle_pipe: false,
-                include_prefix: false,
-            },
-        )
-        .lines
-        .iter()
-        .map(render_line_text)
-        .collect();
-
-        assert!(
-            rendered
-                .iter()
-                .any(|line| line.contains("… +3 lines (ctrl + t to view transcript)")),
-            "expected logical truncation to include transcript hint, got: {rendered:?}"
-        );
-    }
-
-    #[test]
-    fn command_truncation_ellipsis_does_not_include_transcript_hint() {
-        let truncated = ExecCell::limit_lines_from_start(
-            &[
-                Line::from("first"),
-                Line::from("second"),
-                Line::from("third"),
-            ],
-            /*keep*/ 2,
-        );
-        let rendered: Vec<String> = truncated.iter().map(render_line_text).collect();
-
-        assert_eq!(
-            rendered,
-            vec![
-                "first".to_string(),
-                "second".to_string(),
-                "… +1 lines".to_string(),
-            ]
         );
     }
 

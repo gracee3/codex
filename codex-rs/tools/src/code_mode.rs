@@ -49,19 +49,6 @@ pub fn collect_code_mode_tool_definitions<'a>(
     tool_definitions
 }
 
-pub fn collect_code_mode_exec_prompt_tool_definitions<'a>(
-    specs: impl IntoIterator<Item = &'a ToolSpec>,
-) -> Vec<CodeModeToolDefinition> {
-    let mut tool_definitions = specs
-        .into_iter()
-        .filter_map(code_mode_tool_definition_for_spec)
-        .filter(|definition| codex_code_mode::is_code_mode_nested_tool(&definition.name))
-        .collect::<Vec<_>>();
-    tool_definitions.sort_by(|left, right| left.name.cmp(&right.name));
-    tool_definitions.dedup_by(|left, right| left.name == right.name);
-    tool_definitions
-}
-
 pub fn create_wait_tool() -> ToolSpec {
     let properties = BTreeMap::from([
         (
@@ -108,7 +95,7 @@ pub fn create_wait_tool() -> ToolSpec {
 }
 
 pub fn create_code_mode_tool(
-    enabled_tools: &[CodeModeToolDefinition],
+    enabled_tools: &[(String, String)],
     namespace_descriptions: &BTreeMap<String, codex_code_mode::ToolNamespaceDescription>,
     code_mode_only_enabled: bool,
 ) -> ToolSpec {

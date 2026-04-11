@@ -82,7 +82,6 @@ use codex_app_server_protocol::SkillsListResponse;
 use codex_app_server_protocol::ThreadItem;
 use codex_app_server_protocol::ThreadLoadedListParams;
 use codex_app_server_protocol::ThreadRollbackResponse;
-use codex_app_server_protocol::ThreadStartSource;
 use codex_app_server_protocol::Turn;
 use codex_app_server_protocol::TurnError as AppServerTurnError;
 use codex_app_server_protocol::TurnStatus;
@@ -3302,7 +3301,6 @@ impl App {
         &mut self,
         tui: &mut tui::Tui,
         app_server: &mut AppServerSession,
-        session_start_source: Option<ThreadStartSource>,
     ) {
         // Start a fresh in-memory session while preserving resumability via persisted rollout
         // history.
@@ -3324,10 +3322,7 @@ impl App {
             }
         }
         self.config = config.clone();
-        match app_server
-            .start_thread_with_session_start_source(&config, session_start_source)
-            .await
-        {
+        match app_server.start_thread(&config).await {
             Ok(started) => {
                 if let Err(err) = self
                     .replace_chat_widget_with_app_server_thread(tui, app_server, started)
@@ -4163,21 +4158,15 @@ impl App {
     ) -> Result<AppRunControl> {
         match event {
             AppEvent::NewSession => {
-                self.start_fresh_session_with_summary_hint(
-                    tui, app_server, /*session_start_source*/ None,
-                )
-                .await;
+                self.start_fresh_session_with_summary_hint(tui, app_server)
+                    .await;
             }
             AppEvent::ClearUi => {
                 self.clear_terminal_ui(tui, /*redraw_header*/ false)?;
                 self.reset_app_ui_state_after_clear();
 
-                self.start_fresh_session_with_summary_hint(
-                    tui,
-                    app_server,
-                    Some(ThreadStartSource::Clear),
-                )
-                .await;
+                self.start_fresh_session_with_summary_hint(tui, app_server)
+                    .await;
             }
             AppEvent::OpenResumePicker => {
                 let picker_app_server = match crate::start_app_server_for_picker(
@@ -4230,13 +4219,7 @@ impl App {
                 tui.frame_requester().schedule_frame();
             }
             AppEvent::ResumeSessionByIdOrName(id_or_name) => {
-                match crate::lookup_session_target_with_app_server(
-                    app_server,
-                    self.config.codex_home.as_path(),
-                    &id_or_name,
-                )
-                .await?
-                {
+                match crate::lookup_session_target_with_app_server(app_server, &id_or_name).await? {
                     Some(target_session) => {
                         return self
                             .resume_target_session(tui, app_server, target_session)
@@ -5712,6 +5695,7 @@ impl App {
             }
         }
         self.handle_backtrack_rollback_succeeded(num_turns);
+        self.chat_widget.handle_thread_rolled_back();
     }
 
     fn handle_thread_event_now(&mut self, event: ThreadBufferedEvent) {

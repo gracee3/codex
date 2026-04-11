@@ -25,7 +25,6 @@ pub(crate) use control::clear_memory_root_contents;
 pub(crate) use start::start_memories_startup_task;
 
 mod artifacts {
-    pub(super) const EXTENSIONS_SUBDIR: &str = "memories_extensions";
     pub(super) const ROLLOUT_SUMMARIES_SUBDIR: &str = "rollout_summaries";
     pub(super) const RAW_MEMORIES_FILENAME: &str = "raw_memories.md";
 }
@@ -105,10 +104,6 @@ pub fn memory_root(codex_home: &Path) -> PathBuf {
 
 fn rollout_summaries_dir(root: &Path) -> PathBuf {
     root.join(artifacts::ROLLOUT_SUMMARIES_SUBDIR)
-}
-
-fn memory_extensions_root(root: &Path) -> PathBuf {
-    root.with_file_name(artifacts::EXTENSIONS_SUBDIR)
 }
 
 fn raw_memories_file(root: &Path) -> PathBuf {

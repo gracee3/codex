@@ -20,7 +20,6 @@ use crate::schema::SessionStartCommandInput;
 pub enum SessionStartSource {
     Startup,
     Resume,
-    Clear,
 }
 
 impl SessionStartSource {
@@ -28,7 +27,6 @@ impl SessionStartSource {
         match self {
             Self::Startup => "startup",
             Self::Resume => "resume",
-            Self::Clear => "clear",
         }
     }
 }

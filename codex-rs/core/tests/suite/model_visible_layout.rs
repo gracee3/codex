@@ -322,7 +322,6 @@ async fn snapshot_model_visible_layout_resume_with_personality_change() -> Resul
                 text_elements: Vec::new(),
             }],
             final_output_json_schema: None,
-            responsesapi_client_metadata: None,
         })
         .await?;
     wait_for_event(&codex, |event| matches!(event, EventMsg::TurnComplete(_))).await;
@@ -422,7 +421,6 @@ async fn snapshot_model_visible_layout_resume_override_matches_rollout_model() -
                 text_elements: Vec::new(),
             }],
             final_output_json_schema: None,
-            responsesapi_client_metadata: None,
         })
         .await?;
     wait_for_event(&codex, |event| matches!(event, EventMsg::TurnComplete(_))).await;
@@ -468,7 +466,6 @@ async fn snapshot_model_visible_layout_resume_override_matches_rollout_model() -
                 text_elements: Vec::new(),
             }],
             final_output_json_schema: None,
-            responsesapi_client_metadata: None,
         })
         .await?;
     wait_for_event(&resumed.codex, |event| {

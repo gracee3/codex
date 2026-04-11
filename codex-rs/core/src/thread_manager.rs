@@ -15,7 +15,6 @@ use crate::shell_snapshot::ShellSnapshot;
 use crate::skills_watcher::SkillsWatcher;
 use crate::skills_watcher::SkillsWatcherEvent;
 use crate::tasks::interrupted_turn_history_marker;
-use codex_analytics::AnalyticsEventsClient;
 use codex_app_server_protocol::ThreadHistoryBuilder;
 use codex_app_server_protocol::TurnStatus;
 use codex_exec_server::EnvironmentManager;
@@ -211,7 +210,6 @@ pub(crate) struct ThreadManagerState {
     mcp_manager: Arc<McpManager>,
     skills_watcher: Arc<SkillsWatcher>,
     session_source: SessionSource,
-    analytics_events_client: Option<AnalyticsEventsClient>,
     // Captures submitted ops for testing purpose when test mode is enabled.
     ops_log: Option<SharedCapturedOps>,
 }
@@ -223,7 +221,6 @@ impl ThreadManager {
         session_source: SessionSource,
         collaboration_modes_config: CollaborationModesConfig,
         environment_manager: Arc<EnvironmentManager>,
-        analytics_events_client: Option<AnalyticsEventsClient>,
     ) -> Self {
         let codex_home = config.codex_home.clone();
         let restriction_product = session_source.restriction_product();
@@ -262,7 +259,6 @@ impl ThreadManager {
                 skills_watcher,
                 auth_manager,
                 session_source,
-                analytics_events_client,
                 ops_log: should_use_test_thread_manager_behavior()
                     .then(|| Arc::new(std::sync::Mutex::new(Vec::new()))),
             }),
@@ -332,7 +328,6 @@ impl ThreadManager {
                 skills_watcher,
                 auth_manager,
                 session_source: SessionSource::Exec,
-                analytics_events_client: None,
                 ops_log: should_use_test_thread_manager_behavior()
                     .then(|| Arc::new(std::sync::Mutex::new(Vec::new()))),
             }),
@@ -474,7 +469,6 @@ impl ThreadManager {
     ) -> CodexResult<NewThread> {
         Box::pin(self.start_thread_with_tools_and_service_name(
             config,
-            InitialHistory::New,
             dynamic_tools,
             persist_extended_history,
             /*metrics_service_name*/ None,
@@ -486,7 +480,6 @@ impl ThreadManager {
     pub async fn start_thread_with_tools_and_service_name(
         &self,
         config: Config,
-        initial_history: InitialHistory,
         dynamic_tools: Vec<codex_protocol::dynamic_tools::DynamicToolSpec>,
         persist_extended_history: bool,
         metrics_service_name: Option<String>,
@@ -494,7 +487,7 @@ impl ThreadManager {
     ) -> CodexResult<NewThread> {
         Box::pin(self.state.spawn_thread(
             config,
-            initial_history,
+            InitialHistory::New,
             Arc::clone(&self.state.auth_manager),
             self.agent_control(),
             dynamic_tools,
@@ -670,7 +663,6 @@ impl ThreadManager {
             ForkSnapshot::Interrupted => {
                 let history = match history {
                     InitialHistory::New => InitialHistory::New,
-                    InitialHistory::Cleared => InitialHistory::Cleared,
                     InitialHistory::Forked(history) => InitialHistory::Forked(history),
                     InitialHistory::Resumed(resumed) => InitialHistory::Forked(resumed.history),
                 };
@@ -924,7 +916,6 @@ impl ThreadManagerState {
             inherited_exec_policy,
             user_shell_override,
             parent_trace,
-            analytics_events_client: self.analytics_events_client.clone(),
         })
         .await?;
         self.finalize_thread_spawn(codex, thread_id, watch_registration)
@@ -1073,7 +1064,7 @@ fn append_interrupted_boundary(history: InitialHistory, turn_id: Option<String>)
     }));
 
     match history {
-        InitialHistory::New | InitialHistory::Cleared => InitialHistory::Forked(vec![
+        InitialHistory::New => InitialHistory::Forked(vec![
             RolloutItem::ResponseItem(interrupted_turn_history_marker()),
             aborted_event,
         ]),

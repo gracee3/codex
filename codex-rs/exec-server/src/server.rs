@@ -3,7 +3,6 @@ mod handler;
 mod process_handler;
 mod processor;
 mod registry;
-mod session_registry;
 mod transport;
 
 pub(crate) use handler::ExecServerHandler;
