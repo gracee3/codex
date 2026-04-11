@@ -7,7 +7,7 @@ UPSTREAM_REMOTE_URL="${CODEX_UPSTREAM_REMOTE_URL:-https://github.com/openai/code
 INSTALL_DIR="${CODEX_INSTALL_DIR:-$HOME/.local/bin}"
 VERSION="${CODEX_INSTALL_VERSION:-latest}"
 PROFILE="${CODEX_SOURCE_PROFILE:-debug}"
-PATCH_BRANCHES="${CODEX_SOURCE_PATCH_BRANCHES:-fork/maint fork/dev-build-speedups}"
+PATCH_BRANCHES="${CODEX_SOURCE_PATCH_BRANCHES:-fork/maint fork/dev-build-speedups fork/tt-runtime-contract fork/app-server-rollout}"
 RELEASE_BRANCH_PREFIX="${CODEX_SOURCE_RELEASE_BRANCH_PREFIX:-releases/}"
 
 usage() {

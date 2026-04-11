@@ -6,20 +6,17 @@ Fork-specific behavior lives in two places:
 
 - `fork/maint`: maintenance helpers for syncing upstream and creating release branches.
 - `fork/dev-build-speedups`: a single-commit branch that carries the local Rust build tuning.
-- `fork/tt-runtime-contract`: optional TT-facing docs and contract notes for TT-integrated release branches.
+- `fork/tt-runtime-contract`: TT-facing docs and contract notes for TT-integrated release branches.
+- `fork/app-server-rollout`: app-server runtime fixes that TT release builds should inherit.
 
-Release branches are created from exact upstream tags and then have the speedup commit cherry-picked on top:
-
-- `releases/rust-v0.118.0`
-- `releases/rust-v0.119.0`
-- `releases/rust-v0.119.0-alpha.1`
+Release branches are created from exact upstream tags and then have the fork overlays cherry-picked on top.
 
 ## Fork delta
 
 The current fork-only code changes are:
 
-- release branch automation and release-branch CI in [`scripts/fork-release.sh`](/home/emmy/openai/codex/scripts/fork-release.sh), [`Makefile`](/home/emmy/openai/codex/Makefile), and [fork-release-ci.yml](/home/emmy/openai/codex/.github/workflows/fork-release-ci.yml)
-- local installer and source-install tooling in [install-codex.sh](/home/emmy/openai/codex/scripts/install-codex.sh) and [source-install.sh](/home/emmy/openai/codex/scripts/source-install.sh)
+- release branch automation in [`scripts/fork-release.sh`](/home/emmy/openai/codex/scripts/fork-release.sh) and [`Makefile`](/home/emmy/openai/codex/Makefile)
+- local build and install tooling in [`Makefile`](/home/emmy/openai/codex/Makefile) and release automation in [`scripts/fork-release.sh`](/home/emmy/openai/codex/scripts/fork-release.sh)
 - Rust build tuning in [`codex-rs/.cargo/config.toml`](/home/emmy/openai/codex/codex-rs/.cargo/config.toml)
 
 The Rust build tuning does the following:
@@ -37,13 +34,15 @@ Sync local `main` to upstream:
 make sync-main
 ```
 
+That updates the local `main` ref directly, so you can run it from `fork/maint` without checking out `main` first.
+
 Sync local `main` and push the mirror to `origin/main`:
 
 ```bash
 make sync-main PUSH=1
 ```
 
-Create a release branch from the latest stable tag and cherry-pick the speedup patch:
+Create a TT release branch from the latest stable tag and cherry-pick the fork overlays:
 
 ```bash
 make new-release
@@ -55,11 +54,7 @@ Create a release branch from an explicit tag:
 make new-release TAG=rust-v0.118.0
 ```
 
-Create a release branch from the latest alpha tag:
-
-```bash
-make new-alpha-release
-```
+Add `RELEASE_SUFFIX=1` if you want a branch name like `releases/tt/rust-v0.120.0-1` instead of reusing the plain tag name.
 
 Create a TT release branch that layers the TT contract overlay on top of the release:
 
@@ -73,76 +68,39 @@ Push the created release branch to the fork:
 make new-release TAG=rust-v0.119.0 PUSH=1
 ```
 
-Run the release-branch checks locally on your current machine:
-
-```bash
-make fork-release-ci
-```
-
-Run the same checks in a disposable Docker container:
-
-```bash
-make fork-release-ci-docker
-```
-
 By design, upstream `README.md` is left untouched to minimize merge churn. Fork-specific notes belong in this file.
 
 ## Release composition
 
-`make new-release` and `make new-alpha-release` create release branches from upstream tags and then cherry-pick the fork overlay branches in this order:
+`make new-release` and `make new-tt-release` create release branches from upstream tags and then cherry-pick the fork overlay branches in this order:
 
 - `fork/maint`
 - `fork/dev-build-speedups`
+- `fork/tt-runtime-contract`
+- `fork/app-server-rollout`
 
-That ensures each release branch contains both the release-branch CI workflow and the Cargo speedup patch.
-
-## Local CI parity
-
-The release-branch GitHub Action is mirrored locally by:
-
-- [run-fork-release-ci.sh](/home/emmy/openai/codex/scripts/run-fork-release-ci.sh): runs on the current machine and expects Rust plus `sccache` to already be installed
-- [run-fork-release-ci-docker.sh](/home/emmy/openai/codex/scripts/run-fork-release-ci-docker.sh): runs in a disposable Docker container and installs its own dependencies
-
-The Docker path is the closer match to GitHub Actions because it starts from a fresh environment each time.
+That ensures each release branch contains the release-branch CI workflow, the Cargo speedup patch, and the TT runtime/app-server overlays.
 
 ## Installer Model
 
-There are two install paths:
+There are local build and install paths:
 
-- `make install`
-  Downloads a released `codex` binary from this fork's GitHub releases into `~/.local/bin`
-- `make source-install`
-  Uses a source checkout to create or reuse a tagged release branch, builds `codex` and `codex-app-server`, and installs both into `~/.local/bin`
-
-`make source-install` is the current path for local TT work because release artifacts do not currently publish a standalone `codex-app-server` binary.
-
-## Local Build
-
-If you want to build the TT release branch directly instead of installing from release artifacts, use:
-
-```bash
-git switch releases/tt/rust-v0.119.0  # replace with the TT release branch you want
-cd codex-rs
-cargo build -p codex-cli --bin codex -p codex-app-server --bin codex-app-server
-```
-
-For optimized binaries:
-
-```bash
-cargo build -p codex-cli --bin codex -p codex-app-server --bin codex-app-server --release
-```
-
-If you want the same result installed into your local user bin directory:
-
-```bash
-make tt-source-install VERSION=<release-version>
-```
+- `make build` / `make build-release`
+  Build the current checkout in debug or release mode
+- `make install` / `make install-release`
+  Build the current checkout in debug or release mode and install `codex` and `codex-app-server` into `~/.local/bin`
+Use `make latest-upstream-tag` when you need the latest stable `rust-v*` tag from upstream without touching the build/install helpers. Use `make clean` to clear Cargo build artifacts.
 
 ## TT Overlay
 
 TT-specific releases can use:
 
 - `make new-tt-release`
-- `make new-tt-alpha-release`
+Those commands add the TT overlay branches to the release composition order:
 
-Those commands add `fork/tt-runtime-contract` to the overlay list.
+- `fork/maint`
+- `fork/dev-build-speedups`
+- `fork/tt-runtime-contract`
+- `fork/app-server-rollout`
+
+Put workflow notes that other agents should inherit in this file so they travel with `fork/maint` and the TT release branches that cherry-pick it.

@@ -2,107 +2,86 @@ SHELL := /bin/bash
 
 FORK_SCRIPT := ./scripts/fork-release.sh
 INSTALL_SCRIPT := ./scripts/install-codex.sh
-SOURCE_INSTALL_SCRIPT := ./scripts/source-install.sh
 INSTALL_DIR ?= $(HOME)/.local/bin
-SOURCE_DIR ?= $(HOME)/git/codex
-VERSION ?= latest
 UNINSTALL_VERSION ?=
 
 .DEFAULT_GOAL := help
 
-.PHONY: help latest status install uninstall source-install tt-source-install lint config
-.PHONY: sync-main new-release new-alpha-release new-tt-release new-tt-alpha-release list-release-tags
-.PHONY: fork-release-ci fork-release-ci-docker
-
-ifeq ($(filter config,$(MAKECMDGOALS)),config)
-INSTALL_CMD_ARG = config
-STATUS_CMD_ARG = config
-else
-INSTALL_CMD_ARG = $(VERSION)
-STATUS_CMD_ARG =
-endif
+.PHONY: help latest-upstream-tag build build-release clean install install-release uninstall
+.PHONY: sync-main new-release new-tt-release list-patch-commits
 
 help:
 	@echo "codex fork maintenance"
 	@echo ""
+	@echo "Workflow:"
+	@echo "  # Start on fork/maint, sync main from upstream, create the release branch, then build/install locally"
+	@echo "  git checkout fork/maint"
+	@echo "  make sync-main"
+	@echo "  make new-release"
+	@echo "  make build"
+	@echo "  make install"
+	@echo ""
 	@echo "Release maintenance:"
-	@echo "  sync-main              Sync local main to upstream/main"
-	@echo "  new-release            Create release branch from latest stable tag"
-	@echo "  new-alpha-release      Create release branch from latest alpha tag"
-	@echo "  new-tt-release         Create TT release branch from latest stable tag"
-	@echo "  new-tt-alpha-release   Create TT release branch from latest alpha tag"
-	@echo "  list-release-tags      List available rust-v tags"
+	@echo "  sync-main              Update local main to upstream/main"
+	@echo "  new-release            Create TT release branch from latest stable tag"
+	@echo "  new-tt-release         Same as new-release"
+	@echo "  list-patch-commits     Show the patch commits that will be cherry-picked"
 	@echo ""
 	@echo "Install helpers:"
-	@echo "  latest                 Fetch and print latest codex version"
-	@echo "  status                 Show codex executables on PATH and install dir"
-	@echo "  status config          Show the repository cargo config.toml"
-	@echo "  install                Install released codex to $(INSTALL_DIR)"
-	@echo "  source-install         Sync $(SOURCE_DIR) and install codex + codex-app-server"
-	@echo "  tt-source-install      Same as source-install, but include the TT overlay branch"
+	@echo "  latest-upstream-tag    Print latest stable rust-v tag from upstream"
+	@echo "  clean                  Remove local Cargo build artifacts"
+	@echo "  build                  Build local debug artifacts"
+	@echo "  build-release          Build local release artifacts"
+	@echo "  install                Build local debug artifacts and install them"
+	@echo "  install-release        Build local release artifacts and install them"
 	@echo "  uninstall             Uninstall local binaries from $(INSTALL_DIR)"
 	@echo ""
-	@echo "CI helpers:"
-	@echo "  fork-release-ci        Run release-branch checks locally"
-	@echo "  fork-release-ci-docker Run release-branch checks in Docker"
-	@echo ""
 	@echo "Variables:"
-	@echo "  VERSION           Version to install or use as tag selector (default: latest)"
 	@echo "  TAG               Explicit rust-v tag for release creation"
+	@echo "  RELEASE_SUFFIX    Optional suffix appended to the release branch name"
 	@echo "  PUSH              Set to 1 to push created or synced branches"
 	@echo "  INSTALL_DIR       Install directory override"
-	@echo "  SOURCE_DIR        Source checkout directory override"
 	@echo ""
 	@echo "Examples:"
-	@echo "  make new-release"
-	@echo "  make new-release TAG=rust-v0.118.0 PUSH=1"
-	@echo "  make new-tt-release TAG=rust-v0.119.0-alpha.1"
-	@echo "  make source-install SOURCE_DIR=~/git/codex VERSION=0.118.0"
+	@echo "  make new-release TAG=rust-v0.120.0"
+	@echo "  make new-release TAG=rust-v0.120.0 RELEASE_SUFFIX=1"
+	@echo "  make latest-upstream-tag # rust-v0.120.0"
 
 sync-main:
 	$(FORK_SCRIPT) sync-main $(if $(PUSH),--push,)
 
 new-release:
-	$(FORK_SCRIPT) new-release $(if $(TAG),--tag $(TAG),) $(if $(PUSH),--push,)
-
-new-alpha-release:
-	$(FORK_SCRIPT) new-release --alpha $(if $(TAG),--tag $(TAG),) $(if $(PUSH),--push,)
+	PATCH_BRANCHES="fork/maint fork/dev-build-speedups fork/tt-runtime-contract fork/app-server-rollout" RELEASE_BRANCH_PREFIX="releases/tt/" RELEASE_SUFFIX="$(RELEASE_SUFFIX)" $(FORK_SCRIPT) new-release $(if $(TAG),--tag $(TAG),) $(if $(PUSH),--push,)
 
 new-tt-release:
-	PATCH_BRANCHES="fork/maint fork/dev-build-speedups fork/tt-runtime-contract" RELEASE_BRANCH_PREFIX="releases/tt/" $(FORK_SCRIPT) new-release $(if $(TAG),--tag $(TAG),) $(if $(PUSH),--push,)
+	PATCH_BRANCHES="fork/maint fork/dev-build-speedups fork/tt-runtime-contract fork/app-server-rollout" RELEASE_BRANCH_PREFIX="releases/tt/" RELEASE_SUFFIX="$(RELEASE_SUFFIX)" $(FORK_SCRIPT) new-release $(if $(TAG),--tag $(TAG),) $(if $(PUSH),--push,)
 
-new-tt-alpha-release:
-	PATCH_BRANCHES="fork/maint fork/dev-build-speedups fork/tt-runtime-contract" RELEASE_BRANCH_PREFIX="releases/tt/" $(FORK_SCRIPT) new-release --alpha $(if $(TAG),--tag $(TAG),) $(if $(PUSH),--push,)
+list-patch-commits:
+	$(FORK_SCRIPT) list-patch-commits
 
-list-release-tags:
-	$(FORK_SCRIPT) list-tags
+latest-upstream-tag:
+	@tag="$$(git ls-remote --refs --tags upstream 'rust-v*' | awk '{print $$2}' | sed -E 's#refs/tags/##' | grep -E '^rust-v[0-9]+(\.[0-9]+){2}$$' | sort -V | tail -n 1)"; \
+	[ -n "$$tag" ] || { echo "Failed to resolve latest stable tag from upstream" >&2; exit 1; }; \
+	printf '%s\n' "$$tag"
 
-latest:
-	@$(INSTALL_SCRIPT) latest
+clean:
+	@cd codex-rs && cargo clean
 
-status:
-	@$(INSTALL_SCRIPT) --install-dir $(INSTALL_DIR) status $(STATUS_CMD_ARG)
+build:
+	@cd codex-rs && cargo build -p codex-cli --bin codex -p codex-app-server --bin codex-app-server
 
-install:
-	@$(INSTALL_SCRIPT) --install-dir $(INSTALL_DIR) install $(INSTALL_CMD_ARG)
+build-release:
+	@cd codex-rs && cargo build --release -p codex-cli --bin codex -p codex-app-server --bin codex-app-server
+
+install: build
+	@mkdir -p "$(INSTALL_DIR)"
+	@install -m 0755 codex-rs/target/debug/codex "$(INSTALL_DIR)/codex"
+	@install -m 0755 codex-rs/target/debug/codex-app-server "$(INSTALL_DIR)/codex-app-server"
+
+install-release: build-release
+	@mkdir -p "$(INSTALL_DIR)"
+	@install -m 0755 codex-rs/target/release/codex "$(INSTALL_DIR)/codex"
+	@install -m 0755 codex-rs/target/release/codex-app-server "$(INSTALL_DIR)/codex-app-server"
 
 uninstall:
 	@$(INSTALL_SCRIPT) --install-dir $(INSTALL_DIR) uninstall $(UNINSTALL_VERSION)
-
-source-install:
-	@"$(SOURCE_INSTALL_SCRIPT)" --dir "$(SOURCE_DIR)" --install-dir "$(INSTALL_DIR)" --tag "$(VERSION)"
-
-tt-source-install:
-	@CODEX_SOURCE_PATCH_BRANCHES="fork/maint fork/dev-build-speedups fork/tt-runtime-contract" CODEX_SOURCE_RELEASE_BRANCH_PREFIX="releases/tt/" "$(SOURCE_INSTALL_SCRIPT)" --dir "$(SOURCE_DIR)" --install-dir "$(INSTALL_DIR)" --tag "$(VERSION)"
-
-lint:
-	@bash -n $(INSTALL_SCRIPT) $(SOURCE_INSTALL_SCRIPT) $(FORK_SCRIPT) scripts/run-fork-release-ci.sh scripts/run-fork-release-ci-docker.sh
-
-config:
-	@:
-
-fork-release-ci:
-	./scripts/run-fork-release-ci.sh
-
-fork-release-ci-docker:
-	./scripts/run-fork-release-ci-docker.sh

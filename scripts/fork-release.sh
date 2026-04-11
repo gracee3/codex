@@ -8,8 +8,9 @@ UPSTREAM_REMOTE="${UPSTREAM_REMOTE:-upstream}"
 FORK_REMOTE="${FORK_REMOTE:-origin}"
 MIRROR_BRANCH="${MIRROR_BRANCH:-main}"
 PATCH_BRANCH="${PATCH_BRANCH:-fork/dev-build-speedups}"
-PATCH_BRANCHES="${PATCH_BRANCHES:-fork/maint fork/dev-build-speedups}"
+PATCH_BRANCHES="${PATCH_BRANCHES:-fork/maint fork/dev-build-speedups fork/tt-runtime-contract fork/app-server-rollout}"
 RELEASE_BRANCH_PREFIX="${RELEASE_BRANCH_PREFIX:-releases/}"
+RELEASE_SUFFIX="${RELEASE_SUFFIX:-}"
 TAG_PREFIX="rust-v"
 
 usage() {
@@ -17,6 +18,7 @@ usage() {
 Usage:
   scripts/fork-release.sh sync-main [--push]
   scripts/fork-release.sh new-release [--tag <tag>] [--alpha] [--push]
+  scripts/fork-release.sh list-patch-commits
   scripts/fork-release.sh list-tags
 
 Examples:
@@ -25,13 +27,15 @@ Examples:
   scripts/fork-release.sh new-release
   scripts/fork-release.sh new-release --tag rust-v0.118.0
   scripts/fork-release.sh new-release --alpha
+  scripts/fork-release.sh list-patch-commits
 
 Environment overrides:
   UPSTREAM_REMOTE         default: upstream
   FORK_REMOTE             default: origin
   MIRROR_BRANCH           default: main
-  PATCH_BRANCHES          default: "fork/maint fork/dev-build-speedups"
+  PATCH_BRANCHES          default: "fork/maint fork/dev-build-speedups fork/tt-runtime-contract fork/app-server-rollout"
   RELEASE_BRANCH_PREFIX   default: releases/
+  RELEASE_SUFFIX          default: ""
 EOF
 }
 
@@ -107,12 +111,58 @@ resolve_patch_commits() {
   done
 }
 
+list_patch_commits() {
+  local commit
+
+  while IFS= read -r commit; do
+    git -C "$REPO_ROOT" show -s --format='%h %s' "$commit"
+  done < <(resolve_patch_commits)
+}
+
+apply_branch_snapshot() {
+  local branch="$1"
+  local commit="$2"
+  local merge_base
+  local path
+
+  merge_base="$(git -C "$REPO_ROOT" merge-base "$branch" "$MIRROR_BRANCH")"
+
+  while IFS= read -r path; do
+    git -C "$REPO_ROOT" checkout "$branch" -- "$path"
+  done < <(git -C "$REPO_ROOT" diff --no-renames --name-only --diff-filter=ACMRT "${merge_base}..${branch}")
+
+  while IFS= read -r path; do
+    git -C "$REPO_ROOT" rm -f --ignore-unmatch -- "$path" >/dev/null
+  done < <(git -C "$REPO_ROOT" diff --no-renames --name-only --diff-filter=D "${merge_base}..${branch}")
+
+  git -C "$REPO_ROOT" commit -m "$(git -C "$REPO_ROOT" show -s --format='%s' "$commit")" >/dev/null
+}
+
+cherry_pick_commits() {
+  local commit
+  local output
+
+  for commit in "$@"; do
+    if output="$(git -C "$REPO_ROOT" cherry-pick -X theirs "$commit" 2>&1)"; then
+      continue
+    fi
+
+    if [[ "$output" == *"previous cherry-pick is now empty"* ]]; then
+      printf 'Skipping empty cherry-pick: %s\n' "$(git -C "$REPO_ROOT" show -s --format='%h %s' "$commit")"
+      git -C "$REPO_ROOT" cherry-pick --skip >/dev/null
+      continue
+    fi
+
+    printf '%s\n' "$output" >&2
+    return 1
+  done
+}
+
 sync_main() {
   local push="${1:-0}"
 
   fetch_remotes
-  git -C "$REPO_ROOT" switch "$MIRROR_BRANCH" >/dev/null
-  git -C "$REPO_ROOT" reset --hard "${UPSTREAM_REMOTE}/${MIRROR_BRANCH}"
+  git -C "$REPO_ROOT" update-ref "refs/heads/${MIRROR_BRANCH}" "${UPSTREAM_REMOTE}/${MIRROR_BRANCH}"
 
   if [ "$push" = "1" ]; then
     git -C "$REPO_ROOT" push --force-with-lease "$FORK_REMOTE" "$MIRROR_BRANCH"
@@ -129,13 +179,20 @@ create_release_branch() {
   git -C "$REPO_ROOT" show-ref --verify --quiet "refs/tags/$tag" || die "Tag not found: $tag"
 
   local release_branch="${RELEASE_BRANCH_PREFIX}${tag}"
+  if [ -n "$RELEASE_SUFFIX" ]; then
+    release_branch="${release_branch}-${RELEASE_SUFFIX}"
+  fi
   git -C "$REPO_ROOT" show-ref --verify --quiet "refs/heads/$release_branch" && die "Release branch already exists: $release_branch"
 
   mapfile -t patch_commits < <(resolve_patch_commits)
   [ "${#patch_commits[@]}" -gt 0 ] || die "No patch commits resolved"
 
   git -C "$REPO_ROOT" switch -c "$release_branch" "$tag" >/dev/null
-  git -C "$REPO_ROOT" cherry-pick "${patch_commits[@]}"
+  if [ "${#patch_commits[@]}" -gt 1 ]; then
+    cherry_pick_commits "${patch_commits[@]:1}"
+  fi
+  set -- $PATCH_BRANCHES
+  apply_branch_snapshot "$1" "${patch_commits[0]}"
 
   if [ "$push" = "1" ]; then
     git -C "$REPO_ROOT" push -u "$FORK_REMOTE" "$release_branch"
@@ -216,6 +273,22 @@ main() {
       fi
 
       create_release_branch "$tag" "$push"
+      ;;
+    list-patch-commits)
+      while [ "$#" -gt 0 ]; do
+        case "$1" in
+          -h|--help)
+            usage
+            exit 0
+            ;;
+          *)
+            die "Unknown argument for list-patch-commits: $1"
+            ;;
+        esac
+        shift
+      done
+
+      list_patch_commits
       ;;
     list-tags)
       fetch_remotes
