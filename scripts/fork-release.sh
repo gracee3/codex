@@ -7,6 +7,7 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 UPSTREAM_REMOTE="${UPSTREAM_REMOTE:-upstream}"
 FORK_REMOTE="${FORK_REMOTE:-origin}"
 MIRROR_BRANCH="${MIRROR_BRANCH:-main}"
+TT_MAIN_BRANCH="${TT_MAIN_BRANCH:-tt/main}"
 PATCH_BRANCH="${PATCH_BRANCH:-fork/dev-build-speedups}"
 PATCH_BRANCHES="${PATCH_BRANCHES:-fork/maint fork/dev-build-speedups fork/tt-runtime-contract fork/app-server-rollout}"
 RELEASE_BRANCH_PREFIX="${RELEASE_BRANCH_PREFIX:-releases/}"
@@ -17,6 +18,7 @@ usage() {
   cat <<'EOF'
 Usage:
   scripts/fork-release.sh sync-main [--push]
+  scripts/fork-release.sh create-tt-main [--base <ref>] [--push]
   scripts/fork-release.sh new-release [--tag <tag>] [--alpha] [--push]
   scripts/fork-release.sh list-patch-commits
   scripts/fork-release.sh list-tags
@@ -24,6 +26,7 @@ Usage:
 Examples:
   scripts/fork-release.sh sync-main
   scripts/fork-release.sh sync-main --push
+  scripts/fork-release.sh create-tt-main --base releases/tt/rust-v0.120.0
   scripts/fork-release.sh new-release
   scripts/fork-release.sh new-release --tag rust-v0.118.0
   scripts/fork-release.sh new-release --alpha
@@ -33,6 +36,7 @@ Environment overrides:
   UPSTREAM_REMOTE         default: upstream
   FORK_REMOTE             default: origin
   MIRROR_BRANCH           default: main
+  TT_MAIN_BRANCH          default: tt/main
   PATCH_BRANCHES          default: "fork/maint fork/dev-build-speedups fork/tt-runtime-contract fork/app-server-rollout"
   RELEASE_BRANCH_PREFIX   default: releases/
   RELEASE_SUFFIX          default: ""
@@ -174,9 +178,11 @@ sync_main() {
 create_release_branch() {
   local tag="$1"
   local push="${2:-0}"
+  local source_branch="${3:-$TT_MAIN_BRANCH}"
 
   validate_tag "$tag"
   git -C "$REPO_ROOT" show-ref --verify --quiet "refs/tags/$tag" || die "Tag not found: $tag"
+  git -C "$REPO_ROOT" show-ref --verify --quiet "refs/heads/$source_branch" || die "Source branch not found: $source_branch"
 
   local release_branch="${RELEASE_BRANCH_PREFIX}${tag}"
   if [ -n "$RELEASE_SUFFIX" ]; then
@@ -184,18 +190,26 @@ create_release_branch() {
   fi
   git -C "$REPO_ROOT" show-ref --verify --quiet "refs/heads/$release_branch" && die "Release branch already exists: $release_branch"
 
-  mapfile -t patch_commits < <(resolve_patch_commits)
-  [ "${#patch_commits[@]}" -gt 0 ] || die "No patch commits resolved"
-
-  git -C "$REPO_ROOT" switch -c "$release_branch" "$tag" >/dev/null
-  if [ "${#patch_commits[@]}" -gt 1 ]; then
-    cherry_pick_commits "${patch_commits[@]:1}"
-  fi
-  set -- $PATCH_BRANCHES
-  apply_branch_snapshot "$1" "${patch_commits[0]}"
+  git -C "$REPO_ROOT" switch -c "$release_branch" "$source_branch" >/dev/null
 
   if [ "$push" = "1" ]; then
     git -C "$REPO_ROOT" push -u "$FORK_REMOTE" "$release_branch"
+  fi
+
+  git -C "$REPO_ROOT" status --short --branch
+}
+
+create_tt_main() {
+  local base_ref="${1:-HEAD}"
+  local push="${2:-0}"
+
+  git -C "$REPO_ROOT" rev-parse --verify "$base_ref" >/dev/null 2>&1 || die "Base ref not found: $base_ref"
+  git -C "$REPO_ROOT" show-ref --verify --quiet "refs/heads/$TT_MAIN_BRANCH" && die "TT main branch already exists: $TT_MAIN_BRANCH"
+
+  git -C "$REPO_ROOT" switch -c "$TT_MAIN_BRANCH" "$base_ref" >/dev/null
+
+  if [ "$push" = "1" ]; then
+    git -C "$REPO_ROOT" push -u "$FORK_REMOTE" "$TT_MAIN_BRANCH"
   fi
 
   git -C "$REPO_ROOT" status --short --branch
@@ -232,6 +246,32 @@ main() {
         shift
       done
       sync_main "$push"
+      ;;
+    create-tt-main)
+      local push=0
+      local base_ref="HEAD"
+      while [ "$#" -gt 0 ]; do
+        case "$1" in
+          --base)
+            [ "$#" -ge 2 ] || die "--base requires a value"
+            base_ref="$2"
+            shift
+            ;;
+          --push)
+            push=1
+            ;;
+          -h|--help)
+            usage
+            exit 0
+            ;;
+          *)
+            die "Unknown argument for create-tt-main: $1"
+            ;;
+        esac
+        shift
+      done
+
+      create_tt_main "$base_ref" "$push"
       ;;
     new-release)
       local tag=""
@@ -272,7 +312,7 @@ main() {
         fi
       fi
 
-      create_release_branch "$tag" "$push"
+      create_release_branch "$tag" "$push" "$TT_MAIN_BRANCH"
       ;;
     list-patch-commits)
       while [ "$#" -gt 0 ]; do

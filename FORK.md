@@ -1,106 +1,90 @@
 # Fork Maintenance
 
-This fork intentionally keeps `main` aligned with `upstream/main`.
+This fork now uses a two-lane model:
 
-Fork-specific behavior lives in two places:
+- `main` is a clean mirror of `upstream/main`
+- `tt/main` is the long-lived TT product branch
 
-- `fork/maint`: maintenance helpers for syncing upstream and creating release branches.
-- `fork/dev-build-speedups`: a single-commit branch that carries the local Rust build tuning.
-- `fork/tt-runtime-contract`: TT-facing docs and contract notes for TT-integrated release branches.
-- `fork/app-server-rollout`: app-server runtime fixes that TT release builds should inherit.
+TT is no longer treated as a small replayable overlay. Ongoing TT development,
+including the separate `tt` binary and deeper runtime changes, should land on
+`tt/main` and `tt/feature/*` branches. TT releases are cut from `tt/main`.
 
-Release branches are created from exact upstream tags and then have the fork overlays cherry-picked on top.
+## Active branches
 
-## Fork delta
+- `main`
+  - exact upstream mirror
+  - no TT product work should land here directly
+- `tt/main`
+  - primary TT development branch
+  - receives upstream updates by merging `main`
+- `tt/feature/<name>`
+  - short-lived TT feature branches
+- `releases/tt/<tag>`
+  - TT release branches cut from `tt/main`
 
-The current fork-only code changes are:
+The legacy overlay branches remain as historical bootstrap material only:
 
-- release branch automation in [`scripts/fork-release.sh`](/home/emmy/openai/codex/scripts/fork-release.sh) and [`Makefile`](/home/emmy/openai/codex/Makefile)
-- local build and install tooling in [`Makefile`](/home/emmy/openai/codex/Makefile) and release automation in [`scripts/fork-release.sh`](/home/emmy/openai/codex/scripts/fork-release.sh)
-- Rust build tuning in [`codex-rs/.cargo/config.toml`](/home/emmy/openai/codex/codex-rs/.cargo/config.toml)
+- `fork/tt-runtime-contract`
+- `fork/app-server-rollout`
 
-The Rust build tuning does the following:
+Those branches should not be used as the primary ongoing TT workflow.
 
-- enable incremental dev builds
-- use `sccache` as the Rust compiler wrapper
-- increase `profile.dev` codegen units
-- keep build script and proc-macro compilation optimized
+`fork/maint` may continue to carry generic fork-maintenance automation. Keep it
+small and utility-focused.
 
 ## Workflow
 
-Sync local `main` to upstream:
+Refresh the upstream mirror:
 
 ```bash
 make sync-main
 ```
 
-That updates the local `main` ref directly, so you can run it from `fork/maint` without checking out `main` first.
-
-Sync local `main` and push the mirror to `origin/main`:
+Create the long-lived TT branch once from the current TT baseline:
 
 ```bash
-make sync-main PUSH=1
+make create-tt-main BASE=releases/tt/rust-v0.120.0
 ```
 
-Create a TT release branch from the latest stable tag and cherry-pick the fork overlays:
+Move to the TT product branch and do TT work there:
 
 ```bash
-make new-release
+git switch tt/main
 ```
 
-Create a release branch from an explicit tag:
+Merge upstream mirror updates into the TT branch at explicit sync points:
 
 ```bash
-make new-release TAG=rust-v0.118.0
+git switch tt/main
+git merge main
 ```
 
-Add `RELEASE_SUFFIX=1` if you want a branch name like `releases/tt/rust-v0.120.0-1` instead of reusing the plain tag name.
-
-Create a TT release branch that layers the TT contract overlay on top of the release:
+Cut a new TT release from `tt/main`:
 
 ```bash
-make new-tt-release
+make new-release TAG=rust-v0.120.0
 ```
 
-Push the created release branch to the fork:
+The `TAG` now controls release naming, not patch-stack replay. A TT release is
+the TT product state after upstream sync and stabilization, not an upstream tag
+plus replayed overlays.
 
-```bash
-make new-release TAG=rust-v0.119.0 PUSH=1
-```
+## Current policy
 
-By design, upstream `README.md` is left untouched to minimize merge churn. Fork-specific notes belong in this file.
+- Keep `main` aligned with `upstream/main`
+- Keep TT work on `tt/main`
+- Merge `main` into `tt/main` instead of rebasing the TT product branch
+- Cut `releases/tt/*` from `tt/main`
+- Do not rely on TT-specific `fork/*` branches for day-to-day product work
 
-## Release composition
+## Tooling
 
-`make new-release` and `make new-tt-release` create release branches from upstream tags and then cherry-pick the fork overlay branches in this order:
+The fork maintenance helpers now support:
 
-- `fork/maint`
-- `fork/dev-build-speedups`
-- `fork/tt-runtime-contract`
-- `fork/app-server-rollout`
+- `make sync-main`
+- `make create-tt-main BASE=<ref>`
+- `make new-release TAG=<rust-vX.Y.Z>`
+- `make new-tt-release TAG=<rust-vX.Y.Z>`
 
-That ensures each release branch contains the release-branch CI workflow, the Cargo speedup patch, and the TT runtime/app-server overlays.
-
-## Installer Model
-
-There are local build and install paths:
-
-- `make build` / `make build-release`
-  Build the current checkout in debug or release mode
-- `make install` / `make install-release`
-  Build the current checkout in debug or release mode and install `codex` and `codex-app-server` into `~/.local/bin`
-Use `make latest-upstream-tag` when you need the latest stable `rust-v*` tag from upstream without touching the build/install helpers. Use `make clean` to clear Cargo build artifacts.
-
-## TT Overlay
-
-TT-specific releases can use:
-
-- `make new-tt-release`
-Those commands add the TT overlay branches to the release composition order:
-
-- `fork/maint`
-- `fork/dev-build-speedups`
-- `fork/tt-runtime-contract`
-- `fork/app-server-rollout`
-
-Put workflow notes that other agents should inherit in this file so they travel with `fork/maint` and the TT release branches that cherry-pick it.
+`scripts/fork-release.sh list-patch-commits` remains available only as a
+historical inspection tool for the old overlay workflow.

@@ -8,24 +8,27 @@ UNINSTALL_VERSION ?=
 .DEFAULT_GOAL := help
 
 .PHONY: help latest-upstream-tag build build-release clean install install-release uninstall
+.PHONY: create-tt-main
 .PHONY: sync-main new-release new-tt-release list-patch-commits
 
 help:
 	@echo "codex fork maintenance"
 	@echo ""
 	@echo "Workflow:"
-	@echo "  # Start on fork/maint, sync main from upstream, create the release branch, then build/install locally"
-	@echo "  git checkout fork/maint"
+	@echo "  # Sync upstream into main, create tt/main once, work there, then cut releases from tt/main"
 	@echo "  make sync-main"
+	@echo "  make create-tt-main BASE=releases/tt/rust-v0.120.0"
+	@echo "  git switch tt/main"
 	@echo "  make new-release"
 	@echo "  make build"
 	@echo "  make install"
 	@echo ""
 	@echo "Release maintenance:"
 	@echo "  sync-main              Update local main to upstream/main"
-	@echo "  new-release            Create TT release branch from latest stable tag"
+	@echo "  create-tt-main         Create the long-lived TT product branch"
+	@echo "  new-release            Create TT release branch from tt/main"
 	@echo "  new-tt-release         Same as new-release"
-	@echo "  list-patch-commits     Show the patch commits that will be cherry-picked"
+	@echo "  list-patch-commits     Legacy: show historical overlay patch commits"
 	@echo ""
 	@echo "Install helpers:"
 	@echo "  latest-upstream-tag    Print latest stable rust-v tag from upstream"
@@ -38,6 +41,7 @@ help:
 	@echo ""
 	@echo "Variables:"
 	@echo "  TAG               Explicit rust-v tag for release creation"
+	@echo "  BASE              Explicit base ref for create-tt-main"
 	@echo "  RELEASE_SUFFIX    Optional suffix appended to the release branch name"
 	@echo "  PUSH              Set to 1 to push created or synced branches"
 	@echo "  INSTALL_DIR       Install directory override"
@@ -50,11 +54,14 @@ help:
 sync-main:
 	$(FORK_SCRIPT) sync-main $(if $(PUSH),--push,)
 
+create-tt-main:
+	$(FORK_SCRIPT) create-tt-main $(if $(BASE),--base $(BASE),) $(if $(PUSH),--push,)
+
 new-release:
-	PATCH_BRANCHES="fork/maint fork/dev-build-speedups fork/tt-runtime-contract fork/app-server-rollout" RELEASE_BRANCH_PREFIX="releases/tt/" RELEASE_SUFFIX="$(RELEASE_SUFFIX)" $(FORK_SCRIPT) new-release $(if $(TAG),--tag $(TAG),) $(if $(PUSH),--push,)
+	TT_MAIN_BRANCH="tt/main" RELEASE_BRANCH_PREFIX="releases/tt/" RELEASE_SUFFIX="$(RELEASE_SUFFIX)" $(FORK_SCRIPT) new-release $(if $(TAG),--tag $(TAG),) $(if $(PUSH),--push,)
 
 new-tt-release:
-	PATCH_BRANCHES="fork/maint fork/dev-build-speedups fork/tt-runtime-contract fork/app-server-rollout" RELEASE_BRANCH_PREFIX="releases/tt/" RELEASE_SUFFIX="$(RELEASE_SUFFIX)" $(FORK_SCRIPT) new-release $(if $(TAG),--tag $(TAG),) $(if $(PUSH),--push,)
+	TT_MAIN_BRANCH="tt/main" RELEASE_BRANCH_PREFIX="releases/tt/" RELEASE_SUFFIX="$(RELEASE_SUFFIX)" $(FORK_SCRIPT) new-release $(if $(TAG),--tag $(TAG),) $(if $(PUSH),--push,)
 
 list-patch-commits:
 	$(FORK_SCRIPT) list-patch-commits
@@ -68,19 +75,21 @@ clean:
 	@cd codex-rs && cargo clean
 
 build:
-	@cd codex-rs && cargo build -p codex-cli --bin codex -p codex-app-server --bin codex-app-server
+	@cd codex-rs && cargo build -p codex-cli --bin codex -p codex-tt-cli --bin tt -p codex-app-server --bin codex-app-server
 
 build-release:
-	@cd codex-rs && cargo build --release -p codex-cli --bin codex -p codex-app-server --bin codex-app-server
+	@cd codex-rs && cargo build --release -p codex-cli --bin codex -p codex-tt-cli --bin tt -p codex-app-server --bin codex-app-server
 
 install: build
 	@mkdir -p "$(INSTALL_DIR)"
 	@install -m 0755 codex-rs/target/debug/codex "$(INSTALL_DIR)/codex"
+	@install -m 0755 codex-rs/target/debug/tt "$(INSTALL_DIR)/tt"
 	@install -m 0755 codex-rs/target/debug/codex-app-server "$(INSTALL_DIR)/codex-app-server"
 
 install-release: build-release
 	@mkdir -p "$(INSTALL_DIR)"
 	@install -m 0755 codex-rs/target/release/codex "$(INSTALL_DIR)/codex"
+	@install -m 0755 codex-rs/target/release/tt "$(INSTALL_DIR)/tt"
 	@install -m 0755 codex-rs/target/release/codex-app-server "$(INSTALL_DIR)/codex-app-server"
 
 uninstall:
