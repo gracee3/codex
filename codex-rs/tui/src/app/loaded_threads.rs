@@ -119,6 +119,7 @@ mod tests {
             updated_at: 0,
             status: ThreadStatus::Idle,
             path: None,
+            workspace: None,
             cwd: PathBuf::from("/tmp"),
             cli_version: "0.0.0".to_string(),
             source,

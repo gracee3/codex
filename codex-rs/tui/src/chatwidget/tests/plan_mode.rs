@@ -1242,7 +1242,6 @@ async fn collaboration_modes_defaults_to_code_on_startup() {
         enhanced_keys_supported: false,
         has_chatgpt_account: false,
         model_catalog: test_model_catalog(&cfg),
-        feedback: codex_feedback::CodexFeedback::new(),
         is_first_run: true,
         status_account_display: None,
         initial_plan_type: None,

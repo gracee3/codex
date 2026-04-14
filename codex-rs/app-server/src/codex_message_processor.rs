@@ -20,7 +20,6 @@ use crate::thread_status::resolve_thread_status;
 use chrono::DateTime;
 use chrono::SecondsFormat;
 use chrono::Utc;
-use codex_analytics::AnalyticsEventsClient;
 use codex_app_server_protocol::Account;
 use codex_app_server_protocol::AccountLoginCompletedNotification;
 use codex_app_server_protocol::AccountUpdatedNotification;
@@ -34,7 +33,6 @@ use codex_app_server_protocol::CancelLoginAccountParams;
 use codex_app_server_protocol::CancelLoginAccountResponse;
 use codex_app_server_protocol::CancelLoginAccountStatus;
 use codex_app_server_protocol::ClientRequest;
-use codex_app_server_protocol::ClientResponse;
 use codex_app_server_protocol::CodexErrorInfo as AppServerCodexErrorInfo;
 use codex_app_server_protocol::CollaborationModeListParams;
 use codex_app_server_protocol::CollaborationModeListResponse;
@@ -49,8 +47,6 @@ use codex_app_server_protocol::ExperimentalFeature as ApiExperimentalFeature;
 use codex_app_server_protocol::ExperimentalFeatureListParams;
 use codex_app_server_protocol::ExperimentalFeatureListResponse;
 use codex_app_server_protocol::ExperimentalFeatureStage as ApiExperimentalFeatureStage;
-use codex_app_server_protocol::FeedbackUploadParams;
-use codex_app_server_protocol::FeedbackUploadResponse;
 use codex_app_server_protocol::FuzzyFileSearchParams;
 use codex_app_server_protocol::FuzzyFileSearchResponse;
 use codex_app_server_protocol::FuzzyFileSearchSessionStartParams;
@@ -237,7 +233,6 @@ use codex_core::windows_sandbox::WindowsSandboxSetupRequest;
 use codex_features::FEATURES;
 use codex_features::Feature;
 use codex_features::Stage;
-use codex_feedback::CodexFeedback;
 use codex_git_utils::git_diff_to_remote;
 use codex_git_utils::resolve_root_git_project_for_trust;
 use codex_login::AuthManager;
@@ -417,7 +412,6 @@ pub(crate) struct CodexMessageProcessor {
     auth_manager: Arc<AuthManager>,
     thread_manager: Arc<ThreadManager>,
     outgoing: Arc<OutgoingMessageSender>,
-    analytics_events_client: AnalyticsEventsClient,
     arg0_paths: Arg0DispatchPaths,
     config: Arc<Config>,
     cli_overrides: Arc<RwLock<Vec<(String, TomlValue)>>>,
@@ -431,7 +425,6 @@ pub(crate) struct CodexMessageProcessor {
     pending_fuzzy_searches: Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>,
     fuzzy_search_sessions: Arc<Mutex<HashMap<String, FuzzyFileSearchSession>>>,
     background_tasks: TaskTracker,
-    feedback: CodexFeedback,
     log_db: Option<LogDbLayer>,
 }
 
@@ -448,8 +441,6 @@ struct ListenerTaskContext {
     thread_manager: Arc<ThreadManager>,
     thread_state_manager: ThreadStateManager,
     outgoing: Arc<OutgoingMessageSender>,
-    analytics_events_client: AnalyticsEventsClient,
-    general_analytics_enabled: bool,
     thread_watch_manager: ThreadWatchManager,
     fallback_model_provider: String,
     codex_home: PathBuf,
@@ -472,13 +463,11 @@ pub(crate) struct CodexMessageProcessorArgs {
     pub(crate) auth_manager: Arc<AuthManager>,
     pub(crate) thread_manager: Arc<ThreadManager>,
     pub(crate) outgoing: Arc<OutgoingMessageSender>,
-    pub(crate) analytics_events_client: AnalyticsEventsClient,
     pub(crate) arg0_paths: Arg0DispatchPaths,
     pub(crate) config: Arc<Config>,
     pub(crate) cli_overrides: Arc<RwLock<Vec<(String, TomlValue)>>>,
     pub(crate) runtime_feature_enablement: Arc<RwLock<BTreeMap<String, bool>>>,
     pub(crate) cloud_requirements: Arc<RwLock<CloudRequirementsLoader>>,
-    pub(crate) feedback: CodexFeedback,
     pub(crate) log_db: Option<LogDbLayer>,
 }
 
@@ -528,20 +517,17 @@ impl CodexMessageProcessor {
             auth_manager,
             thread_manager,
             outgoing,
-            analytics_events_client,
             arg0_paths,
             config,
             cli_overrides,
             runtime_feature_enablement,
             cloud_requirements,
-            feedback,
             log_db,
         } = args;
         Self {
             auth_manager,
             thread_manager,
             outgoing: outgoing.clone(),
-            analytics_events_client,
             arg0_paths,
             config,
             cli_overrides,
@@ -555,7 +541,6 @@ impl CodexMessageProcessor {
             pending_fuzzy_searches: Arc::new(Mutex::new(HashMap::new())),
             fuzzy_search_sessions: Arc::new(Mutex::new(HashMap::new())),
             background_tasks: TaskTracker::new(),
-            feedback,
             log_db,
         }
     }
@@ -988,10 +973,6 @@ impl CodexMessageProcessor {
                 params: _,
             } => {
                 self.get_account_rate_limits(to_connection_request_id(request_id))
-                    .await;
-            }
-            ClientRequest::FeedbackUpload { request_id, params } => {
-                self.upload_feedback(to_connection_request_id(request_id), params)
                     .await;
             }
         }
@@ -2111,8 +2092,6 @@ impl CodexMessageProcessor {
             thread_manager: Arc::clone(&self.thread_manager),
             thread_state_manager: self.thread_state_manager.clone(),
             outgoing: Arc::clone(&self.outgoing),
-            analytics_events_client: self.analytics_events_client.clone(),
-            general_analytics_enabled: self.config.features.enabled(Feature::GeneralAnalytics),
             thread_watch_manager: self.thread_watch_manager.clone(),
             fallback_model_provider: self.config.model_provider_id.clone(),
             codex_home: self.config.codex_home.clone(),
@@ -2427,18 +2406,6 @@ impl CodexMessageProcessor {
                     sandbox: config_snapshot.sandbox_policy.into(),
                     reasoning_effort: config_snapshot.reasoning_effort,
                 };
-                if listener_task_context.general_analytics_enabled {
-                    listener_task_context
-                        .analytics_events_client
-                        .track_response(
-                            request_id.connection_id.0,
-                            ClientResponse::ThreadStart {
-                                request_id: request_id.request_id.clone(),
-                                response: response.clone(),
-                            },
-                        );
-                }
-
                 listener_task_context
                     .outgoing
                     .send_response(request_id, response)
@@ -3928,16 +3895,6 @@ impl CodexMessageProcessor {
                     sandbox: session_configured.sandbox_policy.into(),
                     reasoning_effort: session_configured.reasoning_effort,
                 };
-                if self.config.features.enabled(Feature::GeneralAnalytics) {
-                    self.analytics_events_client.track_response(
-                        request_id.connection_id.0,
-                        ClientResponse::ThreadResume {
-                            request_id: request_id.request_id.clone(),
-                            response: response.clone(),
-                        },
-                    );
-                }
-
                 self.outgoing.send_response(request_id, response).await;
             }
             Err(err) => {
@@ -4557,16 +4514,6 @@ impl CodexMessageProcessor {
             sandbox: session_configured.sandbox_policy.into(),
             reasoning_effort: session_configured.reasoning_effort,
         };
-        if self.config.features.enabled(Feature::GeneralAnalytics) {
-            self.analytics_events_client.track_response(
-                request_id.connection_id.0,
-                ClientResponse::ThreadFork {
-                    request_id: request_id.request_id.clone(),
-                    response: response.clone(),
-                },
-            );
-        }
-
         self.outgoing.send_response(request_id, response).await;
 
         let notif = ThreadStartedNotification { thread };
@@ -7302,8 +7249,6 @@ impl CodexMessageProcessor {
                 thread_manager: Arc::clone(&self.thread_manager),
                 thread_state_manager: self.thread_state_manager.clone(),
                 outgoing: Arc::clone(&self.outgoing),
-                analytics_events_client: self.analytics_events_client.clone(),
-                general_analytics_enabled: self.config.features.enabled(Feature::GeneralAnalytics),
                 thread_watch_manager: self.thread_watch_manager.clone(),
                 fallback_model_provider: self.config.model_provider_id.clone(),
                 codex_home: self.config.codex_home.clone(),
@@ -7391,8 +7336,6 @@ impl CodexMessageProcessor {
                 thread_manager: Arc::clone(&self.thread_manager),
                 thread_state_manager: self.thread_state_manager.clone(),
                 outgoing: Arc::clone(&self.outgoing),
-                analytics_events_client: self.analytics_events_client.clone(),
-                general_analytics_enabled: self.config.features.enabled(Feature::GeneralAnalytics),
                 thread_watch_manager: self.thread_watch_manager.clone(),
                 fallback_model_provider: self.config.model_provider_id.clone(),
                 codex_home: self.config.codex_home.clone(),
@@ -7424,8 +7367,6 @@ impl CodexMessageProcessor {
             outgoing,
             thread_manager,
             thread_state_manager,
-            analytics_events_client: _,
-            general_analytics_enabled: _,
             thread_watch_manager,
             fallback_model_provider,
             codex_home,
@@ -7652,190 +7593,6 @@ impl CodexMessageProcessor {
         self.outgoing
             .send_response(request_id, FuzzyFileSearchSessionStopResponse {})
             .await;
-    }
-
-    async fn upload_feedback(&self, request_id: ConnectionRequestId, params: FeedbackUploadParams) {
-        if !self.config.feedback_enabled {
-            let error = JSONRPCErrorError {
-                code: INVALID_REQUEST_ERROR_CODE,
-                message: "sending feedback is disabled by configuration".to_string(),
-                data: None,
-            };
-            self.outgoing.send_error(request_id, error).await;
-            return;
-        }
-
-        let FeedbackUploadParams {
-            classification,
-            reason,
-            thread_id,
-            include_logs,
-            extra_log_files,
-        } = params;
-
-        let conversation_id = match thread_id.as_deref() {
-            Some(thread_id) => match ThreadId::from_string(thread_id) {
-                Ok(conversation_id) => Some(conversation_id),
-                Err(err) => {
-                    let error = JSONRPCErrorError {
-                        code: INVALID_REQUEST_ERROR_CODE,
-                        message: format!("invalid thread id: {err}"),
-                        data: None,
-                    };
-                    self.outgoing.send_error(request_id, error).await;
-                    return;
-                }
-            },
-            None => None,
-        };
-
-        if let Some(chatgpt_user_id) = self
-            .auth_manager
-            .auth_cached()
-            .and_then(|auth| auth.get_chatgpt_user_id())
-        {
-            tracing::info!(target: "feedback_tags", chatgpt_user_id);
-        }
-        let snapshot = self.feedback.snapshot(conversation_id);
-        let thread_id = snapshot.thread_id.clone();
-        let (feedback_thread_ids, sqlite_feedback_logs, state_db_ctx) = if include_logs {
-            if let Some(log_db) = self.log_db.as_ref() {
-                log_db.flush().await;
-            }
-            let state_db_ctx = get_state_db(&self.config).await;
-            let feedback_thread_ids = match conversation_id {
-                Some(conversation_id) => match self
-                    .thread_manager
-                    .list_agent_subtree_thread_ids(conversation_id)
-                    .await
-                {
-                    Ok(thread_ids) => thread_ids,
-                    Err(err) => {
-                        warn!(
-                            "failed to list feedback subtree for thread_id={conversation_id}: {err}"
-                        );
-                        let mut thread_ids = vec![conversation_id];
-                        if let Some(state_db_ctx) = state_db_ctx.as_ref() {
-                            for status in [
-                                codex_state::DirectionalThreadSpawnEdgeStatus::Open,
-                                codex_state::DirectionalThreadSpawnEdgeStatus::Closed,
-                            ] {
-                                match state_db_ctx
-                                    .list_thread_spawn_descendants_with_status(
-                                        conversation_id,
-                                        status,
-                                    )
-                                    .await
-                                {
-                                    Ok(descendant_ids) => thread_ids.extend(descendant_ids),
-                                    Err(err) => warn!(
-                                        "failed to list persisted feedback subtree for thread_id={conversation_id}: {err}"
-                                    ),
-                                }
-                            }
-                        }
-                        thread_ids
-                    }
-                },
-                None => Vec::new(),
-            };
-            let sqlite_feedback_logs = if let Some(state_db_ctx) = state_db_ctx.as_ref()
-                && !feedback_thread_ids.is_empty()
-            {
-                let thread_id_texts = feedback_thread_ids
-                    .iter()
-                    .map(ToString::to_string)
-                    .collect::<Vec<_>>();
-                let thread_id_refs = thread_id_texts
-                    .iter()
-                    .map(String::as_str)
-                    .collect::<Vec<_>>();
-                match state_db_ctx
-                    .query_feedback_logs_for_threads(&thread_id_refs)
-                    .await
-                {
-                    Ok(logs) if logs.is_empty() => None,
-                    Ok(logs) => Some(logs),
-                    Err(err) => {
-                        let thread_ids = thread_id_texts.join(", ");
-                        warn!(
-                            "failed to query feedback logs from sqlite for thread_ids=[{thread_ids}]: {err}"
-                        );
-                        None
-                    }
-                }
-            } else {
-                None
-            };
-            (feedback_thread_ids, sqlite_feedback_logs, state_db_ctx)
-        } else {
-            (Vec::new(), None, None)
-        };
-
-        let mut attachment_paths = Vec::new();
-        let mut seen_attachment_paths = HashSet::new();
-        if include_logs {
-            for feedback_thread_id in &feedback_thread_ids {
-                let Some(rollout_path) = self
-                    .resolve_rollout_path(*feedback_thread_id, state_db_ctx.as_ref())
-                    .await
-                else {
-                    continue;
-                };
-                if seen_attachment_paths.insert(rollout_path.clone()) {
-                    attachment_paths.push(rollout_path);
-                }
-            }
-        }
-        if let Some(extra_log_files) = extra_log_files {
-            for extra_log_file in extra_log_files {
-                if seen_attachment_paths.insert(extra_log_file.clone()) {
-                    attachment_paths.push(extra_log_file);
-                }
-            }
-        }
-
-        let session_source = self.thread_manager.session_source();
-
-        let upload_result = tokio::task::spawn_blocking(move || {
-            snapshot.upload_feedback(
-                &classification,
-                reason.as_deref(),
-                include_logs,
-                &attachment_paths,
-                Some(session_source),
-                sqlite_feedback_logs,
-            )
-        })
-        .await;
-
-        let upload_result = match upload_result {
-            Ok(result) => result,
-            Err(join_err) => {
-                let error = JSONRPCErrorError {
-                    code: INTERNAL_ERROR_CODE,
-                    message: format!("failed to upload feedback: {join_err}"),
-                    data: None,
-                };
-                self.outgoing.send_error(request_id, error).await;
-                return;
-            }
-        };
-
-        match upload_result {
-            Ok(()) => {
-                let response = FeedbackUploadResponse { thread_id };
-                self.outgoing.send_response(request_id, response).await;
-            }
-            Err(err) => {
-                let error = JSONRPCErrorError {
-                    code: INTERNAL_ERROR_CODE,
-                    message: format!("failed to upload feedback: {err}"),
-                    data: None,
-                };
-                self.outgoing.send_error(request_id, error).await;
-            }
-        }
     }
 
     async fn windows_sandbox_setup_start(
@@ -9267,6 +9024,7 @@ mod tests {
             approvals_reviewer: codex_protocol::config_types::ApprovalsReviewer::User,
             sandbox_policy: codex_protocol::protocol::SandboxPolicy::DangerFullAccess,
             cwd: PathBuf::from("/tmp"),
+            workspace: None,
             ephemeral: false,
             reasoning_effort: None,
             personality: None,

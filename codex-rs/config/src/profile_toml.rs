@@ -4,7 +4,6 @@ use serde::Deserialize;
 use serde::Serialize;
 
 use crate::config_toml::ToolsToml;
-use crate::types::AnalyticsConfigToml;
 use crate::types::ApprovalsReviewer;
 use crate::types::Personality;
 use crate::types::WindowsToml;
@@ -55,7 +54,6 @@ pub struct ConfigProfile {
     pub tools_view_image: Option<bool>,
     pub tools: Option<ToolsToml>,
     pub web_search: Option<WebSearchMode>,
-    pub analytics: Option<AnalyticsConfigToml>,
     #[serde(default)]
     pub windows: Option<WindowsToml>,
     /// Optional feature toggles scoped to this profile.

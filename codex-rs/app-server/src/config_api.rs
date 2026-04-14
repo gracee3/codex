@@ -1,7 +1,6 @@
 use crate::error_code::INTERNAL_ERROR_CODE;
 use crate::error_code::INVALID_REQUEST_ERROR_CODE;
 use async_trait::async_trait;
-use codex_analytics::AnalyticsEventsClient;
 use codex_app_server_protocol::ConfigBatchWriteParams;
 use codex_app_server_protocol::ConfigReadParams;
 use codex_app_server_protocol::ConfigReadResponse;
@@ -26,9 +25,7 @@ use codex_core::config_loader::ConfigRequirementsToml;
 use codex_core::config_loader::LoaderOverrides;
 use codex_core::config_loader::ResidencyRequirement as CoreResidencyRequirement;
 use codex_core::config_loader::SandboxModeRequirement as CoreSandboxModeRequirement;
-use codex_core::plugins::PluginId;
 use codex_core::plugins::collect_plugin_enabled_candidates;
-use codex_core::plugins::installed_plugin_telemetry_metadata;
 use codex_features::canonical_feature_for_key;
 use codex_features::feature_for_key;
 use codex_protocol::config_types::WebSearchMode;
@@ -78,7 +75,6 @@ pub(crate) struct ConfigApi {
     loader_overrides: LoaderOverrides,
     cloud_requirements: Arc<RwLock<CloudRequirementsLoader>>,
     user_config_reloader: Arc<dyn UserConfigReloader>,
-    analytics_events_client: AnalyticsEventsClient,
 }
 
 impl ConfigApi {
@@ -89,7 +85,6 @@ impl ConfigApi {
         loader_overrides: LoaderOverrides,
         cloud_requirements: Arc<RwLock<CloudRequirementsLoader>>,
         user_config_reloader: Arc<dyn UserConfigReloader>,
-        analytics_events_client: AnalyticsEventsClient,
     ) -> Self {
         Self {
             codex_home,
@@ -98,7 +93,6 @@ impl ConfigApi {
             loader_overrides,
             cloud_requirements,
             user_config_reloader,
-            analytics_events_client,
         }
     }
 
@@ -300,18 +294,7 @@ impl ConfigApi {
     }
 
     fn emit_plugin_toggle_events(&self, pending_changes: std::collections::BTreeMap<String, bool>) {
-        for (plugin_id, enabled) in pending_changes {
-            let Ok(plugin_id) = PluginId::parse(&plugin_id) else {
-                continue;
-            };
-            let metadata =
-                installed_plugin_telemetry_metadata(self.codex_home.as_path(), &plugin_id);
-            if enabled {
-                self.analytics_events_client.track_plugin_enabled(metadata);
-            } else {
-                self.analytics_events_client.track_plugin_disabled(metadata);
-            }
-        }
+        let _ = pending_changes;
     }
 }
 
@@ -517,15 +500,12 @@ fn config_write_error(code: ConfigWriteErrorCode, message: impl Into<String>) ->
 #[cfg(test)]
 mod tests {
     use super::*;
-    use codex_analytics::AnalyticsEventsClient;
     use codex_core::config_loader::NetworkDomainPermissionToml as CoreNetworkDomainPermissionToml;
     use codex_core::config_loader::NetworkDomainPermissionsToml as CoreNetworkDomainPermissionsToml;
     use codex_core::config_loader::NetworkRequirementsToml as CoreNetworkRequirementsToml;
     use codex_core::config_loader::NetworkUnixSocketPermissionToml as CoreNetworkUnixSocketPermissionToml;
     use codex_core::config_loader::NetworkUnixSocketPermissionsToml as CoreNetworkUnixSocketPermissionsToml;
     use codex_features::Feature;
-    use codex_login::AuthManager;
-    use codex_login::CodexAuth;
     use codex_protocol::config_types::ApprovalsReviewer as CoreApprovalsReviewer;
     use codex_protocol::protocol::AskForApproval as CoreAskForApproval;
     use pretty_assertions::assert_eq;
@@ -817,13 +797,6 @@ mod tests {
         let user_config_path = codex_home.path().join("config.toml");
         std::fs::write(&user_config_path, "").expect("write config");
         let reloader = Arc::new(RecordingUserConfigReloader::default());
-        let analytics_config = Arc::new(
-            codex_core::config::ConfigBuilder::default()
-                .build()
-                .await
-                .expect("load analytics config"),
-        );
-        let auth_manager = AuthManager::from_auth_for_testing(CodexAuth::from_api_key("test"));
         let config_api = ConfigApi::new(
             codex_home.path().to_path_buf(),
             Arc::new(RwLock::new(Vec::new())),
@@ -831,14 +804,6 @@ mod tests {
             LoaderOverrides::default(),
             Arc::new(RwLock::new(CloudRequirementsLoader::default())),
             reloader.clone(),
-            AnalyticsEventsClient::new(
-                auth_manager,
-                analytics_config
-                    .chatgpt_base_url
-                    .trim_end_matches('/')
-                    .to_string(),
-                analytics_config.analytics_enabled,
-            ),
         );
 
         let response = config_api

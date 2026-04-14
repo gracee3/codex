@@ -4,7 +4,6 @@ use crate::agent::registry::AgentRegistry;
 use crate::agent::role::DEFAULT_ROLE_NAME;
 use crate::agent::role::resolve_role_config;
 use crate::agent::status::is_final;
-use crate::codex::emit_subagent_session_started;
 use crate::codex_thread::ThreadConfigSnapshot;
 use crate::find_archived_thread_path_by_id_str;
 use crate::find_thread_path_by_id_str;
@@ -15,12 +14,17 @@ use crate::shell_snapshot::ShellSnapshot;
 use crate::thread_manager::ThreadManagerState;
 use crate::thread_rollout_truncation::truncate_rollout_to_last_n_fork_turns;
 use codex_features::Feature;
+use codex_git_utils::create_managed_worktree;
+use codex_git_utils::managed_workspace_for_path;
+use codex_git_utils::remove_managed_worktree;
+use codex_git_utils::resolve_root_git_project_for_trust;
 use codex_protocol::AgentPath;
 use codex_protocol::ThreadId;
 use codex_protocol::error::CodexErr;
 use codex_protocol::error::Result as CodexResult;
 use codex_protocol::models::MessagePhase;
 use codex_protocol::models::ResponseItem;
+use codex_protocol::protocol::FileSystemSandboxPolicy;
 use codex_protocol::protocol::InitialHistory;
 use codex_protocol::protocol::InterAgentCommunication;
 use codex_protocol::protocol::Op;
@@ -31,16 +35,87 @@ use codex_protocol::protocol::TokenUsage;
 use codex_protocol::user_input::UserInput;
 use codex_rollout::state_db;
 use codex_state::DirectionalThreadSpawnEdgeStatus;
+use codex_utils_absolute_path::AbsolutePathBuf;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::collections::VecDeque;
+use std::path::Path;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Weak;
 use tokio::sync::watch;
 use tracing::warn;
+use uuid::Uuid;
 
 const AGENT_NAMES: &str = include_str!("agent_names.txt");
 const ROOT_LAST_TASK_MESSAGE: &str = "Main thread";
+
+fn assign_managed_subagent_worktree(config: &mut crate::config::Config) {
+    let Some(repo_root) = resolve_root_git_project_for_trust(&config.cwd) else {
+        return;
+    };
+
+    let worktree_id = format!("subagent-{}", Uuid::new_v4().simple());
+    let workspace = match create_managed_worktree(&repo_root, &worktree_id) {
+        Ok(workspace) => workspace,
+        Err(err) => {
+            warn!(
+                cwd = %config.cwd.display(),
+                repo_root = %repo_root.display(),
+                "failed to create managed subagent worktree: {err}"
+            );
+            return;
+        }
+    };
+
+    let inherited_legacy_policy = FileSystemSandboxPolicy::from_legacy_sandbox_policy(
+        config.permissions.sandbox_policy.get(),
+        &config.cwd,
+    );
+    let workspace_path = workspace.workspace_path;
+    let Ok(workspace_cwd) = AbsolutePathBuf::try_from(workspace_path.clone()) else {
+        warn!(
+            workspace_path = %workspace_path.display(),
+            "managed subagent worktree path should be absolute"
+        );
+        return;
+    };
+    config.cwd = workspace_cwd;
+    if config.permissions.file_system_sandbox_policy == inherited_legacy_policy {
+        config.permissions.file_system_sandbox_policy =
+            FileSystemSandboxPolicy::from_legacy_sandbox_policy(
+                config.permissions.sandbox_policy.get(),
+                &config.cwd,
+            );
+    }
+}
+
+fn cleanup_managed_workspace_path(workspace_path: Option<&Path>) {
+    let Some(workspace_path) = workspace_path else {
+        return;
+    };
+    if let Err(err) = remove_managed_worktree(workspace_path) {
+        warn!(
+            workspace_path = %workspace_path.display(),
+            "failed to remove managed subagent worktree: {err}"
+        );
+    }
+}
+
+async fn managed_workspace_path_for_thread(
+    state: &Arc<ThreadManagerState>,
+    agent_id: ThreadId,
+) -> Option<PathBuf> {
+    let thread = state.get_thread(agent_id).await.ok()?;
+    thread
+        .config_snapshot()
+        .await
+        .workspace
+        .filter(|workspace| {
+            workspace.kind == codex_git_utils::ManagedGitWorkspaceKind::EphemeralWorktree
+        })
+        .map(|workspace| workspace.workspace_path)
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum SpawnAgentForkMode {
@@ -179,7 +254,7 @@ impl AgentControl {
 
     async fn spawn_agent_internal(
         &self,
-        config: crate::config::Config,
+        mut config: crate::config::Config,
         initial_operation: Op,
         session_source: Option<SessionSource>,
         options: SpawnAgentOptions,
@@ -214,22 +289,41 @@ impl AgentControl {
             other => (other, AgentMetadata::default()),
         };
         let notification_source = session_source.clone();
+        if matches!(
+            notification_source,
+            Some(SessionSource::SubAgent(SubAgentSource::ThreadSpawn { .. }))
+        ) {
+            assign_managed_subagent_worktree(&mut config);
+        }
+        let managed_workspace_path = managed_workspace_for_path(&config.cwd)
+            .filter(|workspace| {
+                workspace.kind == codex_git_utils::ManagedGitWorkspaceKind::EphemeralWorktree
+            })
+            .map(|workspace| workspace.workspace_path);
 
         // The same `AgentControl` is sent to spawn the thread.
         let new_thread = match (session_source, options.fork_mode.as_ref()) {
             (Some(session_source), Some(_)) => {
-                self.spawn_forked_thread(
-                    &state,
-                    config,
-                    session_source,
-                    &options,
-                    inherited_shell_snapshot,
-                    inherited_exec_policy,
-                )
-                .await?
+                match self
+                    .spawn_forked_thread(
+                        &state,
+                        config,
+                        session_source,
+                        &options,
+                        inherited_shell_snapshot,
+                        inherited_exec_policy,
+                    )
+                    .await
+                {
+                    Ok(new_thread) => new_thread,
+                    Err(err) => {
+                        cleanup_managed_workspace_path(managed_workspace_path.as_deref());
+                        return Err(err);
+                    }
+                }
             }
             (Some(session_source), None) => {
-                state
+                match state
                     .spawn_new_thread_with_source(
                         config,
                         self.clone(),
@@ -239,54 +333,19 @@ impl AgentControl {
                         inherited_shell_snapshot,
                         inherited_exec_policy,
                     )
-                    .await?
+                    .await
+                {
+                    Ok(new_thread) => new_thread,
+                    Err(err) => {
+                        cleanup_managed_workspace_path(managed_workspace_path.as_deref());
+                        return Err(err);
+                    }
+                }
             }
             (None, _) => state.spawn_new_thread(config, self.clone()).await?,
         };
         agent_metadata.agent_id = Some(new_thread.thread_id);
         reservation.commit(agent_metadata.clone());
-
-        if let Some(SessionSource::SubAgent(
-            subagent_source @ SubAgentSource::ThreadSpawn {
-                parent_thread_id, ..
-            },
-        )) = notification_source.as_ref()
-            && new_thread.thread.enabled(Feature::GeneralAnalytics)
-        {
-            let client_metadata = match state.get_thread(*parent_thread_id).await {
-                Ok(parent_thread) => {
-                    parent_thread
-                        .codex
-                        .session
-                        .app_server_client_metadata()
-                        .await
-                }
-                Err(error) => {
-                    tracing::warn!(
-                        error = %error,
-                        parent_thread_id = %parent_thread_id,
-                        "skipping subagent thread analytics: failed to load parent thread metadata"
-                    );
-                    crate::codex::AppServerClientMetadata {
-                        client_name: None,
-                        client_version: None,
-                    }
-                }
-            };
-            let thread_config = new_thread.thread.codex.thread_config_snapshot().await;
-            emit_subagent_session_started(
-                &new_thread
-                    .thread
-                    .codex
-                    .session
-                    .services
-                    .analytics_events_client,
-                client_metadata,
-                new_thread.thread_id,
-                thread_config,
-                subagent_source.clone(),
-            );
-        }
 
         // Notify a new thread has been created. This notification will be processed by clients
         // to subscribe or drain this newly created thread.
@@ -300,8 +359,13 @@ impl AgentControl {
         )
         .await;
 
-        self.send_input(new_thread.thread_id, initial_operation)
-            .await?;
+        if let Err(err) = self
+            .send_input(new_thread.thread_id, initial_operation)
+            .await
+        {
+            let _ = self.shutdown_live_agent(new_thread.thread_id).await;
+            return Err(err);
+        }
         if !new_thread.thread.enabled(Feature::MultiAgentV2) {
             let child_reference = agent_metadata
                 .agent_path
@@ -650,8 +714,10 @@ impl AgentControl {
         result: CodexResult<String>,
     ) -> CodexResult<String> {
         if matches!(result, Err(CodexErr::InternalAgentDied)) {
+            let managed_workspace_path = managed_workspace_path_for_thread(state, agent_id).await;
             let _ = state.remove_thread(&agent_id).await;
             self.state.release_spawned_thread(agent_id);
+            cleanup_managed_workspace_path(managed_workspace_path.as_deref());
         }
         result
     }
@@ -660,6 +726,7 @@ impl AgentControl {
     /// persisted spawn-edge state.
     pub(crate) async fn shutdown_live_agent(&self, agent_id: ThreadId) -> CodexResult<String> {
         let state = self.upgrade()?;
+        let managed_workspace_path = managed_workspace_path_for_thread(&state, agent_id).await;
         let result = if let Ok(thread) = state.get_thread(agent_id).await {
             thread.codex.session.ensure_rollout_materialized().await;
             thread.codex.session.flush_rollout().await;
@@ -673,6 +740,7 @@ impl AgentControl {
         };
         let _ = state.remove_thread(&agent_id).await;
         self.state.release_spawned_thread(agent_id);
+        cleanup_managed_workspace_path(managed_workspace_path.as_deref());
         result
     }
 

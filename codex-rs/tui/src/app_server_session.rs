@@ -1,4 +1,3 @@
-use crate::bottom_pane::FeedbackAudience;
 use crate::status::StatusAccountDisplay;
 use crate::status::plan_type_display_name;
 use codex_app_server_client::AppServerClient;
@@ -108,7 +107,6 @@ pub(crate) struct AppServerBootstrap {
     /// should be fired.
     pub(crate) requires_openai_auth: bool,
     pub(crate) default_model: String,
-    pub(crate) feedback_audience: FeedbackAudience,
     pub(crate) has_chatgpt_account: bool,
     pub(crate) available_models: Vec<ModelPreset>,
 }
@@ -212,29 +210,16 @@ impl AppServerSession {
             .or_else(|| available_models.first().map(|model| model.model.clone()))
             .wrap_err("model/list returned no models for TUI bootstrap")?;
 
-        let (
-            account_email,
-            auth_mode,
-            status_account_display,
-            plan_type,
-            feedback_audience,
-            has_chatgpt_account,
-        ) = match account.account {
-            Some(Account::ApiKey {}) => (
-                None,
-                Some(TelemetryAuthMode::ApiKey),
-                Some(StatusAccountDisplay::ApiKey),
-                None,
-                FeedbackAudience::External,
-                false,
-            ),
-            Some(Account::Chatgpt { email, plan_type }) => {
-                let feedback_audience = if email.ends_with("@openai.com") {
-                    FeedbackAudience::OpenAiEmployee
-                } else {
-                    FeedbackAudience::External
-                };
-                (
+        let (account_email, auth_mode, status_account_display, plan_type, has_chatgpt_account) =
+            match account.account {
+                Some(Account::ApiKey {}) => (
+                    None,
+                    Some(TelemetryAuthMode::ApiKey),
+                    Some(StatusAccountDisplay::ApiKey),
+                    None,
+                    false,
+                ),
+                Some(Account::Chatgpt { email, plan_type }) => (
                     Some(email.clone()),
                     Some(TelemetryAuthMode::Chatgpt),
                     Some(StatusAccountDisplay::ChatGpt {
@@ -242,12 +227,10 @@ impl AppServerSession {
                         plan: Some(plan_type_display_name(plan_type)),
                     }),
                     Some(plan_type),
-                    feedback_audience,
                     true,
-                )
-            }
-            None => (None, None, None, None, FeedbackAudience::External, false),
-        };
+                ),
+                None => (None, None, None, None, false),
+            };
         Ok(AppServerBootstrap {
             account_email,
             auth_mode,
@@ -255,7 +238,6 @@ impl AppServerSession {
             plan_type,
             requires_openai_auth: account.requires_openai_auth,
             default_model,
-            feedback_audience,
             has_chatgpt_account,
             available_models,
         })
@@ -764,15 +746,6 @@ pub(crate) fn status_account_display_from_auth_mode(
 }
 
 #[allow(dead_code)]
-pub(crate) fn feedback_audience_from_account_email(
-    account_email: Option<&str>,
-) -> FeedbackAudience {
-    match account_email {
-        Some(email) if email.ends_with("@openai.com") => FeedbackAudience::OpenAiEmployee,
-        Some(_) | None => FeedbackAudience::External,
-    }
-}
-
 fn model_preset_from_api_model(model: ApiModel) -> ModelPreset {
     let upgrade = model.upgrade.map(|upgrade_id| {
         let upgrade_info = model.upgrade_info.clone();
@@ -1258,6 +1231,7 @@ mod tests {
                 updated_at: 2,
                 status: ThreadStatus::Idle,
                 path: None,
+                workspace: None,
                 cwd: PathBuf::from("/tmp/project"),
                 cli_version: "0.0.0".to_string(),
                 source: codex_protocol::protocol::SessionSource::Cli.into(),

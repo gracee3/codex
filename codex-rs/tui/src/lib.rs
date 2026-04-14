@@ -239,7 +239,6 @@ async fn start_embedded_app_server(
     cli_kv_overrides: Vec<(String, toml::Value)>,
     loader_overrides: LoaderOverrides,
     cloud_requirements: CloudRequirementsLoader,
-    feedback: codex_feedback::CodexFeedback,
     environment_manager: Arc<EnvironmentManager>,
 ) -> color_eyre::Result<InProcessAppServerClient> {
     start_embedded_app_server_with(
@@ -248,7 +247,6 @@ async fn start_embedded_app_server(
         cli_kv_overrides,
         loader_overrides,
         cloud_requirements,
-        feedback,
         environment_manager,
         InProcessAppServerClient::start,
     )
@@ -365,7 +363,6 @@ async fn start_app_server(
     cli_kv_overrides: Vec<(String, toml::Value)>,
     loader_overrides: LoaderOverrides,
     cloud_requirements: CloudRequirementsLoader,
-    feedback: codex_feedback::CodexFeedback,
     environment_manager: Arc<EnvironmentManager>,
 ) -> color_eyre::Result<AppServerClient> {
     match target {
@@ -375,7 +372,6 @@ async fn start_app_server(
             cli_kv_overrides,
             loader_overrides,
             cloud_requirements,
-            feedback,
             environment_manager,
         )
         .await
@@ -400,7 +396,6 @@ pub(crate) async fn start_app_server_for_picker(
         Vec::new(),
         LoaderOverrides::default(),
         CloudRequirementsLoader::default(),
-        codex_feedback::CodexFeedback::new(),
         environment_manager,
     )
     .await?;
@@ -433,7 +428,6 @@ async fn start_embedded_app_server_with<F, Fut>(
     cli_kv_overrides: Vec<(String, toml::Value)>,
     loader_overrides: LoaderOverrides,
     cloud_requirements: CloudRequirementsLoader,
-    feedback: codex_feedback::CodexFeedback,
     environment_manager: Arc<EnvironmentManager>,
     start_client: F,
 ) -> color_eyre::Result<InProcessAppServerClient>
@@ -457,7 +451,6 @@ where
         cli_overrides: cli_kv_overrides,
         loader_overrides,
         cloud_requirements,
-        feedback,
         environment_manager,
         config_warnings,
         session_source: codex_protocol::protocol::SessionSource::Cli,
@@ -936,10 +929,6 @@ pub async fn run_main(
         )
         .with_filter(env_filter());
 
-    let feedback = codex_feedback::CodexFeedback::new();
-    let feedback_layer = feedback.logger_layer();
-    let feedback_metadata_layer = feedback.metadata_layer();
-
     if cli.oss && model_provider_override.is_some() {
         // We're in the oss section, so provider_id should be Some
         // Let's handle None case gracefully though just in case
@@ -990,8 +979,6 @@ pub async fn run_main(
 
     let _ = tracing_subscriber::registry()
         .with(file_layer)
-        .with(feedback_layer)
-        .with(feedback_metadata_layer)
         .with(log_db_layer)
         .with(otel_logger_layer)
         .with(otel_tracing_layer)
@@ -1007,7 +994,6 @@ pub async fn run_main(
         overrides,
         cli_kv_overrides,
         cloud_requirements,
-        feedback,
         environment_manager,
     )
     .await
@@ -1025,7 +1011,6 @@ async fn run_ratatui_app(
     overrides: ConfigOverrides,
     cli_kv_overrides: Vec<(String, toml::Value)>,
     mut cloud_requirements: CloudRequirementsLoader,
-    feedback: codex_feedback::CodexFeedback,
     environment_manager: Arc<EnvironmentManager>,
 ) -> color_eyre::Result<AppExitInfo> {
     let remote_mode = matches!(&app_server_target, AppServerTarget::Remote { .. });
@@ -1081,7 +1066,6 @@ async fn run_ratatui_app(
             cli_kv_overrides.clone(),
             loader_overrides.clone(),
             cloud_requirements.clone(),
-            feedback.clone(),
             environment_manager.clone(),
         )
         .await
@@ -1407,7 +1391,6 @@ async fn run_ratatui_app(
             cli_kv_overrides.clone(),
             loader_overrides,
             cloud_requirements.clone(),
-            feedback.clone(),
             environment_manager.clone(),
         )
         .await
@@ -1451,7 +1434,6 @@ async fn run_ratatui_app(
         prompt,
         images,
         session_selection,
-        feedback,
         should_show_trust_screen, // Proxy to: is it a first run in this directory?
         should_prompt_windows_sandbox_nux_at_startup,
         effective_remote_url,
@@ -1797,7 +1779,6 @@ mod tests {
             Vec::new(),
             LoaderOverrides::default(),
             CloudRequirementsLoader::default(),
-            codex_feedback::CodexFeedback::new(),
             Arc::new(EnvironmentManager::new(/*exec_server_url*/ None)),
         )
         .await
@@ -2121,7 +2102,6 @@ mod tests {
             Vec::new(),
             LoaderOverrides::default(),
             CloudRequirementsLoader::default(),
-            codex_feedback::CodexFeedback::new(),
             Arc::new(EnvironmentManager::new(/*exec_server_url*/ None)),
             |_args| async { Err(std::io::Error::other("boom")) },
         )

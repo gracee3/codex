@@ -495,11 +495,6 @@ client_request_definitions! {
         response: v2::GetAccountRateLimitsResponse,
     },
 
-    FeedbackUpload => "feedback/upload" {
-        params: v2::FeedbackUploadParams,
-        response: v2::FeedbackUploadResponse,
-    },
-
     /// Execute a standalone command (argv vector) under the server's sandbox.
     OneOffCommandExec => "command/exec" {
         params: v2::CommandExecParams,
@@ -1387,6 +1382,7 @@ mod tests {
                     status: v2::ThreadStatus::Idle,
                     path: None,
                     cwd: PathBuf::from("/tmp"),
+                    workspace: None,
                     cli_version: "0.0.0".to_string(),
                     source: v2::SessionSource::Exec,
                     agent_nickname: None,
@@ -1426,6 +1422,7 @@ mod tests {
                         },
                         "path": null,
                         "cwd": "/tmp",
+                        "workspace": null,
                         "cliVersion": "0.0.0",
                         "source": "exec",
                         "agentNickname": null,

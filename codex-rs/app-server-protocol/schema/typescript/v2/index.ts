@@ -90,8 +90,6 @@ export type { ExternalAgentConfigImportParams } from "./ExternalAgentConfigImpor
 export type { ExternalAgentConfigImportResponse } from "./ExternalAgentConfigImportResponse";
 export type { ExternalAgentConfigMigrationItem } from "./ExternalAgentConfigMigrationItem";
 export type { ExternalAgentConfigMigrationItemType } from "./ExternalAgentConfigMigrationItemType";
-export type { FeedbackUploadParams } from "./FeedbackUploadParams";
-export type { FeedbackUploadResponse } from "./FeedbackUploadResponse";
 export type { FileChangeApprovalDecision } from "./FileChangeApprovalDecision";
 export type { FileChangeOutputDeltaNotification } from "./FileChangeOutputDeltaNotification";
 export type { FileChangeRequestApprovalParams } from "./FileChangeRequestApprovalParams";
@@ -148,6 +146,8 @@ export type { ListMcpServerStatusResponse } from "./ListMcpServerStatusResponse"
 export type { LoginAccountParams } from "./LoginAccountParams";
 export type { LoginAccountResponse } from "./LoginAccountResponse";
 export type { LogoutAccountResponse } from "./LogoutAccountResponse";
+export type { ManagedWorkspace } from "./ManagedWorkspace";
+export type { ManagedWorkspaceKind } from "./ManagedWorkspaceKind";
 export type { MarketplaceInterface } from "./MarketplaceInterface";
 export type { MarketplaceLoadErrorInfo } from "./MarketplaceLoadErrorInfo";
 export type { McpAuthStatus } from "./McpAuthStatus";

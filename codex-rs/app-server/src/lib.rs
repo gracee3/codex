@@ -33,7 +33,6 @@ use crate::transport::route_outgoing_envelope;
 use crate::transport::start_remote_control;
 use crate::transport::start_stdio_connection;
 use crate::transport::start_websocket_acceptor;
-use codex_analytics::AppServerRpcTransport;
 use codex_app_server_protocol::ConfigLayerSource;
 use codex_app_server_protocol::ConfigWarningNotification;
 use codex_app_server_protocol::JSONRPCMessage;
@@ -44,7 +43,6 @@ use codex_core::check_execpolicy_for_warnings;
 use codex_core::config_loader::ConfigLoadError;
 use codex_core::config_loader::TextRange as CoreTextRange;
 use codex_exec_server::EnvironmentManager;
-use codex_feedback::CodexFeedback;
 use codex_protocol::protocol::SessionSource;
 use codex_state::log_db;
 use tokio::sync::mpsc;
@@ -468,8 +466,6 @@ pub async fn run_main_with_transport(
         });
     }
 
-    let feedback = CodexFeedback::new();
-
     let otel = codex_core::otel_init::build_provider(
         &config,
         env!("CARGO_PKG_VERSION"),
@@ -500,8 +496,6 @@ pub async fn run_main_with_transport(
             .boxed(),
     };
 
-    let feedback_layer = feedback.logger_layer();
-    let feedback_metadata_layer = feedback.metadata_layer();
     let state_db = codex_state::StateRuntime::init(
         config.sqlite_home.clone(),
         config.model_provider_id.clone(),
@@ -512,12 +506,10 @@ pub async fn run_main_with_transport(
     let log_db_layer = log_db
         .clone()
         .map(|layer| layer.with_filter(Targets::new().with_default(Level::TRACE)));
-    let otel_logger_layer = otel.as_ref().and_then(|o| o.logger_layer());
-    let otel_tracing_layer = otel.as_ref().and_then(|o| o.tracing_layer());
+    let otel_logger_layer = otel.as_ref().and_then(codex_otel::OtelProvider::logger_layer);
+    let otel_tracing_layer = otel.as_ref().and_then(codex_otel::OtelProvider::tracing_layer);
     let _ = tracing_subscriber::registry()
         .with(stderr_fmt)
-        .with(feedback_layer)
-        .with(feedback_metadata_layer)
         .with(log_db_layer)
         .with(otel_logger_layer)
         .with(otel_tracing_layer)
@@ -654,12 +646,10 @@ pub async fn run_main_with_transport(
             cli_overrides,
             loader_overrides,
             cloud_requirements: cloud_requirements.clone(),
-            feedback: feedback.clone(),
             log_db,
             config_warnings,
             session_source,
             auth_manager,
-            rpc_transport: analytics_rpc_transport(transport),
             remote_control_handle: Some(remote_control_handle),
         });
         let mut thread_created_rx = processor.thread_created_receiver();
@@ -882,15 +872,6 @@ pub async fn run_main_with_transport(
     }
 
     Ok(())
-}
-
-fn analytics_rpc_transport(transport: AppServerTransport) -> AppServerRpcTransport {
-    match transport {
-        AppServerTransport::Stdio => AppServerRpcTransport::Stdio,
-        AppServerTransport::WebSocket { .. } | AppServerTransport::Off => {
-            AppServerRpcTransport::Websocket
-        }
-    }
 }
 
 #[cfg(test)]

@@ -28,9 +28,6 @@ use crate::guardian::review_approval_request;
 use crate::guardian::routes_approval_to_guardian;
 use crate::mcp_tool_approval_templates::RenderedMcpToolApprovalParam;
 use crate::mcp_tool_approval_templates::render_mcp_tool_approval_template;
-use codex_analytics::AppInvocation;
-use codex_analytics::InvocationType;
-use codex_analytics::build_track_events_context;
 use codex_config::types::AppToolApproval;
 use codex_features::Feature;
 use codex_mcp::CODEX_APPS_MCP_SERVER_NAME;
@@ -510,42 +507,13 @@ struct McpAppUsageMetadata {
 }
 
 async fn maybe_track_codex_app_used(
-    sess: &Session,
-    turn_context: &TurnContext,
+    _sess: &Session,
+    _turn_context: &TurnContext,
     server: &str,
-    tool_name: &str,
+    _tool_name: &str,
 ) {
     if server != CODEX_APPS_MCP_SERVER_NAME {
-        return;
     }
-    let metadata = lookup_mcp_app_usage_metadata(sess, server, tool_name).await;
-    let (connector_id, app_name) = metadata
-        .map(|metadata| (metadata.connector_id, metadata.app_name))
-        .unwrap_or((None, None));
-    let invocation_type = if let Some(connector_id) = connector_id.as_deref() {
-        let mentioned_connector_ids = sess.get_connector_selection().await;
-        if mentioned_connector_ids.contains(connector_id) {
-            InvocationType::Explicit
-        } else {
-            InvocationType::Implicit
-        }
-    } else {
-        InvocationType::Implicit
-    };
-
-    let tracking = build_track_events_context(
-        turn_context.model_info.slug.clone(),
-        sess.conversation_id.to_string(),
-        turn_context.sub_id.clone(),
-    );
-    sess.services.analytics_events_client.track_app_used(
-        tracking,
-        AppInvocation {
-            connector_id,
-            app_name,
-            invocation_type: Some(invocation_type),
-        },
-    );
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

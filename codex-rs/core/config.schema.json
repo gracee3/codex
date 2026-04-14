@@ -83,17 +83,6 @@
         }
       ]
     },
-    "AnalyticsConfigToml": {
-      "additionalProperties": false,
-      "description": "Analytics settings loaded from config.toml. Fields are optional so we can apply defaults.",
-      "properties": {
-        "enabled": {
-          "description": "When `false`, disables analytics across Codex product surfaces in this profile.",
-          "type": "boolean"
-        }
-      },
-      "type": "object"
-    },
     "AppConfig": {
       "additionalProperties": false,
       "description": "Config values for a single app/connector.",
@@ -306,9 +295,6 @@
       "additionalProperties": false,
       "description": "Collection of common configuration options that a user can define as a unit in `config.toml`.",
       "properties": {
-        "analytics": {
-          "$ref": "#/definitions/AnalyticsConfigToml"
-        },
         "approval_policy": {
           "$ref": "#/definitions/AskForApproval"
         },
@@ -384,9 +370,6 @@
               "type": "boolean"
             },
             "fast_mode": {
-              "type": "boolean"
-            },
-            "general_analytics": {
               "type": "boolean"
             },
             "guardian_approval": {
@@ -602,16 +585,6 @@
           "$ref": "#/definitions/MultiAgentV2ConfigToml"
         }
       ]
-    },
-    "FeedbackConfigToml": {
-      "additionalProperties": false,
-      "properties": {
-        "enabled": {
-          "description": "When `false`, disables the feedback flow across Codex product surfaces.",
-          "type": "boolean"
-        }
-      },
-      "type": "object"
     },
     "FileSystemAccessMode": {
       "description": "Access mode for a filesystem entry.\n\nWhen two equally specific entries target the same path, we compare these by conflict precedence rather than by capability breadth: `none` beats `write`, and `write` beats `read`.",
@@ -1843,14 +1816,6 @@
       "description": "Whether the model may request a login shell for shell-based tools. Default to `true`\n\nIf `true`, the model may request a login shell (`login = true`), and omitting `login` defaults to using a login shell. If `false`, the model can never use a login shell: `login = true` requests are rejected, and omitting `login` defaults to a non-login shell.",
       "type": "boolean"
     },
-    "analytics": {
-      "allOf": [
-        {
-          "$ref": "#/definitions/AnalyticsConfigToml"
-        }
-      ],
-      "description": "When `false`, disables analytics across Codex product surfaces in this machine. Defaults to `true`."
-    },
     "approval_policy": {
       "allOf": [
         {
@@ -2017,9 +1982,6 @@
         "fast_mode": {
           "type": "boolean"
         },
-        "general_analytics": {
-          "type": "boolean"
-        },
         "guardian_approval": {
           "type": "boolean"
         },
@@ -2136,14 +2098,6 @@
         }
       },
       "type": "object"
-    },
-    "feedback": {
-      "allOf": [
-        {
-          "$ref": "#/definitions/FeedbackConfigToml"
-        }
-      ],
-      "description": "When `false`, disables feedback collection across Codex product surfaces. Defaults to `true`."
     },
     "file_opener": {
       "allOf": [

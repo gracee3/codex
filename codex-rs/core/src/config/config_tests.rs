@@ -27,7 +27,6 @@ use codex_config::profile_toml::ConfigProfile;
 use codex_config::types::AppToolApproval;
 use codex_config::types::ApprovalsReviewer;
 use codex_config::types::BundledSkillsConfig;
-use codex_config::types::FeedbackConfigToml;
 use codex_config::types::HistoryPersistence;
 use codex_config::types::McpServerToolConfig;
 use codex_config::types::McpServerTransportConfig;
@@ -1561,25 +1560,6 @@ fn config_defaults_to_auto_oauth_store_mode() -> std::io::Result<()> {
         config.mcp_oauth_credentials_store_mode,
         OAuthCredentialsStoreMode::Auto,
     );
-
-    Ok(())
-}
-
-#[test]
-fn feedback_enabled_defaults_to_true() -> std::io::Result<()> {
-    let codex_home = TempDir::new()?;
-    let cfg = ConfigToml {
-        feedback: Some(FeedbackConfigToml::default()),
-        ..Default::default()
-    };
-
-    let config = Config::load_from_base_config_with_overrides(
-        cfg,
-        ConfigOverrides::default(),
-        codex_home.path().to_path_buf(),
-    )?;
-
-    assert_eq!(config.feedback_enabled, true);
 
     Ok(())
 }
@@ -4365,9 +4345,6 @@ approval_policy = "untrusted"
 # `ConfigOverrides`.
 profile = "gpt3"
 
-[analytics]
-enabled = true
-
 [model_providers.openai-custom]
 name = "OpenAI custom"
 base_url = "https://api.openai.com/v1"
@@ -4393,9 +4370,6 @@ model_provider = "openai-custom"
 model = "o3"
 model_provider = "openai"
 approval_policy = "on-failure"
-
-[profiles.zdr.analytics]
-enabled = false
 
 [profiles.gpt5]
 model = "gpt-5.1"
@@ -4584,8 +4558,6 @@ fn test_precedence_fixture_with_o3_profile() -> std::io::Result<()> {
             animations: true,
             show_tooltips: true,
             model_availability_nux: ModelAvailabilityNuxConfig::default(),
-            analytics_enabled: Some(true),
-            feedback_enabled: true,
             tool_suggest: ToolSuggestConfig::default(),
             tui_alternate_screen: AltScreenMode::Auto,
             tui_status_line: None,
@@ -4710,8 +4682,6 @@ fn test_precedence_fixture_with_gpt3_profile() -> std::io::Result<()> {
         animations: true,
         show_tooltips: true,
         model_availability_nux: ModelAvailabilityNuxConfig::default(),
-        analytics_enabled: Some(true),
-        feedback_enabled: true,
         tool_suggest: ToolSuggestConfig::default(),
         tui_alternate_screen: AltScreenMode::Auto,
         tui_status_line: None,
@@ -4851,8 +4821,6 @@ fn test_precedence_fixture_with_zdr_profile() -> std::io::Result<()> {
         animations: true,
         show_tooltips: true,
         model_availability_nux: ModelAvailabilityNuxConfig::default(),
-        analytics_enabled: Some(false),
-        feedback_enabled: true,
         tool_suggest: ToolSuggestConfig::default(),
         tui_alternate_screen: AltScreenMode::Auto,
         tui_status_line: None,
@@ -4978,8 +4946,6 @@ fn test_precedence_fixture_with_gpt5_profile() -> std::io::Result<()> {
         animations: true,
         show_tooltips: true,
         model_availability_nux: ModelAvailabilityNuxConfig::default(),
-        analytics_enabled: Some(true),
-        feedback_enabled: true,
         tool_suggest: ToolSuggestConfig::default(),
         tui_alternate_screen: AltScreenMode::Auto,
         tui_status_line: None,

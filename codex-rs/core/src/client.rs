@@ -100,11 +100,8 @@ use crate::client_common::Prompt;
 use crate::client_common::ResponseEvent;
 use crate::client_common::ResponseStream;
 use crate::flags::CODEX_RS_SSE_FIXTURE;
-use crate::util::emit_feedback_auth_recovery_tags;
 use codex_api::CoreAuthProvider;
 use codex_api::map_api_error;
-use codex_feedback::FeedbackRequestTags;
-use codex_feedback::emit_feedback_request_tags_with_auth_env;
 use codex_login::api_bridge::auth_provider_from_auth;
 use codex_login::auth_env_telemetry::AuthEnvTelemetry;
 use codex_login::auth_env_telemetry::collect_auth_env_telemetry;
@@ -610,13 +607,12 @@ impl ModelClient {
         session_telemetry: &SessionTelemetry,
         auth_context: AuthRequestTelemetryContext,
         request_route_telemetry: RequestRouteTelemetry,
-        auth_env_telemetry: AuthEnvTelemetry,
+        _auth_env_telemetry: AuthEnvTelemetry,
     ) -> Arc<dyn RequestTelemetry> {
         let telemetry = Arc::new(ApiTelemetry::new(
             session_telemetry.clone(),
             auth_context,
             request_route_telemetry,
-            auth_env_telemetry,
         ));
         let request_telemetry: Arc<dyn RequestTelemetry> = telemetry;
         request_telemetry
@@ -736,30 +732,6 @@ impl ModelClient {
             response_debug.cf_ray.as_deref(),
             response_debug.auth_error.as_deref(),
             response_debug.auth_error_code.as_deref(),
-        );
-        emit_feedback_request_tags_with_auth_env(
-            &FeedbackRequestTags {
-                endpoint: request_route_telemetry.endpoint,
-                auth_header_attached: auth_context.auth_header_attached,
-                auth_header_name: auth_context.auth_header_name,
-                auth_mode: auth_context.auth_mode,
-                auth_retry_after_unauthorized: Some(auth_context.retry_after_unauthorized),
-                auth_recovery_mode: auth_context.recovery_mode,
-                auth_recovery_phase: auth_context.recovery_phase,
-                auth_connection_reused: Some(false),
-                auth_request_id: response_debug.request_id.as_deref(),
-                auth_cf_ray: response_debug.cf_ray.as_deref(),
-                auth_error: response_debug.auth_error.as_deref(),
-                auth_error_code: response_debug.auth_error_code.as_deref(),
-                auth_recovery_followup_success: auth_context
-                    .retry_after_unauthorized
-                    .then_some(result.is_ok()),
-                auth_recovery_followup_status: auth_context
-                    .retry_after_unauthorized
-                    .then_some(status)
-                    .flatten(),
-            },
-            &self.state.auth_env_telemetry,
         );
         result
     }
@@ -1343,13 +1315,12 @@ impl ModelClientSession {
         session_telemetry: &SessionTelemetry,
         auth_context: AuthRequestTelemetryContext,
         request_route_telemetry: RequestRouteTelemetry,
-        auth_env_telemetry: AuthEnvTelemetry,
+        _auth_env_telemetry: AuthEnvTelemetry,
     ) -> (Arc<dyn RequestTelemetry>, Arc<dyn SseTelemetry>) {
         let telemetry = Arc::new(ApiTelemetry::new(
             session_telemetry.clone(),
             auth_context,
             request_route_telemetry,
-            auth_env_telemetry,
         ));
         let request_telemetry: Arc<dyn RequestTelemetry> = telemetry.clone();
         let sse_telemetry: Arc<dyn SseTelemetry> = telemetry;
@@ -1361,13 +1332,12 @@ impl ModelClientSession {
         session_telemetry: &SessionTelemetry,
         auth_context: AuthRequestTelemetryContext,
         request_route_telemetry: RequestRouteTelemetry,
-        auth_env_telemetry: AuthEnvTelemetry,
+        _auth_env_telemetry: AuthEnvTelemetry,
     ) -> Arc<dyn WebsocketTelemetry> {
         let telemetry = Arc::new(ApiTelemetry::new(
             session_telemetry.clone(),
             auth_context,
             request_route_telemetry,
-            auth_env_telemetry,
         ));
         let websocket_telemetry: Arc<dyn WebsocketTelemetry> = telemetry;
         websocket_telemetry
@@ -1740,15 +1710,6 @@ async fn handle_unauthorized(
                     /*recovery_reason*/ None,
                     step_result.auth_state_changed(),
                 );
-                emit_feedback_auth_recovery_tags(
-                    mode,
-                    phase,
-                    "recovery_succeeded",
-                    debug.request_id.as_deref(),
-                    debug.cf_ray.as_deref(),
-                    debug.auth_error.as_deref(),
-                    debug.auth_error_code.as_deref(),
-                );
                 Ok(UnauthorizedRecoveryExecution { mode, phase })
             }
             Err(RefreshTokenError::Permanent(failed)) => {
@@ -1763,15 +1724,6 @@ async fn handle_unauthorized(
                     /*recovery_reason*/ None,
                     /*auth_state_changed*/ None,
                 );
-                emit_feedback_auth_recovery_tags(
-                    mode,
-                    phase,
-                    "recovery_failed_permanent",
-                    debug.request_id.as_deref(),
-                    debug.cf_ray.as_deref(),
-                    debug.auth_error.as_deref(),
-                    debug.auth_error_code.as_deref(),
-                );
                 Err(CodexErr::RefreshTokenFailed(failed))
             }
             Err(RefreshTokenError::Transient(other)) => {
@@ -1785,15 +1737,6 @@ async fn handle_unauthorized(
                     debug.auth_error_code.as_deref(),
                     /*recovery_reason*/ None,
                     /*auth_state_changed*/ None,
-                );
-                emit_feedback_auth_recovery_tags(
-                    mode,
-                    phase,
-                    "recovery_failed_transient",
-                    debug.request_id.as_deref(),
-                    debug.cf_ray.as_deref(),
-                    debug.auth_error.as_deref(),
-                    debug.auth_error_code.as_deref(),
                 );
                 Err(CodexErr::Io(other))
             }
@@ -1819,16 +1762,6 @@ async fn handle_unauthorized(
         recovery_reason,
         /*auth_state_changed*/ None,
     );
-    emit_feedback_auth_recovery_tags(
-        mode,
-        phase,
-        "recovery_not_run",
-        debug.request_id.as_deref(),
-        debug.cf_ray.as_deref(),
-        debug.auth_error.as_deref(),
-        debug.auth_error_code.as_deref(),
-    );
-
     Err(map_api_error(ApiError::Transport(transport)))
 }
 
@@ -1843,7 +1776,6 @@ struct ApiTelemetry {
     session_telemetry: SessionTelemetry,
     auth_context: AuthRequestTelemetryContext,
     request_route_telemetry: RequestRouteTelemetry,
-    auth_env_telemetry: AuthEnvTelemetry,
 }
 
 impl ApiTelemetry {
@@ -1851,13 +1783,11 @@ impl ApiTelemetry {
         session_telemetry: SessionTelemetry,
         auth_context: AuthRequestTelemetryContext,
         request_route_telemetry: RequestRouteTelemetry,
-        auth_env_telemetry: AuthEnvTelemetry,
     ) -> Self {
         Self {
             session_telemetry,
             auth_context,
             request_route_telemetry,
-            auth_env_telemetry,
         }
     }
 }
@@ -1891,32 +1821,6 @@ impl RequestTelemetry for ApiTelemetry {
             debug.auth_error.as_deref(),
             debug.auth_error_code.as_deref(),
         );
-        emit_feedback_request_tags_with_auth_env(
-            &FeedbackRequestTags {
-                endpoint: self.request_route_telemetry.endpoint,
-                auth_header_attached: self.auth_context.auth_header_attached,
-                auth_header_name: self.auth_context.auth_header_name,
-                auth_mode: self.auth_context.auth_mode,
-                auth_retry_after_unauthorized: Some(self.auth_context.retry_after_unauthorized),
-                auth_recovery_mode: self.auth_context.recovery_mode,
-                auth_recovery_phase: self.auth_context.recovery_phase,
-                auth_connection_reused: None,
-                auth_request_id: debug.request_id.as_deref(),
-                auth_cf_ray: debug.cf_ray.as_deref(),
-                auth_error: debug.auth_error.as_deref(),
-                auth_error_code: debug.auth_error_code.as_deref(),
-                auth_recovery_followup_success: self
-                    .auth_context
-                    .retry_after_unauthorized
-                    .then_some(error.is_none()),
-                auth_recovery_followup_status: self
-                    .auth_context
-                    .retry_after_unauthorized
-                    .then_some(status)
-                    .flatten(),
-            },
-            &self.auth_env_telemetry,
-        );
     }
 }
 
@@ -1936,40 +1840,14 @@ impl SseTelemetry for ApiTelemetry {
 impl WebsocketTelemetry for ApiTelemetry {
     fn on_ws_request(&self, duration: Duration, error: Option<&ApiError>, connection_reused: bool) {
         let error_message = error.map(telemetry_api_error_message);
-        let status = error.and_then(api_error_http_status);
-        let debug = error
+        let _status = error.and_then(api_error_http_status);
+        let _debug = error
             .map(extract_response_debug_context_from_api_error)
             .unwrap_or_default();
         self.session_telemetry.record_websocket_request(
             duration,
             error_message.as_deref(),
             connection_reused,
-        );
-        emit_feedback_request_tags_with_auth_env(
-            &FeedbackRequestTags {
-                endpoint: self.request_route_telemetry.endpoint,
-                auth_header_attached: self.auth_context.auth_header_attached,
-                auth_header_name: self.auth_context.auth_header_name,
-                auth_mode: self.auth_context.auth_mode,
-                auth_retry_after_unauthorized: Some(self.auth_context.retry_after_unauthorized),
-                auth_recovery_mode: self.auth_context.recovery_mode,
-                auth_recovery_phase: self.auth_context.recovery_phase,
-                auth_connection_reused: Some(connection_reused),
-                auth_request_id: debug.request_id.as_deref(),
-                auth_cf_ray: debug.cf_ray.as_deref(),
-                auth_error: debug.auth_error.as_deref(),
-                auth_error_code: debug.auth_error_code.as_deref(),
-                auth_recovery_followup_success: self
-                    .auth_context
-                    .retry_after_unauthorized
-                    .then_some(error.is_none()),
-                auth_recovery_followup_status: self
-                    .auth_context
-                    .retry_after_unauthorized
-                    .then_some(status)
-                    .flatten(),
-            },
-            &self.auth_env_telemetry,
         );
     }
 

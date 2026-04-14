@@ -21,8 +21,6 @@ use crate::outgoing_message::RequestContext;
 use crate::transport::AppServerTransport;
 use crate::transport::RemoteControlHandle;
 use async_trait::async_trait;
-use codex_analytics::AnalyticsEventsClient;
-use codex_analytics::AppServerRpcTransport;
 use codex_app_server_protocol::AppListUpdatedNotification;
 use codex_app_server_protocol::AuthMode as LoginAuthMode;
 use codex_app_server_protocol::ChatgptAuthTokensRefreshParams;
@@ -65,7 +63,6 @@ use codex_core::config_loader::CloudRequirementsLoader;
 use codex_core::config_loader::LoaderOverrides;
 use codex_exec_server::EnvironmentManager;
 use codex_features::Feature;
-use codex_feedback::CodexFeedback;
 use codex_login::AuthManager;
 use codex_login::auth::ExternalAuth;
 use codex_login::auth::ExternalAuthRefreshContext;
@@ -166,11 +163,9 @@ pub(crate) struct MessageProcessor {
     external_agent_config_api: ExternalAgentConfigApi,
     fs_api: FsApi,
     auth_manager: Arc<AuthManager>,
-    analytics_events_client: AnalyticsEventsClient,
     fs_watch_manager: FsWatchManager,
     config: Arc<Config>,
     config_warnings: Arc<Vec<ConfigWarningNotification>>,
-    rpc_transport: AppServerRpcTransport,
     remote_control_handle: Option<RemoteControlHandle>,
 }
 
@@ -191,12 +186,10 @@ pub(crate) struct MessageProcessorArgs {
     pub(crate) cli_overrides: Vec<(String, TomlValue)>,
     pub(crate) loader_overrides: LoaderOverrides,
     pub(crate) cloud_requirements: CloudRequirementsLoader,
-    pub(crate) feedback: CodexFeedback,
     pub(crate) log_db: Option<LogDbLayer>,
     pub(crate) config_warnings: Vec<ConfigWarningNotification>,
     pub(crate) session_source: SessionSource,
     pub(crate) auth_manager: Arc<AuthManager>,
-    pub(crate) rpc_transport: AppServerRpcTransport,
     pub(crate) remote_control_handle: Option<RemoteControlHandle>,
 }
 
@@ -212,12 +205,10 @@ impl MessageProcessor {
             cli_overrides,
             loader_overrides,
             cloud_requirements,
-            feedback,
             log_db,
             config_warnings,
             session_source,
             auth_manager,
-            rpc_transport,
             remote_control_handle,
         } = args;
         auth_manager.set_external_auth(Arc::new(ExternalAuthRefreshBridge {
@@ -234,15 +225,6 @@ impl MessageProcessor {
             },
             environment_manager,
         ));
-        let analytics_events_client = AnalyticsEventsClient::new(
-            Arc::clone(&auth_manager),
-            config.chatgpt_base_url.trim_end_matches('/').to_string(),
-            config.analytics_enabled,
-        );
-        thread_manager
-            .plugins_manager()
-            .set_analytics_events_client(analytics_events_client.clone());
-
         let cli_overrides = Arc::new(RwLock::new(cli_overrides));
         let runtime_feature_enablement = Arc::new(RwLock::new(BTreeMap::new()));
         let cloud_requirements = Arc::new(RwLock::new(cloud_requirements));
@@ -250,13 +232,11 @@ impl MessageProcessor {
             auth_manager: auth_manager.clone(),
             thread_manager: Arc::clone(&thread_manager),
             outgoing: outgoing.clone(),
-            analytics_events_client: analytics_events_client.clone(),
             arg0_paths,
             config: Arc::clone(&config),
             cli_overrides: cli_overrides.clone(),
             runtime_feature_enablement: runtime_feature_enablement.clone(),
             cloud_requirements: cloud_requirements.clone(),
-            feedback,
             log_db,
         });
         // Keep plugin startup warmups aligned at app-server startup.
@@ -271,7 +251,6 @@ impl MessageProcessor {
             loader_overrides,
             cloud_requirements,
             thread_manager,
-            analytics_events_client.clone(),
         );
         let external_agent_config_api = ExternalAgentConfigApi::new(config.codex_home.clone());
         let fs_api = FsApi::default();
@@ -284,11 +263,9 @@ impl MessageProcessor {
             external_agent_config_api,
             fs_api,
             auth_manager,
-            analytics_events_client,
             fs_watch_manager,
             config,
             config_warnings: Arc::new(config_warnings),
-            rpc_transport,
             remote_control_handle,
         }
     }
@@ -559,7 +536,6 @@ impl MessageProcessor {
                 // shared thread when another connected client did not opt into
                 // experimental API). Proposed direction is instance-global first-write-wins
                 // with initialize-time mismatch rejection.
-                let analytics_initialize_params = params.clone();
                 let (experimental_api_enabled, opt_out_notification_methods) =
                     match params.capabilities {
                         Some(capabilities) => (
@@ -603,14 +579,6 @@ impl MessageProcessor {
                             // internal server error.
                         }
                     }
-                }
-                if self.config.features.enabled(Feature::GeneralAnalytics) {
-                    self.analytics_events_client.track_initialize(
-                        connection_id.0,
-                        analytics_initialize_params,
-                        originator,
-                        self.rpc_transport,
-                    );
                 }
                 set_default_client_residency_requirement(self.config.enforce_residency.value());
                 let user_agent_suffix = format!("{name}; {version}");

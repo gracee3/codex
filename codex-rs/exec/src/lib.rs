@@ -62,7 +62,6 @@ use codex_core::config_loader::LoaderOverrides;
 use codex_core::config_loader::format_config_error_with_source;
 use codex_core::format_exec_policy_error_with_source;
 use codex_core::path_utils;
-use codex_feedback::CodexFeedback;
 use codex_git_utils::get_git_repo_root;
 use codex_login::AuthConfig;
 use codex_login::default_client::set_default_client_residency_requirement;
@@ -439,9 +438,9 @@ pub async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result
         }
     };
 
-    let otel_logger_layer = otel.as_ref().and_then(|o| o.logger_layer());
+    let otel_logger_layer = otel.as_ref().and_then(codex_otel::OtelProvider::logger_layer);
 
-    let otel_tracing_layer = otel.as_ref().and_then(|o| o.tracing_layer());
+    let otel_tracing_layer = otel.as_ref().and_then(codex_otel::OtelProvider::tracing_layer);
 
     let _ = tracing_subscriber::registry()
         .with(fmt_layer)
@@ -469,7 +468,6 @@ pub async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result
         cli_overrides: run_cli_overrides,
         loader_overrides: run_loader_overrides,
         cloud_requirements: run_cloud_requirements,
-        feedback: CodexFeedback::new(),
         environment_manager: std::sync::Arc::new(EnvironmentManager::from_env()),
         config_warnings,
         session_source: SessionSource::Exec,

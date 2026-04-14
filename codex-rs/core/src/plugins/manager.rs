@@ -40,7 +40,6 @@ use crate::config_rules::resolve_disabled_skill_paths;
 use crate::config_rules::skill_config_rules_from_stack;
 use crate::loader::SkillRoot;
 use crate::loader::load_skills_from_roots;
-use codex_analytics::AnalyticsEventsClient;
 use codex_app_server_protocol::ConfigValueWriteParams;
 use codex_app_server_protocol::MergeStrategy;
 use codex_config::types::McpServerConfig;
@@ -324,7 +323,6 @@ pub struct PluginsManager {
     cached_enabled_outcome: RwLock<Option<PluginLoadOutcome>>,
     remote_sync_lock: Mutex<()>,
     restriction_product: Option<Product>,
-    analytics_events_client: RwLock<Option<AnalyticsEventsClient>>,
 }
 
 impl PluginsManager {
@@ -351,16 +349,7 @@ impl PluginsManager {
             cached_enabled_outcome: RwLock::new(None),
             remote_sync_lock: Mutex::new(()),
             restriction_product,
-            analytics_events_client: RwLock::new(None),
         }
-    }
-
-    pub fn set_analytics_events_client(&self, analytics_events_client: AnalyticsEventsClient) {
-        let mut stored_client = match self.analytics_events_client.write() {
-            Ok(client_guard) => client_guard,
-            Err(err) => err.into_inner(),
-        };
-        *stored_client = Some(analytics_events_client);
     }
 
     fn restriction_product_matches(&self, products: Option<&[Product]>) -> bool {
@@ -579,17 +568,6 @@ impl PluginsManager {
             .map(|_| ())
             .map_err(PluginInstallError::from)?;
 
-        let analytics_events_client = match self.analytics_events_client.read() {
-            Ok(client) => client.clone(),
-            Err(err) => err.into_inner().clone(),
-        };
-        if let Some(analytics_events_client) = analytics_events_client {
-            analytics_events_client.track_plugin_installed(plugin_telemetry_metadata_from_root(
-                &result.plugin_id,
-                result.installed_path.as_path(),
-            ));
-        }
-
         Ok(PluginInstallOutcome {
             plugin_id: result.plugin_id,
             plugin_version: result.plugin_version,
@@ -621,10 +599,6 @@ impl PluginsManager {
     }
 
     async fn uninstall_plugin_id(&self, plugin_id: PluginId) -> Result<(), PluginUninstallError> {
-        let plugin_telemetry = self
-            .store
-            .active_plugin_root(&plugin_id)
-            .map(|_| installed_plugin_telemetry_metadata(self.codex_home.as_path(), &plugin_id));
         let store = self.store.clone();
         let plugin_id_for_store = plugin_id.clone();
         tokio::task::spawn_blocking(move || store.uninstall(&plugin_id_for_store))
@@ -637,16 +611,6 @@ impl PluginsManager {
             }])
             .apply()
             .await?;
-
-        let analytics_events_client = match self.analytics_events_client.read() {
-            Ok(client) => client.clone(),
-            Err(err) => err.into_inner().clone(),
-        };
-        if let Some(plugin_telemetry) = plugin_telemetry
-            && let Some(analytics_events_client) = analytics_events_client
-        {
-            analytics_events_client.track_plugin_uninstalled(plugin_telemetry);
-        }
 
         Ok(())
     }

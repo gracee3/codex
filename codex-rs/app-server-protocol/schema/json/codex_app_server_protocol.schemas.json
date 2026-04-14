@@ -1344,30 +1344,6 @@
           "type": "object"
         },
         {
-          "properties": {
-            "id": {
-              "$ref": "#/definitions/v2/RequestId"
-            },
-            "method": {
-              "enum": [
-                "feedback/upload"
-              ],
-              "title": "Feedback/uploadRequestMethod",
-              "type": "string"
-            },
-            "params": {
-              "$ref": "#/definitions/v2/FeedbackUploadParams"
-            }
-          },
-          "required": [
-            "id",
-            "method",
-            "params"
-          ],
-          "title": "Feedback/uploadRequest",
-          "type": "object"
-        },
-        {
           "description": "Execute a standalone command (argv vector) under the server's sandbox.",
           "properties": {
             "id": {
@@ -7417,57 +7393,6 @@
         ],
         "type": "string"
       },
-      "FeedbackUploadParams": {
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "properties": {
-          "classification": {
-            "type": "string"
-          },
-          "extraLogFiles": {
-            "items": {
-              "type": "string"
-            },
-            "type": [
-              "array",
-              "null"
-            ]
-          },
-          "includeLogs": {
-            "type": "boolean"
-          },
-          "reason": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "threadId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          }
-        },
-        "required": [
-          "classification",
-          "includeLogs"
-        ],
-        "title": "FeedbackUploadParams",
-        "type": "object"
-      },
-      "FeedbackUploadResponse": {
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "properties": {
-          "threadId": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "threadId"
-        ],
-        "title": "FeedbackUploadResponse",
-        "type": "object"
-      },
       "FileChangeOutputDeltaNotification": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "properties": {
@@ -8961,6 +8886,32 @@
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "LogoutAccountResponse",
         "type": "object"
+      },
+      "ManagedWorkspace": {
+        "properties": {
+          "kind": {
+            "$ref": "#/definitions/v2/ManagedWorkspaceKind"
+          },
+          "repoRoot": {
+            "type": "string"
+          },
+          "workspacePath": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "repoRoot",
+          "workspacePath"
+        ],
+        "type": "object"
+      },
+      "ManagedWorkspaceKind": {
+        "enum": [
+          "repoRoot",
+          "ephemeralWorktree"
+        ],
+        "type": "string"
       },
       "MarketplaceInterface": {
         "properties": {
@@ -12486,6 +12437,17 @@
             "description": "Unix timestamp (in seconds) when the thread was last updated.",
             "format": "int64",
             "type": "integer"
+          },
+          "workspace": {
+            "anyOf": [
+              {
+                "$ref": "#/definitions/v2/ManagedWorkspace"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Managed workspace metadata for repo-root/project-server sessions and Codex-managed subagent worktrees when available."
           }
         },
         "required": [

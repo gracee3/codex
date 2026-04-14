@@ -8,9 +8,6 @@ use std::sync::Arc;
 use crate::codex::Session;
 use crate::codex::TurnContext;
 use crate::config::Config;
-use codex_analytics::InvocationType;
-use codex_analytics::SkillInvocation;
-use codex_analytics::build_track_events_context;
 use codex_protocol::protocol::SkillScope;
 use codex_protocol::request_user_input::RequestUserInputArgs;
 use codex_protocol::request_user_input::RequestUserInputQuestion;
@@ -169,7 +166,7 @@ async fn request_skill_dependencies(
 }
 
 pub(crate) async fn maybe_emit_implicit_skill_invocation(
-    sess: &Session,
+    _sess: &Session,
     turn_context: &TurnContext,
     command: &str,
     workdir: &Path,
@@ -181,20 +178,14 @@ pub(crate) async fn maybe_emit_implicit_skill_invocation(
     ) else {
         return;
     };
-    let invocation = SkillInvocation {
-        skill_name: candidate.name,
-        skill_scope: candidate.scope,
-        skill_path: candidate.path_to_skills_md,
-        invocation_type: InvocationType::Implicit,
-    };
-    let skill_scope = match invocation.skill_scope {
+    let skill_scope = match candidate.scope {
         SkillScope::User => "user",
         SkillScope::Repo => "repo",
         SkillScope::System => "system",
         SkillScope::Admin => "admin",
     };
-    let skill_path = invocation.skill_path.to_string_lossy();
-    let skill_name = invocation.skill_name.clone();
+    let skill_path = candidate.path_to_skills_md.to_string_lossy();
+    let skill_name = candidate.name;
     let seen_key = format!("{skill_scope}:{skill_path}:{skill_name}");
     let inserted = {
         let mut seen_skills = turn_context
@@ -217,14 +208,4 @@ pub(crate) async fn maybe_emit_implicit_skill_invocation(
             ("invoke_type", "implicit"),
         ],
     );
-    sess.services
-        .analytics_events_client
-        .track_skill_invocations(
-            build_track_events_context(
-                turn_context.model_info.slug.clone(),
-                sess.conversation_id.to_string(),
-                turn_context.sub_id.clone(),
-            ),
-            vec![invocation],
-        );
 }

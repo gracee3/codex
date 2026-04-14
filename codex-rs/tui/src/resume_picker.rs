@@ -2682,6 +2682,7 @@ mod tests {
             updated_at: 2,
             status: codex_app_server_protocol::ThreadStatus::Idle,
             path: None,
+            workspace: None,
             cwd: PathBuf::from("/tmp"),
             cli_version: String::from("0.0.0"),
             source: codex_app_server_protocol::SessionSource::Cli,

@@ -13,7 +13,6 @@ use crate::skills_watcher::SkillsWatcher;
 use crate::tools::network_approval::NetworkApprovalService;
 use crate::tools::sandboxing::ApprovalStore;
 use crate::unified_exec::UnifiedExecProcessManager;
-use codex_analytics::AnalyticsEventsClient;
 use codex_exec_server::Environment;
 use codex_hooks::Hooks;
 use codex_login::AuthManager;
@@ -35,7 +34,6 @@ pub(crate) struct SessionServices {
     pub(crate) shell_zsh_path: Option<PathBuf>,
     #[cfg_attr(not(unix), allow(dead_code))]
     pub(crate) main_execve_wrapper_exe: Option<PathBuf>,
-    pub(crate) analytics_events_client: AnalyticsEventsClient,
     pub(crate) hooks: Hooks,
     pub(crate) rollout: Mutex<Option<RolloutRecorder>>,
     pub(crate) user_shell: Arc<crate::shell::Shell>,

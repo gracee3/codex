@@ -3,7 +3,6 @@ use crate::app_command::AppCommand;
 use crate::app_command::AppCommandView;
 use crate::app_event::AppEvent;
 use crate::app_event::ExitMode;
-use crate::app_event::FeedbackCategory;
 use crate::app_event::RateLimitRefreshOrigin;
 use crate::app_event::RealtimeAudioDeviceKind;
 #[cfg(target_os = "windows")]
@@ -15,7 +14,6 @@ use crate::app_server_session::AppServerStartedThread;
 use crate::app_server_session::ThreadSessionState;
 use crate::app_server_session::app_server_rate_limit_snapshots_to_core;
 use crate::bottom_pane::ApprovalRequest;
-use crate::bottom_pane::FeedbackAudience;
 use crate::bottom_pane::McpServerElicitationFormRequest;
 use crate::bottom_pane::SelectionItem;
 use crate::bottom_pane::SelectionViewParams;
@@ -60,8 +58,6 @@ use codex_app_server_client::TypedRequestError;
 use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::CodexErrorInfo as AppServerCodexErrorInfo;
 use codex_app_server_protocol::ConfigLayerSource;
-use codex_app_server_protocol::FeedbackUploadParams;
-use codex_app_server_protocol::FeedbackUploadResponse;
 use codex_app_server_protocol::GetAccountRateLimitsResponse;
 use codex_app_server_protocol::ListMcpServerStatusParams;
 use codex_app_server_protocol::ListMcpServerStatusResponse;
@@ -507,15 +503,6 @@ enum ThreadBufferedEvent {
     Notification(ServerNotification),
     Request(ServerRequest),
     HistoryEntryResponse(GetHistoryEntryResponseEvent),
-    FeedbackSubmission(FeedbackThreadEvent),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct FeedbackThreadEvent {
-    category: FeedbackCategory,
-    include_logs: bool,
-    feedback_audience: FeedbackAudience,
-    result: Result<String, String>,
 }
 
 #[derive(Debug)]
@@ -537,7 +524,6 @@ impl ThreadEventStore {
             ThreadBufferedEvent::Request(_)
                 | ThreadBufferedEvent::Notification(ServerNotification::HookStarted(_))
                 | ThreadBufferedEvent::Notification(ServerNotification::HookCompleted(_))
-                | ThreadBufferedEvent::FeedbackSubmission(_)
         )
     }
 
@@ -642,8 +628,7 @@ impl ThreadEventStore {
                         .pending_interactive_replay
                         .should_replay_snapshot_request(request),
                     ThreadBufferedEvent::Notification(_)
-                    | ThreadBufferedEvent::HistoryEntryResponse(_)
-                    | ThreadBufferedEvent::FeedbackSubmission(_) => true,
+                    | ThreadBufferedEvent::HistoryEntryResponse(_) => true,
                 })
                 .cloned()
                 .collect(),
@@ -979,8 +964,6 @@ pub(crate) struct App {
     /// This is used after a confirmed thread rollback to ensure scrollback reflects the trimmed
     /// transcript cells.
     pub(crate) backtrack_render_pending: bool,
-    pub(crate) feedback: codex_feedback::CodexFeedback,
-    feedback_audience: FeedbackAudience,
     environment_manager: Arc<EnvironmentManager>,
     remote_app_server_url: Option<String>,
     remote_app_server_auth_token: Option<String>,
@@ -1095,7 +1078,6 @@ impl App {
             enhanced_keys_supported: self.enhanced_keys_supported,
             has_chatgpt_account: self.chat_widget.has_chatgpt_account(),
             model_catalog: self.model_catalog.clone(),
-            feedback: self.feedback.clone(),
             is_first_run: false,
             status_account_display: self.chat_widget.status_account_display().cloned(),
             initial_plan_type: self.chat_widget.current_plan_type(),
@@ -2016,124 +1998,6 @@ impl App {
         });
     }
 
-    fn submit_feedback(
-        &mut self,
-        app_server: &AppServerSession,
-        category: FeedbackCategory,
-        reason: Option<String>,
-        include_logs: bool,
-    ) {
-        let request_handle = app_server.request_handle();
-        let app_event_tx = self.app_event_tx.clone();
-        let origin_thread_id = self.chat_widget.thread_id();
-        let rollout_path = if include_logs {
-            self.chat_widget.rollout_path()
-        } else {
-            None
-        };
-        let params = build_feedback_upload_params(
-            origin_thread_id,
-            rollout_path,
-            category,
-            reason,
-            include_logs,
-        );
-        tokio::spawn(async move {
-            let result = fetch_feedback_upload(request_handle, params)
-                .await
-                .map(|response| response.thread_id)
-                .map_err(|err| err.to_string());
-            app_event_tx.send(AppEvent::FeedbackSubmitted {
-                origin_thread_id,
-                category,
-                include_logs,
-                result,
-            });
-        });
-    }
-
-    fn handle_feedback_thread_event(&mut self, event: FeedbackThreadEvent) {
-        match event.result {
-            Ok(thread_id) => {
-                self.chat_widget
-                    .add_to_history(crate::bottom_pane::feedback_success_cell(
-                        event.category,
-                        event.include_logs,
-                        &thread_id,
-                        event.feedback_audience,
-                    ))
-            }
-            Err(err) => self
-                .chat_widget
-                .add_to_history(history_cell::new_error_event(format!(
-                    "Failed to upload feedback: {err}"
-                ))),
-        }
-    }
-
-    async fn enqueue_thread_feedback_event(
-        &mut self,
-        thread_id: ThreadId,
-        event: FeedbackThreadEvent,
-    ) {
-        let (sender, store) = {
-            let channel = self.ensure_thread_channel(thread_id);
-            (channel.sender.clone(), Arc::clone(&channel.store))
-        };
-
-        let should_send = {
-            let mut guard = store.lock().await;
-            guard
-                .buffer
-                .push_back(ThreadBufferedEvent::FeedbackSubmission(event.clone()));
-            if guard.buffer.len() > guard.capacity
-                && let Some(removed) = guard.buffer.pop_front()
-                && let ThreadBufferedEvent::Request(request) = &removed
-            {
-                guard
-                    .pending_interactive_replay
-                    .note_evicted_server_request(request);
-            }
-            guard.active
-        };
-
-        if should_send {
-            match sender.try_send(ThreadBufferedEvent::FeedbackSubmission(event)) {
-                Ok(()) => {}
-                Err(TrySendError::Full(event)) => {
-                    tokio::spawn(async move {
-                        if let Err(err) = sender.send(event).await {
-                            tracing::warn!("thread {thread_id} event channel closed: {err}");
-                        }
-                    });
-                }
-                Err(TrySendError::Closed(_)) => {
-                    tracing::warn!("thread {thread_id} event channel closed");
-                }
-            }
-        }
-    }
-
-    async fn handle_feedback_submitted(
-        &mut self,
-        origin_thread_id: Option<ThreadId>,
-        category: FeedbackCategory,
-        include_logs: bool,
-        result: Result<String, String>,
-    ) {
-        let event = FeedbackThreadEvent {
-            category,
-            include_logs,
-            feedback_audience: self.feedback_audience,
-            result,
-        };
-        if let Some(thread_id) = origin_thread_id {
-            self.enqueue_thread_feedback_event(thread_id, event).await;
-        } else {
-            self.handle_feedback_thread_event(event);
-        }
-    }
-
     /// Process the completed MCP inventory fetch: clear the loading spinner, then
     /// render either the full tool/resource listing or an error into chat history.
     ///
@@ -2768,9 +2632,6 @@ impl App {
                 ThreadBufferedEvent::HistoryEntryResponse(event) => {
                     self.enqueue_thread_history_entry_response(thread_id, event)
                         .await?;
-                }
-                ThreadBufferedEvent::FeedbackSubmission(event) => {
-                    self.enqueue_thread_feedback_event(thread_id, event).await;
                 }
             }
         }
@@ -3596,7 +3457,6 @@ impl App {
         initial_prompt: Option<String>,
         initial_images: Vec<PathBuf>,
         session_selection: SessionSelection,
-        feedback: codex_feedback::CodexFeedback,
         is_first_run: bool,
         should_prompt_windows_sandbox_nux_at_startup: bool,
         remote_app_server_url: Option<String>,
@@ -3649,7 +3509,6 @@ impl App {
                     .enabled(Feature::DefaultModeRequestUserInput),
             },
         ));
-        let feedback_audience = bootstrap.feedback_audience;
         let auth_mode = bootstrap.auth_mode;
         let has_chatgpt_account = bootstrap.has_chatgpt_account;
         let requires_openai_auth = bootstrap.requires_openai_auth;
@@ -3700,7 +3559,6 @@ impl App {
                     enhanced_keys_supported,
                     has_chatgpt_account,
                     model_catalog: model_catalog.clone(),
-                    feedback: feedback.clone(),
                     is_first_run,
                     status_account_display: status_account_display.clone(),
                     initial_plan_type,
@@ -3735,7 +3593,6 @@ impl App {
                     enhanced_keys_supported,
                     has_chatgpt_account,
                     model_catalog: model_catalog.clone(),
-                    feedback: feedback.clone(),
                     is_first_run,
                     status_account_display: status_account_display.clone(),
                     initial_plan_type,
@@ -3775,7 +3632,6 @@ impl App {
                     enhanced_keys_supported,
                     has_chatgpt_account,
                     model_catalog: model_catalog.clone(),
-                    feedback: feedback.clone(),
                     is_first_run,
                     status_account_display: status_account_display.clone(),
                     initial_plan_type,
@@ -3820,8 +3676,6 @@ impl App {
             terminal_title_invalid_items_warned: terminal_title_invalid_items_warned.clone(),
             backtrack: BacktrackState::default(),
             backtrack_render_pending: false,
-            feedback: feedback.clone(),
-            feedback_audience,
             environment_manager,
             remote_app_server_url,
             remote_app_server_auth_token,
@@ -4610,31 +4464,6 @@ impl App {
                     extra_count,
                     failed_scan,
                 );
-            }
-            AppEvent::OpenFeedbackNote {
-                category,
-                include_logs,
-            } => {
-                self.chat_widget.open_feedback_note(category, include_logs);
-            }
-            AppEvent::OpenFeedbackConsent { category } => {
-                self.chat_widget.open_feedback_consent(category);
-            }
-            AppEvent::SubmitFeedback {
-                category,
-                reason,
-                include_logs,
-            } => {
-                self.submit_feedback(app_server, category, reason, include_logs);
-            }
-            AppEvent::FeedbackSubmitted {
-                origin_thread_id,
-                category,
-                include_logs,
-                result,
-            } => {
-                self.handle_feedback_submitted(origin_thread_id, category, include_logs, result)
-                    .await;
             }
             AppEvent::LaunchExternalEditor => {
                 if self.chat_widget.external_editor_state() == ExternalEditorState::Active {
@@ -5727,9 +5556,6 @@ impl App {
             ThreadBufferedEvent::HistoryEntryResponse(event) => {
                 self.chat_widget.handle_history_entry_response(event);
             }
-            ThreadBufferedEvent::FeedbackSubmission(event) => {
-                self.handle_feedback_thread_event(event);
-            }
         }
         if needs_refresh {
             self.refresh_status_line();
@@ -5746,9 +5572,6 @@ impl App {
                 .handle_server_request(request, Some(ReplayKind::ThreadSnapshot)),
             ThreadBufferedEvent::HistoryEntryResponse(event) => {
                 self.chat_widget.handle_history_entry_response(event)
-            }
-            ThreadBufferedEvent::FeedbackSubmission(event) => {
-                self.handle_feedback_thread_event(event);
             }
         }
     }
@@ -6235,38 +6058,6 @@ async fn fetch_plugin_uninstall(
         .wrap_err("plugin/uninstall failed in TUI")
 }
 
-fn build_feedback_upload_params(
-    origin_thread_id: Option<ThreadId>,
-    rollout_path: Option<PathBuf>,
-    category: FeedbackCategory,
-    reason: Option<String>,
-    include_logs: bool,
-) -> FeedbackUploadParams {
-    let extra_log_files = if include_logs {
-        rollout_path.map(|rollout_path| vec![rollout_path])
-    } else {
-        None
-    };
-    FeedbackUploadParams {
-        classification: crate::bottom_pane::feedback_classification(category).to_string(),
-        reason,
-        thread_id: origin_thread_id.map(|thread_id| thread_id.to_string()),
-        include_logs,
-        extra_log_files,
-    }
-}
-
-async fn fetch_feedback_upload(
-    request_handle: AppServerRequestHandle,
-    params: FeedbackUploadParams,
-) -> Result<FeedbackUploadResponse> {
-    let request_id = RequestId::String(format!("feedback-upload-{}", Uuid::new_v4()));
-    request_handle
-        .request_typed(ClientRequest::FeedbackUpload { request_id, params })
-        .await
-        .wrap_err("feedback/upload failed in TUI")
-}
-
 /// Convert flat `McpServerStatus` responses into the per-server maps used by the
 /// in-process MCP subsystem (tools keyed as `mcp__{server}__{tool}`, plus
 /// per-server resource/template/auth maps). Test-only because the TUI
@@ -6719,7 +6510,6 @@ mod tests {
             enhanced_keys_supported: false,
             has_chatgpt_account: false,
             model_catalog: app.model_catalog.clone(),
-            feedback: codex_feedback::CodexFeedback::new(),
             is_first_run: false,
             status_account_display: None,
             initial_plan_type: None,
@@ -8817,6 +8607,7 @@ guardian_approval = true
                     updated_at: 2,
                     status: codex_app_server_protocol::ThreadStatus::Idle,
                     path: Some(rollout_path.clone()),
+                    workspace: None,
                     cwd: PathBuf::from("/tmp/agent"),
                     cli_version: "0.0.0".to_string(),
                     source: codex_app_server_protocol::SessionSource::Unknown,
@@ -8898,6 +8689,7 @@ guardian_approval = true
                     updated_at: 2,
                     status: codex_app_server_protocol::ThreadStatus::Idle,
                     path: None,
+                    workspace: None,
                     cwd: PathBuf::from("/tmp/agent"),
                     cli_version: "0.0.0".to_string(),
                     source: codex_app_server_protocol::SessionSource::Unknown,
@@ -9253,8 +9045,6 @@ guardian_approval = true
             terminal_title_invalid_items_warned: Arc::new(AtomicBool::new(false)),
             backtrack: BacktrackState::default(),
             backtrack_render_pending: false,
-            feedback: codex_feedback::CodexFeedback::new(),
-            feedback_audience: FeedbackAudience::External,
             environment_manager: Arc::new(EnvironmentManager::new(/*exec_server_url*/ None)),
             remote_app_server_url: None,
             remote_app_server_auth_token: None,
@@ -9310,8 +9100,6 @@ guardian_approval = true
                 terminal_title_invalid_items_warned: Arc::new(AtomicBool::new(false)),
                 backtrack: BacktrackState::default(),
                 backtrack_render_pending: false,
-                feedback: codex_feedback::CodexFeedback::new(),
-                feedback_audience: FeedbackAudience::External,
                 environment_manager: Arc::new(EnvironmentManager::new(
                     /*exec_server_url*/ None,
                 )),
@@ -9628,132 +9416,6 @@ guardian_approval = true
                     .expect("hook notification should serialize"),
             ]
         );
-    }
-
-    #[test]
-    fn build_feedback_upload_params_includes_thread_id_and_rollout_path() {
-        let thread_id = ThreadId::new();
-        let rollout_path = PathBuf::from("/tmp/rollout.jsonl");
-
-        let params = build_feedback_upload_params(
-            Some(thread_id),
-            Some(rollout_path.clone()),
-            FeedbackCategory::SafetyCheck,
-            Some("needs follow-up".to_string()),
-            /*include_logs*/ true,
-        );
-
-        assert_eq!(params.classification, "safety_check");
-        assert_eq!(params.reason, Some("needs follow-up".to_string()));
-        assert_eq!(params.thread_id, Some(thread_id.to_string()));
-        assert_eq!(params.include_logs, true);
-        assert_eq!(params.extra_log_files, Some(vec![rollout_path]));
-    }
-
-    #[test]
-    fn build_feedback_upload_params_omits_rollout_path_without_logs() {
-        let params = build_feedback_upload_params(
-            /*origin_thread_id*/ None,
-            Some(PathBuf::from("/tmp/rollout.jsonl")),
-            FeedbackCategory::GoodResult,
-            /*reason*/ None,
-            /*include_logs*/ false,
-        );
-
-        assert_eq!(params.classification, "good_result");
-        assert_eq!(params.reason, None);
-        assert_eq!(params.thread_id, None);
-        assert_eq!(params.include_logs, false);
-        assert_eq!(params.extra_log_files, None);
-    }
-
-    #[tokio::test]
-    async fn feedback_submission_without_thread_emits_error_history_cell() {
-        let (mut app, mut app_event_rx, _op_rx) = make_test_app_with_channels().await;
-
-        app.handle_feedback_submitted(
-            /*origin_thread_id*/ None,
-            FeedbackCategory::Bug,
-            /*include_logs*/ true,
-            Err("boom".to_string()),
-        )
-        .await;
-
-        let cell = match app_event_rx.try_recv() {
-            Ok(AppEvent::InsertHistoryCell(cell)) => cell,
-            other => panic!("expected feedback error history cell, saw {other:?}"),
-        };
-        assert_eq!(
-            lines_to_single_string(&cell.display_lines(/*width*/ 120)),
-            "■ Failed to upload feedback: boom"
-        );
-    }
-
-    #[tokio::test]
-    async fn feedback_submission_for_inactive_thread_replays_into_origin_thread() {
-        let (mut app, mut app_event_rx, _op_rx) = make_test_app_with_channels().await;
-        let origin_thread_id = ThreadId::new();
-        let active_thread_id = ThreadId::new();
-        let origin_session = test_thread_session(origin_thread_id, PathBuf::from("/tmp/origin"));
-        let active_session = test_thread_session(active_thread_id, PathBuf::from("/tmp/active"));
-        app.thread_event_channels.insert(
-            origin_thread_id,
-            ThreadEventChannel::new_with_session(
-                THREAD_EVENT_CHANNEL_CAPACITY,
-                origin_session.clone(),
-                Vec::new(),
-            ),
-        );
-        app.thread_event_channels.insert(
-            active_thread_id,
-            ThreadEventChannel::new_with_session(
-                THREAD_EVENT_CHANNEL_CAPACITY,
-                active_session.clone(),
-                Vec::new(),
-            ),
-        );
-        app.activate_thread_channel(active_thread_id).await;
-        app.chat_widget.handle_thread_session(active_session);
-        while app_event_rx.try_recv().is_ok() {}
-
-        app.handle_feedback_submitted(
-            Some(origin_thread_id),
-            FeedbackCategory::Bug,
-            /*include_logs*/ true,
-            Ok("uploaded-thread".to_string()),
-        )
-        .await;
-
-        assert_matches!(
-            app_event_rx.try_recv(),
-            Err(tokio::sync::mpsc::error::TryRecvError::Empty)
-        );
-
-        let snapshot = {
-            let channel = app
-                .thread_event_channels
-                .get(&origin_thread_id)
-                .expect("origin thread channel should exist");
-            let store = channel.store.lock().await;
-            assert!(matches!(
-                store.buffer.back(),
-                Some(ThreadBufferedEvent::FeedbackSubmission(_))
-            ));
-            store.snapshot()
-        };
-
-        app.replay_thread_snapshot(snapshot, /*resume_restored_queue*/ false);
-
-        let mut rendered_cells = Vec::new();
-        while let Ok(event) = app_event_rx.try_recv() {
-            if let AppEvent::InsertHistoryCell(cell) = event {
-                rendered_cells.push(lines_to_single_string(&cell.display_lines(/*width*/ 120)));
-            }
-        }
-        assert!(rendered_cells.iter().any(|cell| {
-            cell.contains("• Feedback uploaded. Please open an issue using the following URL:")
-                && cell.contains("uploaded-thread")
-        }));
     }
 
     fn next_user_turn_op(op_rx: &mut tokio::sync::mpsc::UnboundedReceiver<Op>) -> Op {
@@ -10688,7 +10350,6 @@ guardian_approval = true
             enhanced_keys_supported: app.enhanced_keys_supported,
             has_chatgpt_account: app.chat_widget.has_chatgpt_account(),
             model_catalog: app.model_catalog.clone(),
-            feedback: app.feedback.clone(),
             is_first_run: false,
             status_account_display: app.chat_widget.status_account_display().cloned(),
             initial_plan_type: app.chat_widget.current_plan_type(),
@@ -10887,6 +10548,7 @@ guardian_approval = true
                     updated_at: 0,
                     status: codex_app_server_protocol::ThreadStatus::Idle,
                     path: None,
+                    workspace: None,
                     cwd: PathBuf::from("/tmp/project"),
                     cli_version: "0.0.0".to_string(),
                     source: SessionSource::Cli.into(),

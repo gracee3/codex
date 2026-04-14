@@ -5,6 +5,8 @@ use std::path::PathBuf;
 use crate::RequestId;
 use crate::protocol::common::AuthMode;
 use codex_experimental_api_macros::ExperimentalApi;
+use codex_git_utils::ManagedGitWorkspace as CoreManagedGitWorkspace;
+use codex_git_utils::ManagedGitWorkspaceKind as CoreManagedGitWorkspaceKind;
 use codex_protocol::account::PlanType;
 use codex_protocol::approvals::ElicitationRequest as CoreElicitationRequest;
 use codex_protocol::approvals::ExecPolicyAmendment as CoreExecPolicyAmendment;
@@ -2177,27 +2179,6 @@ pub struct McpServerOauthLoginResponse {
     pub authorization_url: String,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export_to = "v2/")]
-pub struct FeedbackUploadParams {
-    pub classification: String,
-    #[ts(optional = nullable)]
-    pub reason: Option<String>,
-    #[ts(optional = nullable)]
-    pub thread_id: Option<String>,
-    pub include_logs: bool,
-    #[ts(optional = nullable)]
-    pub extra_log_files: Option<Vec<PathBuf>>,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export_to = "v2/")]
-pub struct FeedbackUploadResponse {
-    pub thread_id: String,
-}
-
 /// Read a file from the host filesystem.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
@@ -3609,6 +3590,42 @@ impl From<CoreSkillErrorInfo> for SkillErrorInfo {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "v2/")]
+pub enum ManagedWorkspaceKind {
+    RepoRoot,
+    EphemeralWorktree,
+}
+
+impl From<CoreManagedGitWorkspaceKind> for ManagedWorkspaceKind {
+    fn from(value: CoreManagedGitWorkspaceKind) -> Self {
+        match value {
+            CoreManagedGitWorkspaceKind::RepoRoot => Self::RepoRoot,
+            CoreManagedGitWorkspaceKind::EphemeralWorktree => Self::EphemeralWorktree,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "v2/")]
+pub struct ManagedWorkspace {
+    pub repo_root: PathBuf,
+    pub workspace_path: PathBuf,
+    pub kind: ManagedWorkspaceKind,
+}
+
+impl From<CoreManagedGitWorkspace> for ManagedWorkspace {
+    fn from(value: CoreManagedGitWorkspace) -> Self {
+        Self {
+            repo_root: value.repo_root,
+            workspace_path: value.workspace_path,
+            kind: value.kind.into(),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "v2/")]
 pub struct Thread {
     pub id: String,
     /// Source thread id when this thread was created by forking another thread.
@@ -3631,6 +3648,9 @@ pub struct Thread {
     pub path: Option<PathBuf>,
     /// Working directory captured for the thread.
     pub cwd: PathBuf,
+    /// Managed workspace metadata for repo-root/project-server sessions and
+    /// Codex-managed subagent worktrees when available.
+    pub workspace: Option<ManagedWorkspace>,
     /// Version of the CLI that created the thread.
     pub cli_version: String,
     /// Origin of the thread (CLI, VSCode, codex exec, codex app-server, etc.).
