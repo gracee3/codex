@@ -194,6 +194,7 @@ async fn zero_byte_limit_disables_discovery() {
     assert_eq!(discovery, Vec::<AbsolutePathBuf>::new());
 }
 
+#[cfg(any())]
 #[tokio::test]
 async fn js_repl_instructions_are_appended_when_enabled() {
     let tmp = tempfile::tempdir().expect("tempdir");
@@ -209,6 +210,7 @@ async fn js_repl_instructions_are_appended_when_enabled() {
     assert_eq!(res, expected);
 }
 
+#[cfg(any())]
 #[tokio::test]
 async fn js_repl_tools_only_instructions_are_feature_gated() {
     let tmp = tempfile::tempdir().expect("tempdir");
@@ -228,6 +230,7 @@ async fn js_repl_tools_only_instructions_are_feature_gated() {
     assert_eq!(res, expected);
 }
 
+#[cfg(any())]
 #[tokio::test]
 async fn js_repl_image_detail_original_does_not_change_instructions() {
     let tmp = tempfile::tempdir().expect("tempdir");

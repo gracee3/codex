@@ -307,7 +307,6 @@ use crate::tasks::SessionTaskContext;
 use crate::tools::ToolRouter;
 use crate::tools::context::SharedTurnDiffTracker;
 use crate::tools::js_repl::JsReplHandle;
-use crate::tools::js_repl::resolve_compatible_node;
 use crate::tools::network_approval::NetworkApprovalService;
 use crate::tools::network_approval::build_blocked_request_observer;
 use crate::tools::network_approval::build_network_policy_decider;
@@ -512,34 +511,6 @@ impl Codex {
         {
             let _ = config.features.disable(Feature::SpawnCsv);
             let _ = config.features.disable(Feature::Collab);
-        }
-
-        if config.features.enabled(Feature::JsRepl)
-            && let Err(err) = resolve_compatible_node(config.js_repl_node_path.as_deref()).await
-        {
-            let _ = config.features.disable(Feature::JsRepl);
-            let _ = config.features.disable(Feature::JsReplToolsOnly);
-            let message = if config.features.enabled(Feature::JsRepl) {
-                format!(
-                    "`js_repl` remains enabled because enterprise requirements pin it on, but the configured Node runtime is unavailable or incompatible. {err}"
-                )
-            } else {
-                format!(
-                    "Disabled `js_repl` for this session because the configured Node runtime is unavailable or incompatible. {err}"
-                )
-            };
-            warn!("{message}");
-            config.startup_warnings.push(message);
-        }
-        if config.features.enabled(Feature::CodeMode)
-            && let Err(err) = resolve_compatible_node(config.js_repl_node_path.as_deref()).await
-        {
-            let message = format!(
-                "Disabled `exec` for this session because the configured Node runtime is unavailable or incompatible. {err}"
-            );
-            warn!("{message}");
-            let _ = config.features.disable(Feature::CodeMode);
-            config.startup_warnings.push(message);
         }
 
         let environment = environment_manager
@@ -2025,18 +1996,13 @@ impl Session {
                 config.features.enabled(Feature::RuntimeMetrics),
                 Self::build_model_client_beta_features_header(config.as_ref()),
             ),
-            code_mode_service: crate::tools::code_mode::CodeModeService::new(
-                config.js_repl_node_path.clone(),
-            ),
+            code_mode_service: crate::tools::code_mode::CodeModeService::new(None),
             environment,
         };
         services
             .model_client
             .set_window_generation(window_generation);
-        let js_repl = Arc::new(JsReplHandle::with_node_path(
-            config.js_repl_node_path.clone(),
-            config.js_repl_node_module_dirs.clone(),
-        ));
+        let js_repl = Arc::new(JsReplHandle::with_node_path(None, Vec::new()));
         let (out_of_band_elicitation_paused, _out_of_band_elicitation_paused_rx) =
             watch::channel(false);
 

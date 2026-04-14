@@ -1858,20 +1858,6 @@ impl Config {
             "experimental compact prompt file",
         )?;
         let compact_prompt = compact_prompt.or(file_compact_prompt);
-        let js_repl_node_path = js_repl_node_path_override
-            .or(config_profile.js_repl_node_path.map(Into::into))
-            .or(cfg.js_repl_node_path.map(Into::into));
-        let js_repl_node_module_dirs = js_repl_node_module_dirs_override
-            .or_else(|| {
-                config_profile
-                    .js_repl_node_module_dirs
-                    .map(|dirs| dirs.into_iter().map(Into::into).collect::<Vec<PathBuf>>())
-            })
-            .or_else(|| {
-                cfg.js_repl_node_module_dirs
-                    .map(|dirs| dirs.into_iter().map(Into::into).collect::<Vec<PathBuf>>())
-            })
-            .unwrap_or_default();
         let zsh_path = zsh_path_override
             .or(config_profile.zsh_path.map(Into::into))
             .or(cfg.zsh_path.map(Into::into));
@@ -2053,8 +2039,8 @@ impl Config {
             codex_self_exe,
             codex_linux_sandbox_exe,
             main_execve_wrapper_exe,
-            js_repl_node_path,
-            js_repl_node_module_dirs,
+            js_repl_node_path: js_repl_node_path_override,
+            js_repl_node_module_dirs: js_repl_node_module_dirs_override.unwrap_or_default(),
             zsh_path,
 
             hide_agent_reasoning: cfg.hide_agent_reasoning.unwrap_or(false),
