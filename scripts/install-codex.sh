@@ -156,7 +156,7 @@ show_status() {
   fi
 
   local bin
-  for bin in codex codex-app-server rg; do
+  for bin in tt codex codex-app-server rg; do
     if command -v "$bin" >/dev/null 2>&1; then
       printf '%s\t%s\n' "$bin" "$(command -v "$bin")"
       "$bin" --version 2>/dev/null | head -n 1 || true
@@ -207,7 +207,7 @@ install_release() {
 uninstall_bins() {
   local mode="${1:-}"
   local path
-  for path in "$INSTALL_DIR/codex" "$INSTALL_DIR/codex-app-server" "$INSTALL_DIR/rg"; do
+  for path in "$INSTALL_DIR/tt" "$INSTALL_DIR/codex" "$INSTALL_DIR/codex-app-server" "$INSTALL_DIR/rg"; do
     rm -f "$path"
   done
   if [ -n "$mode" ] && [ "$mode" != "all" ]; then

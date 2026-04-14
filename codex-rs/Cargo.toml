@@ -88,6 +88,8 @@ members = [
     "terminal-detection",
     "codex-experimental-api-macros",
     "plugin",
+    "tt-core",
+    "tt-cli",
 ]
 resolver = "2"
 
@@ -163,6 +165,7 @@ codex-skills = { path = "skills" }
 codex-state = { path = "state" }
 codex-stdio-to-uds = { path = "stdio-to-uds" }
 codex-terminal-detection = { path = "terminal-detection" }
+codex-tt-core = { path = "tt-core" }
 codex-tools = { path = "tools" }
 codex-tui = { path = "tui" }
 codex-utils-absolute-path = { path = "utils/absolute-path" }
