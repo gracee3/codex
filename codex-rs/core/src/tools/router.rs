@@ -92,23 +92,10 @@ impl ToolRouter {
             dynamic_tools,
         );
         let (specs, registry) = builder.build();
-        let model_visible_specs = if config.code_mode_only_enabled {
-            specs
-                .iter()
-                .filter_map(|configured_tool| {
-                    if !codex_code_mode::is_code_mode_nested_tool(configured_tool.name()) {
-                        Some(configured_tool.spec.clone())
-                    } else {
-                        None
-                    }
-                })
-                .collect()
-        } else {
-            specs
-                .iter()
-                .map(|configured_tool| configured_tool.spec.clone())
-                .collect()
-        };
+        let model_visible_specs = specs
+            .iter()
+            .map(|configured_tool| configured_tool.spec.clone())
+            .collect();
 
         Self {
             registry,
@@ -241,7 +228,7 @@ impl ToolRouter {
     }
 
     #[instrument(level = "trace", skip_all, err)]
-    pub async fn dispatch_tool_call_with_code_mode_result(
+    pub async fn dispatch_tool_call(
         &self,
         session: Arc<Session>,
         turn: Arc<TurnContext>,

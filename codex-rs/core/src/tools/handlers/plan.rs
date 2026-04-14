@@ -38,7 +38,7 @@ impl ToolOutput for PlanToolOutput {
         }
     }
 
-    fn code_mode_result(&self, _payload: &ToolPayload) -> JsonValue {
+    fn tool_result_json(&self, _payload: &ToolPayload) -> JsonValue {
         JsonValue::Object(serde_json::Map::new())
     }
 }

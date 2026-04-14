@@ -434,12 +434,6 @@ pub struct Config {
     /// code via [`ConfigOverrides`].
     pub main_execve_wrapper_exe: Option<PathBuf>,
 
-    /// Optional absolute path to the Node runtime used by `js_repl`.
-    pub js_repl_node_path: Option<PathBuf>,
-
-    /// Ordered list of directories to search for Node modules in `js_repl`.
-    pub js_repl_node_module_dirs: Vec<PathBuf>,
-
     /// Optional absolute path to patched zsh used by zsh-exec-bridge-backed shell execution.
     pub zsh_path: Option<PathBuf>,
 
@@ -1221,8 +1215,6 @@ pub struct ConfigOverrides {
     pub codex_self_exe: Option<PathBuf>,
     pub codex_linux_sandbox_exe: Option<PathBuf>,
     pub main_execve_wrapper_exe: Option<PathBuf>,
-    pub js_repl_node_path: Option<PathBuf>,
-    pub js_repl_node_module_dirs: Option<Vec<PathBuf>>,
     pub zsh_path: Option<PathBuf>,
     pub base_instructions: Option<String>,
     pub developer_instructions: Option<String>,
@@ -1429,8 +1421,6 @@ impl Config {
             codex_self_exe,
             codex_linux_sandbox_exe,
             main_execve_wrapper_exe,
-            js_repl_node_path: js_repl_node_path_override,
-            js_repl_node_module_dirs: js_repl_node_module_dirs_override,
             zsh_path: zsh_path_override,
             base_instructions,
             developer_instructions,
@@ -2039,8 +2029,6 @@ impl Config {
             codex_self_exe,
             codex_linux_sandbox_exe,
             main_execve_wrapper_exe,
-            js_repl_node_path: js_repl_node_path_override,
-            js_repl_node_module_dirs: js_repl_node_module_dirs_override.unwrap_or_default(),
             zsh_path,
 
             hide_agent_reasoning: cfg.hide_agent_reasoning.unwrap_or(false),

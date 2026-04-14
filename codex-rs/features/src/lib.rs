@@ -77,14 +77,6 @@ pub enum Feature {
     ShellTool,
 
     // Experimental
-    /// Legacy JavaScript REPL tools backed by a persistent Node kernel.
-    JsRepl,
-    /// Enable a minimal JavaScript mode backed by Node's built-in vm runtime.
-    CodeMode,
-    /// Restrict model-visible tools to code mode entrypoints (`exec`, `wait`).
-    CodeModeOnly,
-    /// Legacy setting that previously restricted exposure to `js_repl` tools.
-    JsReplToolsOnly,
     /// Use the single unified PTY-backed exec tool.
     UnifiedExec,
     /// Route shell tool execution through the zsh exec bridge.
@@ -416,9 +408,6 @@ impl Features {
         if self.enabled(Feature::SpawnCsv) && !self.enabled(Feature::Collab) {
             self.enable(Feature::Collab);
         }
-        if self.enabled(Feature::CodeModeOnly) && !self.enabled(Feature::CodeMode) {
-            self.enable(Feature::CodeMode);
-        }
     }
 }
 
@@ -585,30 +574,6 @@ pub const FEATURES: &[FeatureSpec] = &[
         key: "shell_snapshot",
         stage: Stage::Stable,
         default_enabled: true,
-    },
-    FeatureSpec {
-        id: Feature::JsRepl,
-        key: "js_repl",
-        stage: Stage::Removed,
-        default_enabled: false,
-    },
-    FeatureSpec {
-        id: Feature::CodeMode,
-        key: "code_mode",
-        stage: Stage::UnderDevelopment,
-        default_enabled: false,
-    },
-    FeatureSpec {
-        id: Feature::CodeModeOnly,
-        key: "code_mode_only",
-        stage: Stage::UnderDevelopment,
-        default_enabled: false,
-    },
-    FeatureSpec {
-        id: Feature::JsReplToolsOnly,
-        key: "js_repl_tools_only",
-        stage: Stage::Removed,
-        default_enabled: false,
     },
     FeatureSpec {
         id: Feature::WebSearchRequest,

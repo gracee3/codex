@@ -13,14 +13,12 @@ use crate::ToolSpec;
 use crate::ToolsConfig;
 use crate::ViewImageToolOptions;
 use crate::WebSearchToolOptions;
-use crate::collect_code_mode_tool_definitions;
 use crate::collect_tool_search_app_infos;
 use crate::collect_tool_suggest_entries;
 use crate::create_apply_patch_freeform_tool;
 use crate::create_apply_patch_json_tool;
 use crate::create_close_agent_tool_v1;
 use crate::create_close_agent_tool_v2;
-use crate::create_code_mode_tool;
 use crate::create_exec_command_tool;
 use crate::create_followup_task_tool;
 use crate::create_image_generation_tool;
@@ -48,7 +46,6 @@ use crate::create_update_plan_tool;
 use crate::create_view_image_tool;
 use crate::create_wait_agent_tool_v1;
 use crate::create_wait_agent_tool_v2;
-use crate::create_wait_tool;
 use crate::create_web_search_tool;
 use crate::create_write_stdin_tool;
 use crate::dynamic_tool_to_responses_api_tool;
@@ -59,7 +56,6 @@ use crate::tool_registry_plan_types::agent_type_description;
 use codex_protocol::openai_models::ApplyPatchToolType;
 use codex_protocol::openai_models::ConfigShellToolType;
 use rmcp::model::Tool as McpTool;
-use std::collections::BTreeMap;
 
 pub fn build_tool_registry_plan(
     config: &ToolsConfig,
@@ -67,65 +63,6 @@ pub fn build_tool_registry_plan(
 ) -> ToolRegistryPlan {
     let mut plan = ToolRegistryPlan::new();
     let exec_permission_approvals_enabled = config.exec_permission_approvals_enabled;
-
-    if config.code_mode_enabled {
-        let namespace_descriptions = params
-            .tool_namespaces
-            .into_iter()
-            .flatten()
-            .map(|(name, detail)| {
-                (
-                    name.clone(),
-                    codex_code_mode::ToolNamespaceDescription {
-                        name: detail.name.clone(),
-                        description: detail.description.clone().unwrap_or_default(),
-                    },
-                )
-            })
-            .collect::<BTreeMap<_, _>>();
-        let nested_config = config.for_code_mode_nested_tools();
-        let nested_plan = build_tool_registry_plan(
-            &nested_config,
-            ToolRegistryPlanParams {
-                discoverable_tools: None,
-                ..params
-            },
-        );
-        let mut enabled_tools = collect_code_mode_tool_definitions(
-            nested_plan
-                .specs
-                .iter()
-                .map(|configured_tool| &configured_tool.spec),
-        )
-        .into_iter()
-        .map(|tool| (tool.name, tool.description))
-        .collect::<Vec<_>>();
-        enabled_tools.sort_by(|(left_name, _), (right_name, _)| {
-            compare_code_mode_tool_names(left_name, right_name, &namespace_descriptions)
-        });
-        plan.push_spec(
-            create_code_mode_tool(
-                &enabled_tools,
-                &namespace_descriptions,
-                config.code_mode_only_enabled,
-            ),
-            /*supports_parallel_tool_calls*/ false,
-            config.code_mode_enabled,
-        );
-        plan.register_handler(
-            codex_code_mode::PUBLIC_TOOL_NAME,
-            ToolHandlerKind::CodeModeExecute,
-        );
-        plan.push_spec(
-            create_wait_tool(),
-            /*supports_parallel_tool_calls*/ false,
-            config.code_mode_enabled,
-        );
-        plan.register_handler(
-            codex_code_mode::WAIT_TOOL_NAME,
-            ToolHandlerKind::CodeModeWait,
-        );
-    }
 
     if config.has_environment {
         match &config.shell_type {
@@ -135,14 +72,12 @@ pub fn build_tool_registry_plan(
                         exec_permission_approvals_enabled,
                     }),
                     /*supports_parallel_tool_calls*/ true,
-                    config.code_mode_enabled,
                 );
             }
             ConfigShellToolType::Local => {
                 plan.push_spec(
                     create_local_shell_tool(),
                     /*supports_parallel_tool_calls*/ true,
-                    config.code_mode_enabled,
                 );
             }
             ConfigShellToolType::UnifiedExec => {
@@ -152,12 +87,10 @@ pub fn build_tool_registry_plan(
                         exec_permission_approvals_enabled,
                     }),
                     /*supports_parallel_tool_calls*/ true,
-                    config.code_mode_enabled,
                 );
                 plan.push_spec(
                     create_write_stdin_tool(),
                     /*supports_parallel_tool_calls*/ false,
-                    config.code_mode_enabled,
                 );
                 plan.register_handler("exec_command", ToolHandlerKind::UnifiedExec);
                 plan.register_handler("write_stdin", ToolHandlerKind::UnifiedExec);
@@ -170,7 +103,6 @@ pub fn build_tool_registry_plan(
                         exec_permission_approvals_enabled,
                     }),
                     /*supports_parallel_tool_calls*/ true,
-                    config.code_mode_enabled,
                 );
             }
         }
@@ -187,17 +119,14 @@ pub fn build_tool_registry_plan(
         plan.push_spec(
             create_list_mcp_resources_tool(),
             /*supports_parallel_tool_calls*/ true,
-            config.code_mode_enabled,
         );
         plan.push_spec(
             create_list_mcp_resource_templates_tool(),
             /*supports_parallel_tool_calls*/ true,
-            config.code_mode_enabled,
         );
         plan.push_spec(
             create_read_mcp_resource_tool(),
             /*supports_parallel_tool_calls*/ true,
-            config.code_mode_enabled,
         );
         plan.register_handler("list_mcp_resources", ToolHandlerKind::McpResource);
         plan.register_handler("list_mcp_resource_templates", ToolHandlerKind::McpResource);
@@ -207,7 +136,6 @@ pub fn build_tool_registry_plan(
     plan.push_spec(
         create_update_plan_tool(),
         /*supports_parallel_tool_calls*/ false,
-        config.code_mode_enabled,
     );
     plan.register_handler("update_plan", ToolHandlerKind::Plan);
 
@@ -216,7 +144,6 @@ pub fn build_tool_registry_plan(
             config.default_mode_request_user_input,
         )),
         /*supports_parallel_tool_calls*/ false,
-        config.code_mode_enabled,
     );
     plan.register_handler(
         REQUEST_USER_INPUT_TOOL_NAME,
@@ -227,7 +154,6 @@ pub fn build_tool_registry_plan(
         plan.push_spec(
             create_request_permissions_tool(request_permissions_tool_description()),
             /*supports_parallel_tool_calls*/ false,
-            config.code_mode_enabled,
         );
         plan.register_handler("request_permissions", ToolHandlerKind::RequestPermissions);
     }
@@ -246,7 +172,6 @@ pub fn build_tool_registry_plan(
         plan.push_spec(
             create_tool_search_tool(&search_app_infos, TOOL_SEARCH_DEFAULT_LIMIT),
             /*supports_parallel_tool_calls*/ true,
-            config.code_mode_enabled,
         );
         plan.register_handler(TOOL_SEARCH_TOOL_NAME, ToolHandlerKind::ToolSearch);
 
@@ -265,7 +190,6 @@ pub fn build_tool_registry_plan(
         plan.push_spec(
             create_tool_suggest_tool(&collect_tool_suggest_entries(discoverable_tools)),
             /*supports_parallel_tool_calls*/ true,
-            /*code_mode_enabled*/ false,
         );
         plan.register_handler(TOOL_SUGGEST_TOOL_NAME, ToolHandlerKind::ToolSuggest);
     }
@@ -278,14 +202,12 @@ pub fn build_tool_registry_plan(
                 plan.push_spec(
                     create_apply_patch_freeform_tool(),
                     /*supports_parallel_tool_calls*/ false,
-                    config.code_mode_enabled,
                 );
             }
             ApplyPatchToolType::Function => {
                 plan.push_spec(
                     create_apply_patch_json_tool(),
                     /*supports_parallel_tool_calls*/ false,
-                    config.code_mode_enabled,
                 );
             }
         }
@@ -301,7 +223,6 @@ pub fn build_tool_registry_plan(
         plan.push_spec(
             create_list_dir_tool(),
             /*supports_parallel_tool_calls*/ true,
-            config.code_mode_enabled,
         );
         plan.register_handler("list_dir", ToolHandlerKind::ListDir);
     }
@@ -314,7 +235,6 @@ pub fn build_tool_registry_plan(
         plan.push_spec(
             create_test_sync_tool(),
             /*supports_parallel_tool_calls*/ true,
-            config.code_mode_enabled,
         );
         plan.register_handler("test_sync_tool", ToolHandlerKind::TestSync);
     }
@@ -324,18 +244,13 @@ pub fn build_tool_registry_plan(
         web_search_config: config.web_search_config.as_ref(),
         web_search_tool_type: config.web_search_tool_type,
     }) {
-        plan.push_spec(
-            web_search_tool,
-            /*supports_parallel_tool_calls*/ false,
-            config.code_mode_enabled,
-        );
+        plan.push_spec(web_search_tool, /*supports_parallel_tool_calls*/ false);
     }
 
     if config.image_gen_tool {
         plan.push_spec(
             create_image_generation_tool("png"),
             /*supports_parallel_tool_calls*/ false,
-            config.code_mode_enabled,
         );
     }
 
@@ -345,7 +260,6 @@ pub fn build_tool_registry_plan(
                 can_request_original_image_detail: config.can_request_original_image_detail,
             }),
             /*supports_parallel_tool_calls*/ true,
-            config.code_mode_enabled,
         );
         plan.register_handler("view_image", ToolHandlerKind::ViewImage);
     }
@@ -363,32 +277,26 @@ pub fn build_tool_registry_plan(
                     usage_hint_text: config.spawn_agent_usage_hint_text.clone(),
                 }),
                 /*supports_parallel_tool_calls*/ false,
-                config.code_mode_enabled,
             );
             plan.push_spec(
                 create_send_message_tool(),
                 /*supports_parallel_tool_calls*/ false,
-                config.code_mode_enabled,
             );
             plan.push_spec(
                 create_followup_task_tool(),
                 /*supports_parallel_tool_calls*/ false,
-                config.code_mode_enabled,
             );
             plan.push_spec(
                 create_wait_agent_tool_v2(params.wait_agent_timeouts),
                 /*supports_parallel_tool_calls*/ false,
-                config.code_mode_enabled,
             );
             plan.push_spec(
                 create_close_agent_tool_v2(),
                 /*supports_parallel_tool_calls*/ false,
-                config.code_mode_enabled,
             );
             plan.push_spec(
                 create_list_agents_tool(),
                 /*supports_parallel_tool_calls*/ false,
-                config.code_mode_enabled,
             );
             plan.register_handler("spawn_agent", ToolHandlerKind::SpawnAgentV2);
             plan.register_handler("send_message", ToolHandlerKind::SendMessageV2);
@@ -408,28 +316,23 @@ pub fn build_tool_registry_plan(
                     usage_hint_text: config.spawn_agent_usage_hint_text.clone(),
                 }),
                 /*supports_parallel_tool_calls*/ false,
-                config.code_mode_enabled,
             );
             plan.push_spec(
                 create_send_input_tool_v1(),
                 /*supports_parallel_tool_calls*/ false,
-                config.code_mode_enabled,
             );
             plan.push_spec(
                 create_resume_agent_tool(),
                 /*supports_parallel_tool_calls*/ false,
-                config.code_mode_enabled,
             );
             plan.register_handler("resume_agent", ToolHandlerKind::ResumeAgentV1);
             plan.push_spec(
                 create_wait_agent_tool_v1(params.wait_agent_timeouts),
                 /*supports_parallel_tool_calls*/ false,
-                config.code_mode_enabled,
             );
             plan.push_spec(
                 create_close_agent_tool_v1(),
                 /*supports_parallel_tool_calls*/ false,
-                config.code_mode_enabled,
             );
             plan.register_handler("spawn_agent", ToolHandlerKind::SpawnAgentV1);
             plan.register_handler("send_input", ToolHandlerKind::SendInputV1);
@@ -442,14 +345,12 @@ pub fn build_tool_registry_plan(
         plan.push_spec(
             create_spawn_agents_on_csv_tool(),
             /*supports_parallel_tool_calls*/ false,
-            config.code_mode_enabled,
         );
         plan.register_handler("spawn_agents_on_csv", ToolHandlerKind::AgentJobs);
         if config.agent_jobs_worker_tools {
             plan.push_spec(
                 create_report_agent_job_result_tool(),
                 /*supports_parallel_tool_calls*/ false,
-                config.code_mode_enabled,
             );
             plan.register_handler("report_agent_job_result", ToolHandlerKind::AgentJobs);
         }
@@ -468,7 +369,6 @@ pub fn build_tool_registry_plan(
                     plan.push_spec(
                         ToolSpec::Function(converted_tool),
                         /*supports_parallel_tool_calls*/ false,
-                        config.code_mode_enabled,
                     );
                     plan.register_handler(name, ToolHandlerKind::Mcp);
                 }
@@ -487,7 +387,6 @@ pub fn build_tool_registry_plan(
                 plan.push_spec(
                     ToolSpec::Function(converted_tool),
                     /*supports_parallel_tool_calls*/ false,
-                    config.code_mode_enabled,
                 );
                 plan.register_handler(tool.name.clone(), ToolHandlerKind::DynamicTool);
             }
@@ -501,41 +400,6 @@ pub fn build_tool_registry_plan(
     }
 
     plan
-}
-
-fn compare_code_mode_tool_names(
-    left_name: &str,
-    right_name: &str,
-    namespace_descriptions: &BTreeMap<String, codex_code_mode::ToolNamespaceDescription>,
-) -> std::cmp::Ordering {
-    let left_namespace = code_mode_namespace_name(left_name, namespace_descriptions);
-    let right_namespace = code_mode_namespace_name(right_name, namespace_descriptions);
-
-    left_namespace
-        .cmp(&right_namespace)
-        .then_with(|| {
-            code_mode_function_name(left_name, left_namespace)
-                .cmp(code_mode_function_name(right_name, right_namespace))
-        })
-        .then_with(|| left_name.cmp(right_name))
-}
-
-fn code_mode_namespace_name<'a>(
-    name: &str,
-    namespace_descriptions: &'a BTreeMap<String, codex_code_mode::ToolNamespaceDescription>,
-) -> Option<&'a str> {
-    namespace_descriptions
-        .get(name)
-        .map(|namespace_description| namespace_description.name.as_str())
-}
-
-fn code_mode_function_name<'a>(name: &'a str, namespace: Option<&str>) -> &'a str {
-    namespace
-        .and_then(|namespace| {
-            name.strip_prefix(namespace)
-                .and_then(|suffix| suffix.strip_prefix("__"))
-        })
-        .unwrap_or(name)
 }
 
 #[cfg(test)]

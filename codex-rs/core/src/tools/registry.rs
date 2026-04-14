@@ -98,11 +98,11 @@ impl AnyToolResult {
         result.to_response_item(&call_id, &payload)
     }
 
-    pub(crate) fn code_mode_result(self) -> serde_json::Value {
+    pub(crate) fn tool_result_json(self) -> serde_json::Value {
         let Self {
             payload, result, ..
         } = self;
-        result.code_mode_result(&payload)
+        result.tool_result_json(&payload)
     }
 }
 

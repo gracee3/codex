@@ -190,7 +190,7 @@ impl ToolOutput for ViewImageOutput {
         }
     }
 
-    fn code_mode_result(&self, _payload: &ToolPayload) -> serde_json::Value {
+    fn tool_result_json(&self, _payload: &ToolPayload) -> serde_json::Value {
         serde_json::json!({
             "image_url": self.image_url,
             "detail": self.image_detail
@@ -205,13 +205,13 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn code_mode_result_returns_image_url_object() {
+    fn tool_result_json_returns_image_url_object() {
         let output = ViewImageOutput {
             image_url: "data:image/png;base64,AAA".to_string(),
             image_detail: None,
         };
 
-        let result = output.code_mode_result(&ToolPayload::Function {
+        let result = output.tool_result_json(&ToolPayload::Function {
             arguments: "{}".to_string(),
         });
 

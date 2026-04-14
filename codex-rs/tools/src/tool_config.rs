@@ -97,8 +97,6 @@ pub struct ToolsConfig {
     pub tool_suggest: bool,
     pub exec_permission_approvals_enabled: bool,
     pub request_permissions_tool_enabled: bool,
-    pub code_mode_enabled: bool,
-    pub code_mode_only_enabled: bool,
     pub can_request_original_image_detail: bool,
     pub collab_tools: bool,
     pub multi_agent_v2: bool,
@@ -136,8 +134,6 @@ impl ToolsConfig {
             windows_sandbox_level,
         } = params;
         let include_apply_patch_tool = features.enabled(Feature::ApplyPatchFreeform);
-        let include_code_mode = features.enabled(Feature::CodeMode);
-        let include_code_mode_only = include_code_mode && features.enabled(Feature::CodeModeOnly);
         let include_collab_tools = features.enabled(Feature::Collab);
         let include_multi_agent_v2 = features.enabled(Feature::MultiAgentV2);
         let include_agent_jobs = features.enabled(Feature::SpawnCsv);
@@ -213,8 +209,6 @@ impl ToolsConfig {
             tool_suggest: include_tool_suggest,
             exec_permission_approvals_enabled,
             request_permissions_tool_enabled,
-            code_mode_enabled: include_code_mode,
-            code_mode_only_enabled: include_code_mode_only,
             can_request_original_image_detail: include_original_image_detail,
             collab_tools: include_collab_tools,
             multi_agent_v2: include_multi_agent_v2,
@@ -288,13 +282,6 @@ impl ToolsConfig {
     pub fn with_web_search_config(mut self, web_search_config: Option<WebSearchConfig>) -> Self {
         self.web_search_config = web_search_config;
         self
-    }
-
-    pub fn for_code_mode_nested_tools(&self) -> Self {
-        let mut nested = self.clone();
-        nested.code_mode_enabled = false;
-        nested.code_mode_only_enabled = false;
-        nested
     }
 }
 

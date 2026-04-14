@@ -10,7 +10,6 @@ use crate::exec_policy::ExecPolicyManager;
 use crate::mcp::McpManager;
 use crate::plugins::PluginsManager;
 use crate::skills_watcher::SkillsWatcher;
-use crate::tools::code_mode::CodeModeService;
 use crate::tools::network_approval::NetworkApprovalService;
 use crate::tools::sandboxing::ApprovalStore;
 use crate::unified_exec::UnifiedExecProcessManager;
@@ -58,6 +57,5 @@ pub(crate) struct SessionServices {
     pub(crate) state_db: Option<StateDbHandle>,
     /// Session-scoped model client shared across turns.
     pub(crate) model_client: ModelClient,
-    pub(crate) code_mode_service: CodeModeService,
     pub(crate) environment: Option<Arc<Environment>>,
 }

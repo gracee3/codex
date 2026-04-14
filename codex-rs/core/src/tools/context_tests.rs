@@ -44,7 +44,7 @@ fn function_payloads_remain_function_outputs() {
 }
 
 #[test]
-fn mcp_code_mode_result_serializes_full_call_tool_result() {
+fn mcp_tool_result_json_serializes_full_call_tool_result() {
     let output = CallToolResult {
         content: vec![serde_json::json!({
             "type": "text",
@@ -60,7 +60,7 @@ fn mcp_code_mode_result_serializes_full_call_tool_result() {
         })),
     };
 
-    let result = output.code_mode_result(&ToolPayload::Mcp {
+    let result = output.tool_result_json(&ToolPayload::Mcp {
         server: "server".to_string(),
         tool: "tool".to_string(),
         raw_arguments: "{}".to_string(),

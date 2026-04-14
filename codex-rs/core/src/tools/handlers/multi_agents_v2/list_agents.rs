@@ -62,7 +62,7 @@ impl ToolOutput for ListAgentsResult {
         tool_output_response_item(call_id, payload, self, Some(true), "list_agents")
     }
 
-    fn code_mode_result(&self, _payload: &ToolPayload) -> JsonValue {
-        tool_output_code_mode_result(self, "list_agents")
+    fn tool_result_json(&self, _payload: &ToolPayload) -> JsonValue {
+        tool_output_json_result(self, "list_agents")
     }
 }

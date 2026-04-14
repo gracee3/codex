@@ -29,8 +29,6 @@ pub type SharedTurnDiffTracker = Arc<Mutex<TurnDiffTracker>>;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ToolCallSource {
     Direct,
-    JsRepl,
-    CodeMode,
 }
 
 #[derive(Clone)]
@@ -88,8 +86,8 @@ pub trait ToolOutput: Send {
         None
     }
 
-    fn code_mode_result(&self, payload: &ToolPayload) -> JsonValue {
-        response_input_to_code_mode_result(self.to_response_item("", payload))
+    fn tool_result_json(&self, payload: &ToolPayload) -> JsonValue {
+        response_input_to_tool_result_json(self.to_response_item("", payload))
     }
 }
 
@@ -111,7 +109,7 @@ impl ToolOutput for CallToolResult {
         }
     }
 
-    fn code_mode_result(&self, _payload: &ToolPayload) -> JsonValue {
+    fn tool_result_json(&self, _payload: &ToolPayload) -> JsonValue {
         serde_json::to_value(self).unwrap_or_else(|err| {
             JsonValue::String(format!("failed to serialize mcp result: {err}"))
         })
@@ -240,7 +238,7 @@ impl ToolOutput for ApplyPatchToolOutput {
         )
     }
 
-    fn code_mode_result(&self, _payload: &ToolPayload) -> JsonValue {
+    fn tool_result_json(&self, _payload: &ToolPayload) -> JsonValue {
         JsonValue::Object(serde_json::Map::new())
     }
 }
@@ -324,7 +322,7 @@ impl ToolOutput for ExecCommandToolOutput {
         Some(JsonValue::String(self.truncated_output()))
     }
 
-    fn code_mode_result(&self, _payload: &ToolPayload) -> JsonValue {
+    fn tool_result_json(&self, _payload: &ToolPayload) -> JsonValue {
         #[derive(Serialize)]
         struct UnifiedExecCodeModeResult {
             #[serde(skip_serializing_if = "Option::is_none")]
@@ -390,9 +388,9 @@ impl ExecCommandToolOutput {
     }
 }
 
-pub(crate) fn response_input_to_code_mode_result(response: ResponseInputItem) -> JsonValue {
+pub(crate) fn response_input_to_tool_result_json(response: ResponseInputItem) -> JsonValue {
     match response {
-        ResponseInputItem::Message { content, .. } => content_items_to_code_mode_result(
+        ResponseInputItem::Message { content, .. } => content_items_to_tool_result_json(
             &content
                 .into_iter()
                 .map(|item| match item {
@@ -413,12 +411,12 @@ pub(crate) fn response_input_to_code_mode_result(response: ResponseInputItem) ->
         | ResponseInputItem::CustomToolCallOutput { output, .. } => match output.body {
             FunctionCallOutputBody::Text(text) => JsonValue::String(text),
             FunctionCallOutputBody::ContentItems(items) => {
-                content_items_to_code_mode_result(&items)
+                content_items_to_tool_result_json(&items)
             }
         },
         ResponseInputItem::ToolSearchOutput { tools, .. } => JsonValue::Array(tools),
         ResponseInputItem::McpToolCallOutput { output, .. } => {
-            output.code_mode_result(&ToolPayload::Mcp {
+            output.tool_result_json(&ToolPayload::Mcp {
                 server: String::new(),
                 tool: String::new(),
                 raw_arguments: String::new(),
@@ -427,7 +425,7 @@ pub(crate) fn response_input_to_code_mode_result(response: ResponseInputItem) ->
     }
 }
 
-fn content_items_to_code_mode_result(items: &[FunctionCallOutputContentItem]) -> JsonValue {
+fn content_items_to_tool_result_json(items: &[FunctionCallOutputContentItem]) -> JsonValue {
     JsonValue::String(
         items
             .iter()

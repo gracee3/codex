@@ -39,8 +39,6 @@ pub(crate) fn build_specs_with_discoverable_tools(
     dynamic_tools: &[DynamicToolSpec],
 ) -> ToolRegistryBuilder {
     use crate::tools::handlers::ApplyPatchHandler;
-    use crate::tools::handlers::CodeModeExecuteHandler;
-    use crate::tools::handlers::CodeModeWaitHandler;
     use crate::tools::handlers::DynamicToolHandler;
     use crate::tools::handlers::ListDirHandler;
     use crate::tools::handlers::McpHandler;
@@ -114,9 +112,6 @@ pub(crate) fn build_specs_with_discoverable_tools(
     });
     let mut tool_search_handler = None;
     let tool_suggest_handler = Arc::new(ToolSuggestHandler);
-    let code_mode_handler = Arc::new(CodeModeExecuteHandler);
-    let code_mode_wait_handler = Arc::new(CodeModeWaitHandler);
-
     for spec in plan.specs {
         if spec.supports_parallel_tool_calls {
             builder.push_spec_with_parallel_support(
@@ -140,12 +135,6 @@ pub(crate) fn build_specs_with_discoverable_tools(
             }
             ToolHandlerKind::CloseAgentV2 => {
                 builder.register_handler(handler.name, Arc::new(CloseAgentHandlerV2));
-            }
-            ToolHandlerKind::CodeModeExecute => {
-                builder.register_handler(handler.name, code_mode_handler.clone());
-            }
-            ToolHandlerKind::CodeModeWait => {
-                builder.register_handler(handler.name, code_mode_wait_handler.clone());
             }
             ToolHandlerKind::DynamicTool => {
                 builder.register_handler(handler.name, dynamic_tool_handler.clone());

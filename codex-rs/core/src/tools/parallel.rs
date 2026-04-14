@@ -87,7 +87,7 @@ impl ToolCallRuntime {
         let started = Instant::now();
 
         let dispatch_span = trace_span!(
-            "dispatch_tool_call_with_code_mode_result",
+            "dispatch_tool_call",
             otel.name = call.tool_name.as_str(),
             tool_name = call.tool_name.as_str(),
             call_id = call.call_id.as_str(),
@@ -110,7 +110,7 @@ impl ToolCallRuntime {
                         };
 
                         router
-                            .dispatch_tool_call_with_code_mode_result(
+                            .dispatch_tool_call(
                                 session,
                                 turn,
                                 tracker,

@@ -306,7 +306,6 @@ use crate::tasks::SessionTask;
 use crate::tasks::SessionTaskContext;
 use crate::tools::ToolRouter;
 use crate::tools::context::SharedTurnDiffTracker;
-use crate::tools::js_repl::JsReplHandle;
 use crate::tools::network_approval::NetworkApprovalService;
 use crate::tools::network_approval::build_blocked_request_observer;
 use crate::tools::network_approval::build_network_policy_decider;
@@ -808,7 +807,6 @@ pub(crate) struct Session {
     idle_pending_input: Mutex<Vec<ResponseInputItem>>, // TODO (jif) merge with mailbox!
     pub(crate) guardian_review_session: GuardianReviewSessionManager,
     pub(crate) services: SessionServices,
-    js_repl: Arc<JsReplHandle>,
     next_internal_sub_id: AtomicU64,
 }
 
@@ -869,7 +867,6 @@ pub(crate) struct TurnContext {
     pub(crate) codex_linux_sandbox_exe: Option<PathBuf>,
     pub(crate) tool_call_gate: Arc<ReadinessFlag>,
     pub(crate) truncation_policy: TruncationPolicy,
-    pub(crate) js_repl: Arc<JsReplHandle>,
     pub(crate) dynamic_tools: Vec<DynamicToolSpec>,
     pub(crate) turn_metadata_state: Arc<TurnMetadataState>,
     pub(crate) turn_skills: TurnSkillsContext,
@@ -993,7 +990,6 @@ impl TurnContext {
             codex_linux_sandbox_exe: self.codex_linux_sandbox_exe.clone(),
             tool_call_gate: Arc::new(ReadinessFlag::new()),
             truncation_policy,
-            js_repl: Arc::clone(&self.js_repl),
             dynamic_tools: self.dynamic_tools.clone(),
             turn_metadata_state: self.turn_metadata_state.clone(),
             turn_skills: self.turn_skills.clone(),
@@ -1440,7 +1436,6 @@ impl Session {
         network: Option<NetworkProxy>,
         environment: Option<Arc<Environment>>,
         sub_id: String,
-        js_repl: Arc<JsReplHandle>,
         skills_outcome: Arc<SkillLoadOutcome>,
     ) -> TurnContext {
         let reasoning_effort = session_configuration.collaboration_mode.reasoning_effort();
@@ -1530,7 +1525,6 @@ impl Session {
             codex_linux_sandbox_exe: per_turn_config.codex_linux_sandbox_exe.clone(),
             tool_call_gate: Arc::new(ReadinessFlag::new()),
             truncation_policy: model_info.truncation_policy.into(),
-            js_repl,
             dynamic_tools: session_configuration.dynamic_tools.clone(),
             turn_metadata_state,
             turn_skills: TurnSkillsContext::new(skills_outcome),
@@ -1996,13 +1990,11 @@ impl Session {
                 config.features.enabled(Feature::RuntimeMetrics),
                 Self::build_model_client_beta_features_header(config.as_ref()),
             ),
-            code_mode_service: crate::tools::code_mode::CodeModeService::new(None),
             environment,
         };
         services
             .model_client
             .set_window_generation(window_generation);
-        let js_repl = Arc::new(JsReplHandle::with_node_path(None, Vec::new()));
         let (out_of_band_elicitation_paused, _out_of_band_elicitation_paused_rx) =
             watch::channel(false);
 
@@ -2023,7 +2015,6 @@ impl Session {
             idle_pending_input: Mutex::new(Vec::new()),
             guardian_review_session: GuardianReviewSessionManager::default(),
             services,
-            js_repl,
             next_internal_sub_id: AtomicU64::new(0),
         });
         if let Some(network_policy_decider_session) = network_policy_decider_session {
@@ -2597,7 +2588,6 @@ impl Session {
                 .map(StartedNetworkProxy::proxy),
             self.services.environment.clone(),
             sub_id,
-            Arc::clone(&self.js_repl),
             skills_outcome,
         );
         turn_context.realtime_active = self.conversation.running_state().await.is_some();
@@ -5787,7 +5777,6 @@ async fn spawn_review_thread(
         codex_self_exe: parent_turn_context.codex_self_exe.clone(),
         codex_linux_sandbox_exe: parent_turn_context.codex_linux_sandbox_exe.clone(),
         tool_call_gate: Arc::new(ReadinessFlag::new()),
-        js_repl: Arc::clone(&sess.js_repl),
         dynamic_tools: parent_turn_context.dynamic_tools.clone(),
         truncation_policy: model_info.truncation_policy.into(),
         turn_metadata_state,
@@ -6722,16 +6711,6 @@ async fn run_sampling_request(
         Arc::clone(&turn_context),
         Arc::clone(&turn_diff_tracker),
     );
-    let _code_mode_worker = sess
-        .services
-        .code_mode_service
-        .start_turn_worker(
-            &sess,
-            &turn_context,
-            Arc::clone(&router),
-            Arc::clone(&turn_diff_tracker),
-        )
-        .await;
     let mut retries = 0;
     loop {
         let err = match try_run_sampling_request(
@@ -7873,8 +7852,6 @@ pub(super) fn get_last_assistant_message_from_turn(responses: &[ResponseItem]) -
 use crate::memories::prompts::build_memory_tool_developer_instructions;
 #[cfg(test)]
 pub(crate) use tests::make_session_and_context;
-#[cfg(test)]
-pub(crate) use tests::make_session_and_context_with_dynamic_tools_and_rx;
 #[cfg(test)]
 pub(crate) use tests::make_session_and_context_with_rx;
 #[cfg(test)]
