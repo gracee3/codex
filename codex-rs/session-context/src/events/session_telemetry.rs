@@ -25,9 +25,7 @@ use crate::metrics::WEBSOCKET_EVENT_COUNT_METRIC;
 use crate::metrics::WEBSOCKET_EVENT_DURATION_METRIC;
 use crate::metrics::WEBSOCKET_REQUEST_COUNT_METRIC;
 use crate::metrics::WEBSOCKET_REQUEST_DURATION_METRIC;
-use crate::metrics::runtime_metrics::RuntimeMetricsSummary;
 use crate::metrics::timer::Timer;
-use crate::provider::OtelProvider;
 use crate::sanitize_metric_tag_value;
 use codex_api::ApiError;
 use codex_api::ResponseEvent;
@@ -42,7 +40,6 @@ use codex_protocol::protocol::SessionSource;
 use codex_protocol::user_input::UserInput;
 use eventsource_stream::Event as StreamEvent;
 use eventsource_stream::EventStreamError as StreamError;
-use opentelemetry_sdk::metrics::data::ResourceMetrics;
 use reqwest::Error;
 use reqwest::Response;
 use std::borrow::Cow;
@@ -131,13 +128,6 @@ impl SessionTelemetry {
         Ok(self.with_metrics(metrics))
     }
 
-    pub fn with_provider_metrics(self, provider: &OtelProvider) -> Self {
-        match provider.metrics() {
-            Some(metrics) => self.with_metrics(metrics.clone()),
-            None => self,
-        }
-    }
-
     pub fn counter(&self, name: &str, inc: i64, tags: &[(&str, &str)]) {
         let res: MetricsResult<()> = (|| {
             let Some(metrics) = &self.metrics else {
@@ -198,37 +188,18 @@ impl SessionTelemetry {
         metrics.shutdown()
     }
 
-    pub fn snapshot_metrics(&self) -> MetricsResult<ResourceMetrics> {
-        let Some(metrics) = &self.metrics else {
-            return Err(MetricsError::ExporterDisabled);
-        };
-        metrics.snapshot()
-    }
-
-    /// Collect and discard a runtime metrics snapshot to reset delta accumulators.
     pub fn reset_runtime_metrics(&self) {
-        if self.metrics.is_none() {
-            return;
-        }
-        if let Err(err) = self.snapshot_metrics() {
-            tracing::debug!("runtime metrics reset skipped: {err}");
-        }
+        let _ = self;
     }
 
-    /// Collect a runtime metrics summary if debug snapshots are available.
-    pub fn runtime_metrics_summary(&self) -> Option<RuntimeMetricsSummary> {
-        let snapshot = match self.snapshot_metrics() {
-            Ok(snapshot) => snapshot,
-            Err(_) => {
-                return None;
-            }
-        };
-        let summary = RuntimeMetricsSummary::from_snapshot(&snapshot);
-        if summary.is_empty() {
-            None
-        } else {
-            Some(summary)
-        }
+    pub fn snapshot_metrics(&self) -> MetricsResult<()> {
+        let _ = self;
+        Err(MetricsError::RuntimeSnapshotUnavailable)
+    }
+
+    pub fn runtime_metrics_summary(&self) -> Option<()> {
+        let _ = self;
+        None
     }
 
     fn tags_with_metadata<'a>(

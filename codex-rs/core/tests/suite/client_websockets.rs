@@ -5,13 +5,9 @@ use codex_core::ModelClient;
 use codex_core::ModelClientSession;
 use codex_core::Prompt;
 use codex_core::ResponseEvent;
-use codex_core::X_RESPONSESAPI_INCLUDE_TIMING_METRICS_HEADER;
-use codex_features::Feature;
 use codex_login::CodexAuth;
 use codex_model_provider_info::ModelProviderInfo;
 use codex_model_provider_info::WireApi;
-use codex_otel::MetricsClient;
-use codex_otel::MetricsConfig;
 use codex_otel::SessionTelemetry;
 use codex_otel::TelemetryAuthMode;
 use codex_otel::current_span_w3c_trace_context;
@@ -42,7 +38,6 @@ use core_test_support::test_codex::test_codex;
 use core_test_support::tracing::install_test_tracing;
 use core_test_support::wait_for_event;
 use futures::StreamExt;
-use opentelemetry_sdk::metrics::InMemoryMetricExporter;
 use pretty_assertions::assert_eq;
 use serde_json::json;
 use std::sync::Arc;
@@ -144,7 +139,7 @@ async fn responses_websocket_streams_without_feature_flag_when_provider_supports
     ]]])
     .await;
 
-    let harness = websocket_harness_with_options(&server, /*runtime_metrics_enabled*/ false).await;
+    let harness = websocket_harness_with_options(&server).await;
     let mut client_session = harness.client.new_session();
     let prompt = prompt_with_input(vec![message_item("hello")]);
 
@@ -297,7 +292,7 @@ async fn responses_websocket_request_prewarm_reuses_connection() {
     ]])
     .await;
 
-    let harness = websocket_harness_with_options(&server, /*runtime_metrics_enabled*/ true).await;
+    let harness = websocket_harness_with_options(&server).await;
     let mut client_session = harness.client.new_session();
     let prompt = prompt_with_input(vec![message_item("hello")]);
     client_session
@@ -416,7 +411,7 @@ async fn responses_websocket_request_prewarm_is_reused_even_with_header_changes(
     ]])
     .await;
 
-    let harness = websocket_harness_with_options(&server, /*runtime_metrics_enabled*/ true).await;
+    let harness = websocket_harness_with_options(&server).await;
     let mut client_session = harness.client.new_session();
     let prompt = prompt_with_input(vec![message_item("hello")]);
     client_session
@@ -481,7 +476,7 @@ async fn responses_websocket_prewarm_uses_v2_when_provider_supports_websockets()
     ]]])
     .await;
 
-    let harness = websocket_harness_with_options(&server, /*runtime_metrics_enabled*/ false).await;
+    let harness = websocket_harness_with_options(&server).await;
     let mut client_session = harness.client.new_session();
     let prompt = prompt_with_input(vec![message_item("hello")]);
     client_session
@@ -538,7 +533,7 @@ async fn responses_websocket_preconnect_runs_when_only_v2_feature_enabled() {
     ]]])
     .await;
 
-    let harness = websocket_harness_with_options(&server, /*runtime_metrics_enabled*/ true).await;
+    let harness = websocket_harness_with_options(&server).await;
     let mut client_session = harness.client.new_session();
     client_session
         .preconnect_websocket(&harness.session_telemetry, &harness.model_info)
@@ -581,7 +576,7 @@ async fn responses_websocket_v2_requests_use_v2_when_provider_supports_websocket
     ]])
     .await;
 
-    let harness = websocket_harness_with_options(&server, /*runtime_metrics_enabled*/ true).await;
+    let harness = websocket_harness_with_options(&server).await;
     let mut client_session = harness.client.new_session();
     let prompt_one = prompt_with_input(vec![message_item("hello")]);
     let prompt_two = prompt_with_input(vec![
@@ -630,7 +625,7 @@ async fn responses_websocket_v2_incremental_requests_are_reused_across_turns() {
     ]])
     .await;
 
-    let harness = websocket_harness_with_options(&server, /*runtime_metrics_enabled*/ false).await;
+    let harness = websocket_harness_with_options(&server).await;
     let prompt_one = prompt_with_input(vec![message_item("hello")]);
     let prompt_two = prompt_with_input(vec![
         message_item("hello"),
@@ -674,7 +669,7 @@ async fn responses_websocket_v2_wins_when_both_features_enabled() {
     ]])
     .await;
 
-    let harness = websocket_harness_with_options(&server, /*runtime_metrics_enabled*/ false).await;
+    let harness = websocket_harness_with_options(&server).await;
     let mut client_session = harness.client.new_session();
     let prompt_one = prompt_with_input(vec![message_item("hello")]);
     let prompt_two = prompt_with_input(vec![
@@ -721,98 +716,12 @@ async fn responses_websocket_emits_websocket_telemetry_events() {
     .await;
 
     let harness = websocket_harness(&server).await;
-    harness.session_telemetry.reset_runtime_metrics();
     let mut client_session = harness.client.new_session();
     let prompt = prompt_with_input(vec![message_item("hello")]);
 
     stream_until_complete(&mut client_session, &harness, &prompt).await;
 
     tokio::time::sleep(Duration::from_millis(10)).await;
-
-    let summary = harness
-        .session_telemetry
-        .runtime_metrics_summary()
-        .expect("runtime metrics summary");
-    assert_eq!(summary.api_calls.count, 0);
-    assert_eq!(summary.streaming_events.count, 0);
-    assert_eq!(summary.websocket_calls.count, 1);
-    assert_eq!(summary.websocket_events.count, 2);
-
-    server.shutdown().await;
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn responses_websocket_includes_timing_metrics_header_when_runtime_metrics_enabled() {
-    skip_if_no_network!();
-
-    let server = start_websocket_server(vec![vec![vec![
-        ev_response_created("resp-1"),
-        serde_json::json!({
-            "type": "responsesapi.websocket_timing",
-            "timing_metrics": {
-                "responses_duration_excl_engine_and_client_tool_time_ms": 120,
-                "engine_service_total_ms": 450,
-                "engine_iapi_ttft_total_ms": 310,
-                "engine_service_ttft_total_ms": 340,
-                "engine_iapi_tbt_across_engine_calls_ms": 220,
-                "engine_service_tbt_across_engine_calls_ms": 260
-            }
-        }),
-        ev_completed("resp-1"),
-    ]]])
-    .await;
-
-    let harness =
-        websocket_harness_with_runtime_metrics(&server, /*runtime_metrics_enabled*/ true).await;
-    harness.session_telemetry.reset_runtime_metrics();
-    let mut client_session = harness.client.new_session();
-    let prompt = prompt_with_input(vec![message_item("hello")]);
-
-    stream_until_complete(&mut client_session, &harness, &prompt).await;
-    tokio::time::sleep(Duration::from_millis(10)).await;
-
-    let handshake = server.single_handshake();
-    assert_eq!(
-        handshake.header(X_RESPONSESAPI_INCLUDE_TIMING_METRICS_HEADER),
-        Some("true".to_string())
-    );
-
-    let summary = harness
-        .session_telemetry
-        .runtime_metrics_summary()
-        .expect("runtime metrics summary");
-    assert_eq!(summary.responses_api_overhead_ms, 120);
-    assert_eq!(summary.responses_api_inference_time_ms, 450);
-    assert_eq!(summary.responses_api_engine_iapi_ttft_ms, 310);
-    assert_eq!(summary.responses_api_engine_service_ttft_ms, 340);
-    assert_eq!(summary.responses_api_engine_iapi_tbt_ms, 220);
-    assert_eq!(summary.responses_api_engine_service_tbt_ms, 260);
-
-    server.shutdown().await;
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn responses_websocket_omits_timing_metrics_header_when_runtime_metrics_disabled() {
-    skip_if_no_network!();
-
-    let server = start_websocket_server(vec![vec![vec![
-        ev_response_created("resp-1"),
-        ev_completed("resp-1"),
-    ]]])
-    .await;
-
-    let harness =
-        websocket_harness_with_runtime_metrics(&server, /*runtime_metrics_enabled*/ false).await;
-    let mut client_session = harness.client.new_session();
-    let prompt = prompt_with_input(vec![message_item("hello")]);
-
-    stream_until_complete(&mut client_session, &harness, &prompt).await;
-
-    let handshake = server.single_handshake();
-    assert_eq!(
-        handshake.header(X_RESPONSESAPI_INCLUDE_TIMING_METRICS_HEADER),
-        None
-    );
 
     server.shutdown().await;
 }
@@ -1388,7 +1297,7 @@ async fn responses_websocket_v2_creates_with_previous_response_id_on_prefix() {
     ]])
     .await;
 
-    let harness = websocket_harness_with_v2(&server, /*runtime_metrics_enabled*/ true).await;
+    let harness = websocket_harness_with_v2(&server).await;
     let mut session = harness.client.new_session();
     let prompt_one = prompt_with_input(vec![message_item("hello")]);
     let prompt_two = prompt_with_input(vec![
@@ -1427,7 +1336,7 @@ async fn responses_websocket_v2_creates_without_previous_response_id_when_non_in
     ]])
     .await;
 
-    let harness = websocket_harness_with_v2(&server, /*runtime_metrics_enabled*/ true).await;
+    let harness = websocket_harness_with_v2(&server).await;
     let mut session = harness.client.new_session();
     let prompt_one =
         prompt_with_input_and_instructions(vec![message_item("hello")], "base instructions one");
@@ -1474,7 +1383,7 @@ async fn responses_websocket_v2_after_error_uses_full_create_without_previous_re
     ])
     .await;
 
-    let harness = websocket_harness_with_v2(&server, /*runtime_metrics_enabled*/ true).await;
+    let harness = websocket_harness_with_v2(&server).await;
     let mut session = harness.client.new_session();
     let prompt_one = prompt_with_input(vec![message_item("hello")]);
     let prompt_two = prompt_with_input(vec![message_item("hello"), message_item("second")]);
@@ -1566,7 +1475,7 @@ async fn responses_websocket_v2_surfaces_terminal_error_without_close_handshake(
     }])
     .await;
 
-    let harness = websocket_harness_with_v2(&server, /*runtime_metrics_enabled*/ true).await;
+    let harness = websocket_harness_with_v2(&server).await;
     let mut session = harness.client.new_session();
     let prompt_one = prompt_with_input(vec![message_item("hello")]);
     let prompt_two = prompt_with_input(vec![message_item("hello"), message_item("second")]);
@@ -1612,7 +1521,7 @@ async fn responses_websocket_v2_sets_openai_beta_header() {
     ]]])
     .await;
 
-    let harness = websocket_harness_with_v2(&server, /*runtime_metrics_enabled*/ true).await;
+    let harness = websocket_harness_with_v2(&server).await;
     let mut session = harness.client.new_session();
     let prompt = prompt_with_input(vec![message_item("hello")]);
 
@@ -1694,55 +1603,28 @@ fn websocket_provider_with_connect_timeout(
 }
 
 async fn websocket_harness(server: &WebSocketTestServer) -> WebsocketTestHarness {
-    websocket_harness_with_runtime_metrics(server, /*runtime_metrics_enabled*/ false).await
+    websocket_harness_with_options(server).await
 }
 
-async fn websocket_harness_with_runtime_metrics(
-    server: &WebSocketTestServer,
-    runtime_metrics_enabled: bool,
-) -> WebsocketTestHarness {
-    websocket_harness_with_options(server, runtime_metrics_enabled).await
+async fn websocket_harness_with_v2(server: &WebSocketTestServer) -> WebsocketTestHarness {
+    websocket_harness_with_options(server).await
 }
 
-async fn websocket_harness_with_v2(
-    server: &WebSocketTestServer,
-    runtime_metrics_enabled: bool,
-) -> WebsocketTestHarness {
-    websocket_harness_with_options(server, runtime_metrics_enabled).await
-}
-
-async fn websocket_harness_with_options(
-    server: &WebSocketTestServer,
-    runtime_metrics_enabled: bool,
-) -> WebsocketTestHarness {
-    websocket_harness_with_provider_options(websocket_provider(server), runtime_metrics_enabled)
-        .await
+async fn websocket_harness_with_options(server: &WebSocketTestServer) -> WebsocketTestHarness {
+    websocket_harness_with_provider_options(websocket_provider(server)).await
 }
 
 async fn websocket_harness_with_provider_options(
     provider: ModelProviderInfo,
-    runtime_metrics_enabled: bool,
 ) -> WebsocketTestHarness {
     let codex_home = TempDir::new().unwrap();
     let mut config = load_default_config_for_test(&codex_home).await;
     config.model = Some(MODEL.to_string());
-    if runtime_metrics_enabled {
-        config
-            .features
-            .enable(Feature::RuntimeMetrics)
-            .expect("test config should allow feature update");
-    }
     let config = Arc::new(config);
     let model_info = codex_core::test_support::construct_model_info_offline(MODEL, &config);
     let conversation_id = ThreadId::new();
     let auth_manager =
         codex_core::test_support::auth_manager_from_auth(CodexAuth::from_api_key("Test API Key"));
-    let exporter = InMemoryMetricExporter::default();
-    let metrics = MetricsClient::new(
-        MetricsConfig::in_memory("test", "codex-core", env!("CARGO_PKG_VERSION"), exporter)
-            .with_runtime_reader(),
-    )
-    .expect("in-memory metrics client");
     let session_telemetry = SessionTelemetry::new(
         conversation_id,
         MODEL,
@@ -1754,8 +1636,7 @@ async fn websocket_harness_with_provider_options(
         /*log_user_prompts*/ false,
         "test".to_string(),
         SessionSource::Exec,
-    )
-    .with_metrics(metrics);
+    );
     let effort = None;
     let summary = ReasoningSummary::Auto;
     let client = ModelClient::new(
@@ -1766,7 +1647,7 @@ async fn websocket_harness_with_provider_options(
         SessionSource::Exec,
         config.model_verbosity,
         /*enable_request_compression*/ false,
-        runtime_metrics_enabled,
+        /*include_timing_metrics*/ false,
         /*beta_features_header*/ None,
     );
 

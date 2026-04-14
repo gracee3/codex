@@ -984,6 +984,8 @@ pub(crate) struct App {
     environment_manager: Arc<EnvironmentManager>,
     remote_app_server_url: Option<String>,
     remote_app_server_auth_token: Option<String>,
+    project_shared_server_root: Option<PathBuf>,
+    detach_on_quit_shortcut: bool,
     /// Set when the user confirms an update; propagated on exit.
     pub(crate) pending_update_action: Option<UpdateAction>,
 
@@ -1102,6 +1104,7 @@ impl App {
             status_line_invalid_items_warned: self.status_line_invalid_items_warned.clone(),
             terminal_title_invalid_items_warned: self.terminal_title_invalid_items_warned.clone(),
             session_telemetry: self.session_telemetry.clone(),
+            quit_shortcut_uses_immediate_exit: self.detach_on_quit_shortcut,
         }
     }
 
@@ -3598,6 +3601,8 @@ impl App {
         should_prompt_windows_sandbox_nux_at_startup: bool,
         remote_app_server_url: Option<String>,
         remote_app_server_auth_token: Option<String>,
+        project_shared_server_root: Option<PathBuf>,
+        detach_on_quit_shortcut: bool,
         environment_manager: Arc<EnvironmentManager>,
     ) -> Result<AppExitInfo> {
         use tokio_stream::StreamExt;
@@ -3658,7 +3663,7 @@ impl App {
             bootstrap.account_email.clone(),
             auth_mode,
             codex_login::default_client::originator().value,
-            config.otel.log_user_prompt,
+            /*log_user_prompts*/ false,
             user_agent(),
             SessionSource::Cli,
         );
@@ -3705,6 +3710,7 @@ impl App {
                     terminal_title_invalid_items_warned: terminal_title_invalid_items_warned
                         .clone(),
                     session_telemetry: session_telemetry.clone(),
+                    quit_shortcut_uses_immediate_exit: detach_on_quit_shortcut,
                 };
                 (ChatWidget::new_with_app_event(init), Some(started))
             }
@@ -3739,6 +3745,7 @@ impl App {
                     terminal_title_invalid_items_warned: terminal_title_invalid_items_warned
                         .clone(),
                     session_telemetry: session_telemetry.clone(),
+                    quit_shortcut_uses_immediate_exit: detach_on_quit_shortcut,
                 };
                 (ChatWidget::new_with_app_event(init), Some(resumed))
             }
@@ -3778,6 +3785,7 @@ impl App {
                     terminal_title_invalid_items_warned: terminal_title_invalid_items_warned
                         .clone(),
                     session_telemetry: session_telemetry.clone(),
+                    quit_shortcut_uses_immediate_exit: detach_on_quit_shortcut,
                 };
                 (ChatWidget::new_with_app_event(init), Some(forked))
             }
@@ -3817,6 +3825,8 @@ impl App {
             environment_manager,
             remote_app_server_url,
             remote_app_server_auth_token,
+            project_shared_server_root,
+            detach_on_quit_shortcut,
             pending_update_action: None,
             pending_shutdown_exit_thread_id: None,
             windows_sandbox: WindowsSandboxState::default(),
@@ -4175,6 +4185,7 @@ impl App {
                         Some(websocket_url) => crate::AppServerTarget::Remote {
                             websocket_url,
                             auth_token: self.remote_app_server_auth_token.clone(),
+                            project_server_root: self.project_shared_server_root.clone(),
                         },
                         None => crate::AppServerTarget::Embedded,
                     },
@@ -6717,6 +6728,7 @@ mod tests {
             status_line_invalid_items_warned: app.status_line_invalid_items_warned.clone(),
             terminal_title_invalid_items_warned: app.terminal_title_invalid_items_warned.clone(),
             session_telemetry: app.session_telemetry.clone(),
+            quit_shortcut_uses_immediate_exit: app.detach_on_quit_shortcut,
         });
 
         app.enqueue_primary_thread_session(
@@ -9246,6 +9258,8 @@ guardian_approval = true
             environment_manager: Arc::new(EnvironmentManager::new(/*exec_server_url*/ None)),
             remote_app_server_url: None,
             remote_app_server_auth_token: None,
+            project_shared_server_root: None,
+            detach_on_quit_shortcut: false,
             pending_update_action: None,
             pending_shutdown_exit_thread_id: None,
             windows_sandbox: WindowsSandboxState::default(),
@@ -9303,6 +9317,8 @@ guardian_approval = true
                 )),
                 remote_app_server_url: None,
                 remote_app_server_auth_token: None,
+                project_shared_server_root: None,
+                detach_on_quit_shortcut: false,
                 pending_update_action: None,
                 pending_shutdown_exit_thread_id: None,
                 windows_sandbox: WindowsSandboxState::default(),
@@ -10681,6 +10697,7 @@ guardian_approval = true
             status_line_invalid_items_warned: app.status_line_invalid_items_warned.clone(),
             terminal_title_invalid_items_warned: app.terminal_title_invalid_items_warned.clone(),
             session_telemetry: app.session_telemetry.clone(),
+            quit_shortcut_uses_immediate_exit: app.detach_on_quit_shortcut,
         });
         app.replace_chat_widget(replacement);
 

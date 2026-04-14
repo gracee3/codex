@@ -114,8 +114,6 @@ pub enum Feature {
     ShellSnapshot,
     /// Enable git commit attribution guidance via model instructions.
     CodexGitCommit,
-    /// Enable runtime metrics snapshots via a manual reader.
-    RuntimeMetrics,
     /// Enable thread lifecycle analytics emitted via the app-server analytics pipeline.
     GeneralAnalytics,
     /// Persist rollout metadata to a local SQLite database.
@@ -597,12 +595,6 @@ pub const FEATURES: &[FeatureSpec] = &[
     FeatureSpec {
         id: Feature::CodexGitCommit,
         key: "codex_git_commit",
-        stage: Stage::UnderDevelopment,
-        default_enabled: false,
-    },
-    FeatureSpec {
-        id: Feature::RuntimeMetrics,
-        key: "runtime_metrics",
         stage: Stage::UnderDevelopment,
         default_enabled: false,
     },

@@ -136,6 +136,7 @@ async fn helpers_are_available_and_do_not_panic() {
         status_line_invalid_items_warned: Arc::new(AtomicBool::new(false)),
         terminal_title_invalid_items_warned: Arc::new(AtomicBool::new(false)),
         session_telemetry,
+        quit_shortcut_uses_immediate_exit: false,
     };
     let mut w = ChatWidget::new_with_app_event(init);
     // Basic construction sanity.
@@ -1125,50 +1126,6 @@ async fn status_line_model_with_reasoning_fast_footer_snapshot() {
         "status_line_model_with_reasoning_fast_footer",
         normalized_backend_snapshot(terminal.backend())
     );
-}
-
-#[tokio::test]
-async fn runtime_metrics_websocket_timing_logs_and_final_separator_sums_totals() {
-    let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
-    chat.set_feature_enabled(Feature::RuntimeMetrics, /*enabled*/ true);
-
-    chat.on_task_started();
-    chat.apply_runtime_metrics_delta(RuntimeMetricsSummary {
-        responses_api_engine_iapi_ttft_ms: 120,
-        responses_api_engine_service_tbt_ms: 50,
-        ..RuntimeMetricsSummary::default()
-    });
-
-    let first_log = drain_insert_history(&mut rx)
-        .iter()
-        .map(|lines| lines_to_single_string(lines))
-        .find(|line| line.contains("WebSocket timing:"))
-        .expect("expected websocket timing log");
-    assert!(first_log.contains("TTFT: 120ms (iapi)"));
-    assert!(first_log.contains("TBT: 50ms (service)"));
-
-    chat.apply_runtime_metrics_delta(RuntimeMetricsSummary {
-        responses_api_engine_iapi_ttft_ms: 80,
-        ..RuntimeMetricsSummary::default()
-    });
-
-    let second_log = drain_insert_history(&mut rx)
-        .iter()
-        .map(|lines| lines_to_single_string(lines))
-        .find(|line| line.contains("WebSocket timing:"))
-        .expect("expected websocket timing log");
-    assert!(second_log.contains("TTFT: 80ms (iapi)"));
-
-    chat.on_task_complete(/*last_agent_message*/ None, /*from_replay*/ false);
-    let mut final_separator = None;
-    while let Ok(event) = rx.try_recv() {
-        if let AppEvent::InsertHistoryCell(cell) = event {
-            final_separator = Some(lines_to_single_string(&cell.display_lines(/*width*/ 300)));
-        }
-    }
-    let final_separator = final_separator.expect("expected final separator with runtime metrics");
-    assert!(final_separator.contains("TTFT: 80ms (iapi)"));
-    assert!(final_separator.contains("TBT: 50ms (service)"));
 }
 
 #[tokio::test]

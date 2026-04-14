@@ -50,7 +50,6 @@ use codex_core::plugins::PluginsManager;
 use codex_core::web_search_detail;
 #[cfg(test)]
 use codex_mcp::qualified_mcp_tool_name_prefix;
-use codex_otel::RuntimeMetricsSummary;
 use codex_protocol::account::PlanType;
 use codex_protocol::config_types::ServiceTier;
 #[cfg(test)]
@@ -2605,18 +2604,11 @@ pub(crate) fn new_reasoning_summary_block(
 /// divider.
 pub struct FinalMessageSeparator {
     elapsed_seconds: Option<u64>,
-    runtime_metrics: Option<RuntimeMetricsSummary>,
 }
 impl FinalMessageSeparator {
     /// Creates a separator; `elapsed_seconds` typically comes from the status indicator timer.
-    pub(crate) fn new(
-        elapsed_seconds: Option<u64>,
-        runtime_metrics: Option<RuntimeMetricsSummary>,
-    ) -> Self {
-        Self {
-            elapsed_seconds,
-            runtime_metrics,
-        }
+    pub(crate) fn new(elapsed_seconds: Option<u64>, _runtime_metrics: Option<()>) -> Self {
+        Self { elapsed_seconds }
     }
 }
 impl HistoryCell for FinalMessageSeparator {
@@ -2629,10 +2621,6 @@ impl HistoryCell for FinalMessageSeparator {
         {
             label_parts.push(format!("Worked for {elapsed_seconds}"));
         }
-        if let Some(metrics_label) = self.runtime_metrics.and_then(runtime_metrics_label) {
-            label_parts.push(metrics_label);
-        }
-
         if label_parts.is_empty() {
             return vec![Line::from_iter(["─".repeat(width as usize).dim()])];
         }
@@ -2646,90 +2634,6 @@ impl HistoryCell for FinalMessageSeparator {
             ])
             .dim(),
         ]
-    }
-}
-
-pub(crate) fn runtime_metrics_label(summary: RuntimeMetricsSummary) -> Option<String> {
-    let mut parts = Vec::new();
-    if summary.tool_calls.count > 0 {
-        let duration = format_duration_ms(summary.tool_calls.duration_ms);
-        let calls = pluralize(summary.tool_calls.count, "call", "calls");
-        parts.push(format!(
-            "Local tools: {} {calls} ({duration})",
-            summary.tool_calls.count
-        ));
-    }
-    if summary.api_calls.count > 0 {
-        let duration = format_duration_ms(summary.api_calls.duration_ms);
-        let calls = pluralize(summary.api_calls.count, "call", "calls");
-        parts.push(format!(
-            "Inference: {} {calls} ({duration})",
-            summary.api_calls.count
-        ));
-    }
-    if summary.websocket_calls.count > 0 {
-        let duration = format_duration_ms(summary.websocket_calls.duration_ms);
-        parts.push(format!(
-            "WebSocket: {} events send ({duration})",
-            summary.websocket_calls.count
-        ));
-    }
-    if summary.streaming_events.count > 0 {
-        let duration = format_duration_ms(summary.streaming_events.duration_ms);
-        let stream_label = pluralize(summary.streaming_events.count, "Stream", "Streams");
-        let events = pluralize(summary.streaming_events.count, "event", "events");
-        parts.push(format!(
-            "{stream_label}: {} {events} ({duration})",
-            summary.streaming_events.count
-        ));
-    }
-    if summary.websocket_events.count > 0 {
-        let duration = format_duration_ms(summary.websocket_events.duration_ms);
-        parts.push(format!(
-            "{} events received ({duration})",
-            summary.websocket_events.count
-        ));
-    }
-    if summary.responses_api_overhead_ms > 0 {
-        let duration = format_duration_ms(summary.responses_api_overhead_ms);
-        parts.push(format!("Responses API overhead: {duration}"));
-    }
-    if summary.responses_api_inference_time_ms > 0 {
-        let duration = format_duration_ms(summary.responses_api_inference_time_ms);
-        parts.push(format!("Responses API inference: {duration}"));
-    }
-    if summary.responses_api_engine_iapi_ttft_ms > 0
-        || summary.responses_api_engine_service_ttft_ms > 0
-    {
-        let mut ttft_parts = Vec::new();
-        if summary.responses_api_engine_iapi_ttft_ms > 0 {
-            let duration = format_duration_ms(summary.responses_api_engine_iapi_ttft_ms);
-            ttft_parts.push(format!("{duration} (iapi)"));
-        }
-        if summary.responses_api_engine_service_ttft_ms > 0 {
-            let duration = format_duration_ms(summary.responses_api_engine_service_ttft_ms);
-            ttft_parts.push(format!("{duration} (service)"));
-        }
-        parts.push(format!("TTFT: {}", ttft_parts.join(" ")));
-    }
-    if summary.responses_api_engine_iapi_tbt_ms > 0
-        || summary.responses_api_engine_service_tbt_ms > 0
-    {
-        let mut tbt_parts = Vec::new();
-        if summary.responses_api_engine_iapi_tbt_ms > 0 {
-            let duration = format_duration_ms(summary.responses_api_engine_iapi_tbt_ms);
-            tbt_parts.push(format!("{duration} (iapi)"));
-        }
-        if summary.responses_api_engine_service_tbt_ms > 0 {
-            let duration = format_duration_ms(summary.responses_api_engine_service_tbt_ms);
-            tbt_parts.push(format!("{duration} (service)"));
-        }
-        parts.push(format!("TBT: {}", tbt_parts.join(" ")));
-    }
-    if parts.is_empty() {
-        None
-    } else {
-        Some(parts.join(" • "))
     }
 }
 
@@ -2777,8 +2681,6 @@ mod tests {
     use codex_config::types::McpServerDisabledReason;
     use codex_core::config::Config;
     use codex_core::config::ConfigBuilder;
-    use codex_otel::RuntimeMetricTotals;
-    use codex_otel::RuntimeMetricsSummary;
     use codex_protocol::ThreadId;
     use codex_protocol::account::PlanType;
     use codex_protocol::models::WebSearchAction;
@@ -3003,51 +2905,13 @@ mod tests {
     }
 
     #[test]
-    fn final_message_separator_hides_short_worked_label_and_includes_runtime_metrics() {
-        let summary = RuntimeMetricsSummary {
-            tool_calls: RuntimeMetricTotals {
-                count: 3,
-                duration_ms: 2_450,
-            },
-            api_calls: RuntimeMetricTotals {
-                count: 2,
-                duration_ms: 1_200,
-            },
-            streaming_events: RuntimeMetricTotals {
-                count: 6,
-                duration_ms: 900,
-            },
-            websocket_calls: RuntimeMetricTotals {
-                count: 1,
-                duration_ms: 700,
-            },
-            websocket_events: RuntimeMetricTotals {
-                count: 4,
-                duration_ms: 1_200,
-            },
-            responses_api_overhead_ms: 650,
-            responses_api_inference_time_ms: 1_940,
-            responses_api_engine_iapi_ttft_ms: 410,
-            responses_api_engine_service_ttft_ms: 460,
-            responses_api_engine_iapi_tbt_ms: 1_180,
-            responses_api_engine_service_tbt_ms: 1_240,
-            turn_ttft_ms: 0,
-            turn_ttfm_ms: 0,
-        };
-        let cell = FinalMessageSeparator::new(Some(12), Some(summary));
+    fn final_message_separator_hides_short_worked_label() {
+        let cell = FinalMessageSeparator::new(Some(12), /*runtime_metrics*/ None);
         let rendered = render_lines(&cell.display_lines(/*width*/ 600));
 
         assert_eq!(rendered.len(), 1);
         assert!(!rendered[0].contains("Worked for"));
-        assert!(rendered[0].contains("Local tools: 3 calls (2.5s)"));
-        assert!(rendered[0].contains("Inference: 2 calls (1.2s)"));
-        assert!(rendered[0].contains("WebSocket: 1 events send (700ms)"));
-        assert!(rendered[0].contains("Streams: 6 events (900ms)"));
-        assert!(rendered[0].contains("4 events received (1.2s)"));
-        assert!(rendered[0].contains("Responses API overhead: 650ms"));
-        assert!(rendered[0].contains("Responses API inference: 1.9s"));
-        assert!(rendered[0].contains("TTFT: 410ms (iapi) 460ms (service)"));
-        assert!(rendered[0].contains("TBT: 1.2s (iapi) 1.2s (service)"));
+        assert!(rendered[0].chars().all(|ch| ch == '─'));
     }
 
     #[test]

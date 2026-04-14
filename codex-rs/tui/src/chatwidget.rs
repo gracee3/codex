@@ -113,7 +113,6 @@ use codex_git_utils::current_branch_name;
 use codex_git_utils::get_git_repo_root;
 use codex_git_utils::local_git_branches;
 use codex_git_utils::recent_commits;
-use codex_otel::RuntimeMetricsSummary;
 use codex_otel::SessionTelemetry;
 use codex_protocol::ThreadId;
 use codex_protocol::account::PlanType;
@@ -564,6 +563,7 @@ pub(crate) struct ChatWidgetInit {
     // Shared latch so we only warn once about invalid terminal-title item IDs.
     pub(crate) terminal_title_invalid_items_warned: Arc<AtomicBool>,
     pub(crate) session_telemetry: SessionTelemetry,
+    pub(crate) quit_shortcut_uses_immediate_exit: bool,
 }
 
 #[derive(Default)]
@@ -881,6 +881,7 @@ pub(crate) struct ChatWidget {
     /// We require the second press to match this key so `Ctrl+C` followed by
     /// `Ctrl+D` (or vice versa) doesn't quit accidentally.
     quit_shortcut_key: Option<KeyBinding>,
+    quit_shortcut_uses_immediate_exit: bool,
     // Simple review mode flag; used to adjust layout and banners.
     is_review_mode: bool,
     // Snapshot of token usage to restore after review mode exits.
@@ -913,8 +914,6 @@ pub(crate) struct ChatWidget {
     // This lets the separator show per-chunk work time (since the previous separator) rather than
     // the total task-running time reported by the status indicator.
     last_separator_elapsed_secs: Option<u64>,
-    // Runtime metrics accumulated across delta snapshots for the active turn.
-    turn_runtime_metrics: RuntimeMetricsSummary,
     last_rendered_width: std::cell::Cell<Option<usize>>,
     feedback: codex_feedback::CodexFeedback,
     // Current session rollout path (if known)
@@ -1896,32 +1895,6 @@ impl ChatWidget {
         self.refresh_status_surfaces();
     }
 
-    fn collect_runtime_metrics_delta(&mut self) {
-        if let Some(delta) = self.session_telemetry.runtime_metrics_summary() {
-            self.apply_runtime_metrics_delta(delta);
-        }
-    }
-
-    fn apply_runtime_metrics_delta(&mut self, delta: RuntimeMetricsSummary) {
-        let should_log_timing = has_websocket_timing_metrics(delta);
-        self.turn_runtime_metrics.merge(delta);
-        if should_log_timing {
-            self.log_websocket_timing_totals(delta);
-        }
-    }
-
-    fn log_websocket_timing_totals(&mut self, delta: RuntimeMetricsSummary) {
-        if let Some(label) = history_cell::runtime_metrics_label(delta.responses_api_summary()) {
-            self.add_plain_history_lines(vec![
-                vec!["• ".dim(), format!("WebSocket timing: {label}").dark_gray()].into(),
-            ]);
-        }
-    }
-
-    fn refresh_runtime_metrics(&mut self) {
-        self.collect_runtime_metrics_delta();
-    }
-
     fn restore_retry_status_header_if_present(&mut self) {
         if let Some(header) = self.retry_status_header.take() {
             self.set_status_header(header);
@@ -2285,7 +2258,6 @@ impl ChatWidget {
         self.adaptive_chunking.reset();
         self.plan_stream_controller = None;
         self.pending_turn_copyable_output = None;
-        self.turn_runtime_metrics = RuntimeMetricsSummary::default();
         self.session_telemetry.reset_runtime_metrics();
         self.bottom_pane.clear_quit_shortcut_hint();
         self.quit_shortcut_expires_at = None;
@@ -2319,11 +2291,8 @@ impl ChatWidget {
         }
         self.flush_unified_exec_wait_streak();
         if !from_replay {
-            self.collect_runtime_metrics_delta();
-            let runtime_metrics =
-                (!self.turn_runtime_metrics.is_empty()).then_some(self.turn_runtime_metrics);
             let show_work_separator = self.needs_final_message_separator && self.had_work_activity;
-            if show_work_separator || runtime_metrics.is_some() {
+            if show_work_separator {
                 let elapsed_seconds = if show_work_separator {
                     self.bottom_pane
                         .status_widget()
@@ -2334,10 +2303,9 @@ impl ChatWidget {
                 };
                 self.add_to_history(history_cell::FinalMessageSeparator::new(
                     elapsed_seconds,
-                    runtime_metrics,
+                    /*runtime_metrics*/ None,
                 ));
             }
-            self.turn_runtime_metrics = RuntimeMetricsSummary::default();
             self.needs_final_message_separator = false;
             self.had_work_activity = false;
             self.request_status_line_branch_refresh();
@@ -4095,9 +4063,7 @@ impl ChatWidget {
             self.app_event_tx.send(AppEvent::StopCommitAnimation);
         }
 
-        if self.agent_turn_running {
-            self.refresh_runtime_metrics();
-        }
+        let _ = self.agent_turn_running;
     }
 
     fn flush_interrupt_queue(&mut self) {
@@ -4568,6 +4534,7 @@ impl ChatWidget {
             status_line_invalid_items_warned,
             terminal_title_invalid_items_warned,
             session_telemetry,
+            quit_shortcut_uses_immediate_exit,
         } = common;
         let model = model.filter(|m| !m.trim().is_empty());
         let mut config = config;
@@ -4688,6 +4655,7 @@ impl ChatWidget {
             pending_notification: None,
             quit_shortcut_expires_at: None,
             quit_shortcut_key: None,
+            quit_shortcut_uses_immediate_exit,
             is_review_mode: false,
             pre_review_token_info: None,
             needs_final_message_separator: false,
@@ -4698,7 +4666,6 @@ impl ChatWidget {
             plan_delta_buffer: String::new(),
             plan_item_active: false,
             last_separator_elapsed_secs: None,
-            turn_runtime_metrics: RuntimeMetricsSummary::default(),
             last_rendered_width: std::cell::Cell::new(None),
             feedback,
             current_rollout_path: None,
@@ -7101,9 +7068,7 @@ impl ChatWidget {
             }
         }
 
-        if !from_replay && self.agent_turn_running {
-            self.refresh_runtime_metrics();
-        }
+        let _ = from_replay;
     }
 
     fn enter_review_mode_with_hint(&mut self, hint: String, from_replay: bool) {
@@ -7207,6 +7172,15 @@ impl ChatWidget {
     fn request_quit_without_confirmation(&self) {
         self.app_event_tx
             .send(AppEvent::Exit(ExitMode::ShutdownFirst));
+    }
+
+    fn request_quit_from_shortcut_without_confirmation(&self) {
+        let exit_mode = if self.quit_shortcut_uses_immediate_exit {
+            ExitMode::Immediate
+        } else {
+            ExitMode::ShutdownFirst
+        };
+        self.app_event_tx.send(AppEvent::Exit(exit_mode));
     }
 
     fn request_redraw(&mut self) {
@@ -10233,15 +10207,18 @@ impl ChatWidget {
 
     /// Handles a Ctrl+C press at the chat-widget layer.
     ///
-    /// The first press arms a time-bounded quit shortcut and shows a footer hint via the bottom
-    /// pane. If cancellable work is active, Ctrl+C also submits `Op::Interrupt` after the shortcut
-    /// is armed.
+    /// By default, the first press arms a time-bounded quit shortcut and shows a footer hint via
+    /// the bottom pane. If cancellable work is active, Ctrl+C also submits `Op::Interrupt` after
+    /// the shortcut is armed.
     ///
     /// Active realtime conversations take precedence over bottom-pane Ctrl+C handling so the
     /// first press always stops live voice, even when the composer contains the recording meter.
     ///
-    /// If the same quit shortcut is pressed again before expiry, this requests a shutdown-first
-    /// quit.
+    /// In project-shared-server mode, Ctrl+C bypasses the double-press shortcut and exits the UI
+    /// immediately so in-flight work can continue on the shared app-server.
+    ///
+    /// Otherwise, if the same quit shortcut is pressed again before expiry, this requests a
+    /// shutdown-first quit.
     fn on_ctrl_c(&mut self) {
         let key = key_hint::ctrl(KeyCode::Char('c'));
         if self.realtime_conversation.is_live() {
@@ -10265,11 +10242,16 @@ impl ChatWidget {
             return;
         }
 
+        if self.quit_shortcut_uses_immediate_exit {
+            self.request_quit_from_shortcut_without_confirmation();
+            return;
+        }
+
         if !DOUBLE_PRESS_QUIT_SHORTCUT_ENABLED {
             if self.is_cancellable_work_active() {
                 self.submit_op(AppCommand::interrupt());
             } else {
-                self.request_quit_without_confirmation();
+                self.request_quit_from_shortcut_without_confirmation();
             }
             return;
         }
@@ -10277,7 +10259,7 @@ impl ChatWidget {
         if self.quit_shortcut_active_for(key) {
             self.quit_shortcut_expires_at = None;
             self.quit_shortcut_key = None;
-            self.request_quit_without_confirmation();
+            self.request_quit_from_shortcut_without_confirmation();
             return;
         }
 
@@ -10294,20 +10276,30 @@ impl ChatWidget {
     /// Otherwise it should be routed to the active view and not attempt to quit.
     fn on_ctrl_d(&mut self) -> bool {
         let key = key_hint::ctrl(KeyCode::Char('d'));
+        if self.quit_shortcut_uses_immediate_exit {
+            if !self.bottom_pane.composer_is_empty() || !self.bottom_pane.no_modal_or_popup_active()
+            {
+                return false;
+            }
+
+            self.request_quit_from_shortcut_without_confirmation();
+            return true;
+        }
+
         if !DOUBLE_PRESS_QUIT_SHORTCUT_ENABLED {
             if !self.bottom_pane.composer_is_empty() || !self.bottom_pane.no_modal_or_popup_active()
             {
                 return false;
             }
 
-            self.request_quit_without_confirmation();
+            self.request_quit_from_shortcut_without_confirmation();
             return true;
         }
 
         if self.quit_shortcut_active_for(key) {
             self.quit_shortcut_expires_at = None;
             self.quit_shortcut_key = None;
-            self.request_quit_without_confirmation();
+            self.request_quit_from_shortcut_without_confirmation();
             return true;
         }
 
@@ -10865,15 +10857,6 @@ impl ChatWidget {
         // Ensure the UI redraws to reflect placeholder removal.
         self.request_redraw();
     }
-}
-
-fn has_websocket_timing_metrics(summary: RuntimeMetricsSummary) -> bool {
-    summary.responses_api_overhead_ms > 0
-        || summary.responses_api_inference_time_ms > 0
-        || summary.responses_api_engine_iapi_ttft_ms > 0
-        || summary.responses_api_engine_service_ttft_ms > 0
-        || summary.responses_api_engine_iapi_tbt_ms > 0
-        || summary.responses_api_engine_service_tbt_ms > 0
 }
 
 impl Drop for ChatWidget {

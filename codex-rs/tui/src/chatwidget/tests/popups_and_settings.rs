@@ -77,6 +77,7 @@ async fn experimental_mode_plan_is_ignored_on_startup() {
         status_line_invalid_items_warned: Arc::new(AtomicBool::new(false)),
         terminal_title_invalid_items_warned: Arc::new(AtomicBool::new(false)),
         session_telemetry,
+        quit_shortcut_uses_immediate_exit: false,
     };
 
     let chat = ChatWidget::new_with_app_event(init);

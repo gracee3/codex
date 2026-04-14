@@ -446,9 +446,6 @@
             "responses_websockets_v2": {
               "type": "boolean"
             },
-            "runtime_metrics": {
-              "type": "boolean"
-            },
             "search_tool": {
               "type": "boolean"
             },
@@ -1151,166 +1148,6 @@
         }
       ]
     },
-    "OtelConfigToml": {
-      "additionalProperties": false,
-      "description": "OTEL settings loaded from config.toml. Fields are optional so we can apply defaults.",
-      "properties": {
-        "environment": {
-          "description": "Mark traces with environment (dev, staging, prod, test). Defaults to dev.",
-          "type": "string"
-        },
-        "exporter": {
-          "allOf": [
-            {
-              "$ref": "#/definitions/OtelExporterKind"
-            }
-          ],
-          "description": "Optional log exporter"
-        },
-        "log_user_prompt": {
-          "description": "Log user prompt in traces",
-          "type": "boolean"
-        },
-        "metrics_exporter": {
-          "allOf": [
-            {
-              "$ref": "#/definitions/OtelExporterKind"
-            }
-          ],
-          "description": "Optional metrics exporter"
-        },
-        "trace_exporter": {
-          "allOf": [
-            {
-              "$ref": "#/definitions/OtelExporterKind"
-            }
-          ],
-          "description": "Optional trace exporter"
-        }
-      },
-      "type": "object"
-    },
-    "OtelExporterKind": {
-      "description": "Which OTEL exporter to use.",
-      "oneOf": [
-        {
-          "enum": [
-            "none",
-            "statsig"
-          ],
-          "type": "string"
-        },
-        {
-          "additionalProperties": false,
-          "properties": {
-            "otlp-http": {
-              "additionalProperties": false,
-              "properties": {
-                "endpoint": {
-                  "type": "string"
-                },
-                "headers": {
-                  "additionalProperties": {
-                    "type": "string"
-                  },
-                  "default": {},
-                  "type": "object"
-                },
-                "protocol": {
-                  "$ref": "#/definitions/OtelHttpProtocol"
-                },
-                "tls": {
-                  "allOf": [
-                    {
-                      "$ref": "#/definitions/OtelTlsConfig"
-                    }
-                  ],
-                  "default": null
-                }
-              },
-              "required": [
-                "endpoint",
-                "protocol"
-              ],
-              "type": "object"
-            }
-          },
-          "required": [
-            "otlp-http"
-          ],
-          "type": "object"
-        },
-        {
-          "additionalProperties": false,
-          "properties": {
-            "otlp-grpc": {
-              "additionalProperties": false,
-              "properties": {
-                "endpoint": {
-                  "type": "string"
-                },
-                "headers": {
-                  "additionalProperties": {
-                    "type": "string"
-                  },
-                  "default": {},
-                  "type": "object"
-                },
-                "tls": {
-                  "allOf": [
-                    {
-                      "$ref": "#/definitions/OtelTlsConfig"
-                    }
-                  ],
-                  "default": null
-                }
-              },
-              "required": [
-                "endpoint"
-              ],
-              "type": "object"
-            }
-          },
-          "required": [
-            "otlp-grpc"
-          ],
-          "type": "object"
-        }
-      ]
-    },
-    "OtelHttpProtocol": {
-      "oneOf": [
-        {
-          "description": "Binary payload",
-          "enum": [
-            "binary"
-          ],
-          "type": "string"
-        },
-        {
-          "description": "JSON payload",
-          "enum": [
-            "json"
-          ],
-          "type": "string"
-        }
-      ]
-    },
-    "OtelTlsConfig": {
-      "additionalProperties": false,
-      "properties": {
-        "ca-certificate": {
-          "$ref": "#/definitions/AbsolutePathBuf"
-        },
-        "client-certificate": {
-          "$ref": "#/definitions/AbsolutePathBuf"
-        },
-        "client-private-key": {
-          "$ref": "#/definitions/AbsolutePathBuf"
-        }
-      },
-      "type": "object"
-    },
     "PermissionProfileToml": {
       "additionalProperties": false,
       "properties": {
@@ -1349,6 +1186,20 @@
       "properties": {
         "trust_level": {
           "$ref": "#/definitions/TrustLevel"
+        }
+      },
+      "type": "object"
+    },
+    "ProjectServerConfigToml": {
+      "additionalProperties": false,
+      "properties": {
+        "auto_start": {
+          "description": "When false, Codex will not auto-start the shared project app-server and will instead expect an already-running runtime metadata entry.",
+          "type": "boolean"
+        },
+        "enabled": {
+          "description": "When true, starting Codex inside a detected project attaches to or spawns a shared repo-scoped app-server instance.",
+          "type": "boolean"
         }
       },
       "type": "object"
@@ -2226,9 +2077,6 @@
         "responses_websockets_v2": {
           "type": "boolean"
         },
-        "runtime_metrics": {
-          "type": "boolean"
-        },
         "search_tool": {
           "type": "boolean"
         },
@@ -2484,14 +2332,6 @@
       "description": "Preferred OSS provider for local models, e.g. \"lmstudio\" or \"ollama\".",
       "type": "string"
     },
-    "otel": {
-      "allOf": [
-        {
-          "$ref": "#/definitions/OtelConfigToml"
-        }
-      ],
-      "description": "OTEL configuration."
-    },
     "permissions": {
       "allOf": [
         {
@@ -2552,6 +2392,15 @@
         "type": "string"
       },
       "type": "array"
+    },
+    "project_server": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/ProjectServerConfigToml"
+        }
+      ],
+      "default": null,
+      "description": "Repo-scoped shared app-server settings."
     },
     "projects": {
       "additionalProperties": {

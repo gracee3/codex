@@ -1,4 +1,3 @@
-use crate::config::OtelExporter;
 use crate::metrics::Result;
 use crate::metrics::validation::validate_tag_key;
 use crate::metrics::validation::validate_tag_value;
@@ -8,7 +7,6 @@ use std::time::Duration;
 
 #[derive(Clone, Debug)]
 pub enum MetricsExporter {
-    Otlp(OtelExporter),
     InMemory(InMemoryMetricExporter),
 }
 
@@ -24,23 +22,6 @@ pub struct MetricsConfig {
 }
 
 impl MetricsConfig {
-    pub fn otlp(
-        environment: impl Into<String>,
-        service_name: impl Into<String>,
-        service_version: impl Into<String>,
-        exporter: OtelExporter,
-    ) -> Self {
-        Self {
-            environment: environment.into(),
-            service_name: service_name.into(),
-            service_version: service_version.into(),
-            exporter: MetricsExporter::Otlp(exporter),
-            export_interval: None,
-            runtime_reader: false,
-            default_tags: BTreeMap::new(),
-        }
-    }
-
     /// Create an in-memory config (used in tests).
     pub fn in_memory(
         environment: impl Into<String>,

@@ -16,8 +16,8 @@ use crate::types::McpServerConfig;
 use crate::types::MemoriesToml;
 use crate::types::Notice;
 use crate::types::OAuthCredentialsStoreMode;
-use crate::types::OtelConfigToml;
 use crate::types::PluginConfig;
+use crate::types::ProjectServerConfigToml;
 use crate::types::SandboxWorkspaceWrite;
 use crate::types::ShellEnvironmentPolicyToml;
 use crate::types::SkillsConfig;
@@ -337,6 +337,10 @@ pub struct ConfigToml {
     #[serde(default)]
     pub project_root_markers: Option<Vec<String>>,
 
+    /// Repo-scoped shared app-server settings.
+    #[serde(default)]
+    pub project_server: Option<ProjectServerConfigToml>,
+
     /// When `true`, checks for Codex updates on startup and surfaces update prompts.
     /// Set to `false` only if your Codex updates are centrally managed.
     /// Defaults to `true`.
@@ -358,9 +362,6 @@ pub struct ConfigToml {
     /// Settings for app-specific controls.
     #[serde(default)]
     pub apps: Option<AppsConfigToml>,
-
-    /// OTEL configuration.
-    pub otel: Option<OtelConfigToml>,
 
     /// Windows-specific configuration.
     #[serde(default)]

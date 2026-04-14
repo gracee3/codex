@@ -183,10 +183,8 @@ pub async fn run_main(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use codex_config::types::OtelExporterKind;
     use codex_core::config::ConfigBuilder;
     use pretty_assertions::assert_eq;
-    use std::collections::HashMap;
     use tempfile::TempDir;
 
     #[test]
@@ -195,21 +193,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn mcp_server_builds_otel_provider_with_logs_traces_and_metrics() -> anyhow::Result<()> {
+    async fn mcp_server_has_no_otel_provider() -> anyhow::Result<()> {
         let codex_home = TempDir::new()?;
-        let mut config = ConfigBuilder::default()
+        let config = ConfigBuilder::default()
             .codex_home(codex_home.path().to_path_buf())
             .build()
             .await?;
-        let exporter = OtelExporterKind::OtlpGrpc {
-            endpoint: "http://localhost:4317".to_string(),
-            headers: HashMap::new(),
-            tls: None,
-        };
-        config.otel.exporter = exporter.clone();
-        config.otel.trace_exporter = exporter.clone();
-        config.otel.metrics_exporter = exporter;
-        config.analytics_enabled = None;
 
         let provider = codex_core::otel_init::build_provider(
             &config,
@@ -217,16 +206,9 @@ mod tests {
             Some(OTEL_SERVICE_NAME),
             DEFAULT_ANALYTICS_ENABLED,
         )
-        .map_err(|err| anyhow::anyhow!(err.to_string()))?
-        .expect("otel provider");
+        .map_err(|err| anyhow::anyhow!(err.to_string()))?;
 
-        assert!(provider.logger.is_some(), "expected log exporter");
-        assert!(
-            provider.tracer_provider.is_some(),
-            "expected trace exporter"
-        );
-        assert!(provider.metrics().is_some(), "expected metrics exporter");
-        provider.shutdown();
+        assert!(provider.is_none(), "otel provider should be disabled");
 
         Ok(())
     }

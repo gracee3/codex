@@ -134,6 +134,7 @@ mod notifications;
 pub(crate) mod onboarding;
 mod oss_selection;
 mod pager_overlay;
+mod project_server;
 pub(crate) mod public_widgets;
 mod render;
 mod resume_picker;
@@ -260,6 +261,7 @@ pub(crate) enum AppServerTarget {
     Remote {
         websocket_url: String,
         auth_token: Option<String>,
+        project_server_root: Option<PathBuf>,
     },
 }
 
@@ -381,6 +383,7 @@ async fn start_app_server(
         AppServerTarget::Remote {
             websocket_url,
             auth_token,
+            project_server_root: _,
         } => connect_remote_app_server(websocket_url.clone(), auth_token.clone()).await,
     }
 }
@@ -401,7 +404,14 @@ pub(crate) async fn start_app_server_for_picker(
         environment_manager,
     )
     .await?;
-    Ok(AppServerSession::new(app_server))
+    let remote_cwd_override = match target {
+        AppServerTarget::Remote {
+            project_server_root: Some(_),
+            ..
+        } => Some(config.cwd.to_path_buf()),
+        AppServerTarget::Embedded | AppServerTarget::Remote { .. } => None,
+    };
+    Ok(AppServerSession::new(app_server).with_remote_cwd_override(remote_cwd_override))
 }
 
 #[cfg(test)]
@@ -646,20 +656,18 @@ pub async fn run_main(
     remote_auth_token: Option<String>,
 ) -> std::io::Result<AppExitInfo> {
     let remote_url = remote;
+    let explicit_remote = remote_url.is_some();
     if let (Some(websocket_url), Some(_)) = (remote_url.as_deref(), remote_auth_token.as_ref()) {
         validate_remote_auth_token_transport(websocket_url).map_err(std::io::Error::other)?;
     }
-    let app_server_target = remote_url
+    let mut app_server_target = remote_url
         .clone()
         .map(|websocket_url| AppServerTarget::Remote {
             websocket_url,
             auth_token: remote_auth_token.clone(),
+            project_server_root: None,
         })
         .unwrap_or(AppServerTarget::Embedded);
-    let remote_cwd_override = cli
-        .cwd
-        .clone()
-        .filter(|_| matches!(app_server_target, AppServerTarget::Remote { .. }));
     let (sandbox_mode, approval_policy) = if cli.full_auto {
         (
             Some(SandboxMode::WorkspaceWrite),
@@ -757,6 +765,34 @@ pub async fn run_main(
         config_toml.cli_auth_credentials_store.unwrap_or_default(),
         chatgpt_base_url,
     );
+
+    if !explicit_remote
+        && let Some(project_server_connection) = project_server::maybe_resolve(
+            &config_toml,
+            config_cwd.as_ref(),
+            &arg0_paths,
+            &codex_home,
+        )
+        .await?
+    {
+        app_server_target = AppServerTarget::Remote {
+            websocket_url: project_server_connection.websocket_url,
+            auth_token: None,
+            project_server_root: Some(project_server_connection.project_root),
+        };
+    }
+
+    let remote_cwd_override = match &app_server_target {
+        AppServerTarget::Embedded => None,
+        AppServerTarget::Remote {
+            project_server_root: Some(_),
+            ..
+        } => config_cwd.as_ref().map(|cwd| cwd.to_path_buf()),
+        AppServerTarget::Remote {
+            project_server_root: None,
+            ..
+        } => cli.cwd.clone(),
+    };
 
     let model_provider_override = if cli.oss {
         let resolved = resolve_oss_provider(
@@ -972,8 +1008,6 @@ pub async fn run_main(
         cli_kv_overrides,
         cloud_requirements,
         feedback,
-        remote_url,
-        remote_auth_token,
         environment_manager,
     )
     .await
@@ -992,8 +1026,6 @@ async fn run_ratatui_app(
     cli_kv_overrides: Vec<(String, toml::Value)>,
     mut cloud_requirements: CloudRequirementsLoader,
     feedback: codex_feedback::CodexFeedback,
-    remote_url: Option<String>,
-    remote_auth_token: Option<String>,
     environment_manager: Arc<EnvironmentManager>,
 ) -> color_eyre::Result<AppExitInfo> {
     let remote_mode = matches!(&app_server_target, AppServerTarget::Remote { .. });
@@ -1390,6 +1422,25 @@ async fn run_ratatui_app(
         },
     };
 
+    let (
+        effective_remote_url,
+        effective_remote_auth_token,
+        project_shared_server_root,
+        detach_on_quit_shortcut,
+    ) = match &app_server_target {
+        AppServerTarget::Remote {
+            websocket_url,
+            auth_token,
+            project_server_root,
+        } => (
+            Some(websocket_url.clone()),
+            auth_token.clone(),
+            project_server_root.clone(),
+            project_server_root.is_some(),
+        ),
+        AppServerTarget::Embedded => (None, None, None, false),
+    };
+
     let app_result = App::run(
         &mut tui,
         app_server,
@@ -1403,8 +1454,10 @@ async fn run_ratatui_app(
         feedback,
         should_show_trust_screen, // Proxy to: is it a first run in this directory?
         should_prompt_windows_sandbox_nux_at_startup,
-        remote_url,
-        remote_auth_token,
+        effective_remote_url,
+        effective_remote_auth_token,
+        project_shared_server_root,
+        detach_on_quit_shortcut,
         environment_manager,
     )
     .await;
@@ -1903,6 +1956,7 @@ mod tests {
         let target = AppServerTarget::Remote {
             websocket_url: "ws://127.0.0.1:1234/".to_string(),
             auth_token: None,
+            project_server_root: None,
         };
         let environment_manager = EnvironmentManager::new(/*exec_server_url*/ None);
 

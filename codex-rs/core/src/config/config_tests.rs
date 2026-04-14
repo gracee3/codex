@@ -4591,27 +4591,9 @@ fn test_precedence_fixture_with_o3_profile() -> std::io::Result<()> {
             tui_status_line: None,
             tui_terminal_title: None,
             tui_theme: None,
-            otel: OtelConfig::default(),
         },
         o3_profile_config
     );
-    Ok(())
-}
-
-#[test]
-fn metrics_exporter_defaults_to_statsig_when_missing() -> std::io::Result<()> {
-    let fixture = create_test_fixture()?;
-
-    let config = Config::load_from_base_config_with_overrides(
-        fixture.cfg.clone(),
-        ConfigOverrides {
-            cwd: Some(fixture.cwd_path()),
-            ..Default::default()
-        },
-        fixture.codex_home(),
-    )?;
-
-    assert_eq!(config.otel.metrics_exporter, OtelExporterKind::Statsig);
     Ok(())
 }
 
@@ -4735,7 +4717,6 @@ fn test_precedence_fixture_with_gpt3_profile() -> std::io::Result<()> {
         tui_status_line: None,
         tui_terminal_title: None,
         tui_theme: None,
-        otel: OtelConfig::default(),
     };
 
     assert_eq!(expected_gpt3_profile_config, gpt3_profile_config);
@@ -4877,7 +4858,6 @@ fn test_precedence_fixture_with_zdr_profile() -> std::io::Result<()> {
         tui_status_line: None,
         tui_terminal_title: None,
         tui_theme: None,
-        otel: OtelConfig::default(),
     };
 
     assert_eq!(expected_zdr_profile_config, zdr_profile_config);
@@ -5005,7 +4985,6 @@ fn test_precedence_fixture_with_gpt5_profile() -> std::io::Result<()> {
         tui_status_line: None,
         tui_terminal_title: None,
         tui_theme: None,
-        otel: OtelConfig::default(),
     };
 
     assert_eq!(expected_gpt5_profile_config, gpt5_profile_config);

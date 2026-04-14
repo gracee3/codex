@@ -1758,7 +1758,7 @@ impl Session {
             account_email.clone(),
             auth_mode,
             originator.clone(),
-            config.otel.log_user_prompt,
+            /*log_user_prompts*/ false,
             terminal_type.clone(),
             session_configuration.session_source.clone(),
         )
@@ -1987,7 +1987,7 @@ impl Session {
                 session_configuration.session_source.clone(),
                 config.model_verbosity,
                 config.features.enabled(Feature::EnableRequestCompression),
-                config.features.enabled(Feature::RuntimeMetrics),
+                /*include_timing_metrics*/ false,
                 Self::build_model_client_beta_features_header(config.as_ref()),
             ),
             environment,
