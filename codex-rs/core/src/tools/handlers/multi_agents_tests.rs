@@ -18,6 +18,7 @@ use crate::tools::handlers::multi_agents_v2::WaitAgentHandler as WaitAgentHandle
 use crate::turn_diff_tracker::TurnDiffTracker;
 use codex_config::types::ShellEnvironmentPolicy;
 use codex_features::Feature;
+use codex_git_utils::ManagedGitWorkspaceKind;
 use codex_login::AuthManager;
 use codex_login::CodexAuth;
 use codex_model_provider_info::built_in_model_providers;
@@ -50,6 +51,7 @@ use serde::Deserialize;
 use serde_json::json;
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::process::Command;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex;
@@ -88,6 +90,15 @@ fn thread_manager() -> ThreadManager {
         CodexAuth::from_api_key("dummy"),
         built_in_model_providers(/* openai_base_url */ /*openai_base_url*/ None)["openai"].clone(),
     )
+}
+
+fn run_git_in(repo_path: &std::path::Path, args: &[&str]) {
+    let status = Command::new("git")
+        .current_dir(repo_path)
+        .args(args)
+        .status()
+        .expect("git command");
+    assert!(status.success(), "git command failed: {args:?}");
 }
 
 fn history_contains_inter_agent_communication(
@@ -1767,6 +1778,100 @@ async fn spawn_agent_reapplies_runtime_sandbox_after_role_config() {
         child_turn.network_sandbox_policy,
         expected_network_sandbox_policy
     );
+}
+
+#[tokio::test]
+async fn spawn_agent_uses_managed_git_worktree_and_prunes_on_close() {
+    #[derive(Debug, Deserialize)]
+    struct SpawnAgentResult {
+        agent_id: String,
+        nickname: Option<String>,
+    }
+
+    let repo_dir = tempfile::tempdir().expect("temp dir");
+    let repo_root = repo_dir.path();
+    run_git_in(repo_root, &["init", "--initial-branch=main"]);
+    run_git_in(repo_root, &["config", "core.autocrlf", "false"]);
+    std::fs::write(repo_root.join("README.md"), "repo\n").expect("write repo file");
+    run_git_in(repo_root, &["add", "README.md"]);
+    run_git_in(
+        repo_root,
+        &[
+            "-c",
+            "user.name=Tester",
+            "-c",
+            "user.email=test@example.com",
+            "commit",
+            "-m",
+            "init",
+        ],
+    );
+
+    let (mut session, mut turn) = make_session_and_context().await;
+    let manager = thread_manager();
+    session.services.agent_control = manager.agent_control();
+    turn.cwd = repo_dir.abs();
+    turn.config = Arc::new({
+        let mut config = (*turn.config).clone();
+        config.cwd = repo_dir.abs();
+        config
+    });
+
+    let invocation = invocation(
+        Arc::new(session),
+        Arc::new(turn),
+        "spawn_agent",
+        function_payload(json!({
+            "message": "inspect the repo",
+            "agent_type": "explorer"
+        })),
+    );
+    let output = SpawnAgentHandler
+        .handle(invocation)
+        .await
+        .expect("spawn should succeed");
+    let (content, _) = expect_text_output(output);
+    let result: SpawnAgentResult =
+        serde_json::from_str(&content).expect("spawn_agent result should be json");
+    let agent_id = parse_agent_id(&result.agent_id);
+    assert!(
+        result
+            .nickname
+            .as_deref()
+            .is_some_and(|nickname| !nickname.is_empty())
+    );
+
+    let child_thread = manager
+        .get_thread(agent_id)
+        .await
+        .expect("spawned agent thread should exist");
+    let snapshot = child_thread.config_snapshot().await;
+    let workspace = snapshot.workspace.expect("managed workspace should exist");
+    assert_eq!(workspace.kind, ManagedGitWorkspaceKind::EphemeralWorktree);
+    assert_eq!(workspace.repo_root, repo_root);
+    assert_eq!(snapshot.cwd, workspace.workspace_path);
+    assert!(workspace.workspace_path.exists());
+    assert_ne!(snapshot.cwd, repo_root);
+    assert!(
+        snapshot
+            .cwd
+            .starts_with(repo_root.join(".codex").join("worktrees"))
+    );
+    let child_turn = child_thread.codex.session.new_default_turn().await;
+    assert_eq!(
+        child_turn.file_system_sandbox_policy,
+        FileSystemSandboxPolicy::from_legacy_sandbox_policy(
+            &snapshot.sandbox_policy,
+            &snapshot.cwd,
+        )
+    );
+
+    manager
+        .agent_control()
+        .close_agent(agent_id)
+        .await
+        .expect("close agent should succeed");
+    assert!(!workspace.workspace_path.exists());
 }
 
 #[tokio::test]

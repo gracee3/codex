@@ -36,6 +36,21 @@ Codex can run a notification hook when the agent finishes a turn. See the config
 
 When Codex knows which client started the turn, the legacy notify JSON payload also includes a top-level `client` field. The TUI reports `codex-tui`, and the app server reports the `clientInfo.name` value from `initialize`.
 
+## Project-scoped app server
+
+Codex can opt into a repo-scoped shared app-server runtime from project config:
+
+```toml
+[project_server]
+enabled = true
+auto_start = true
+```
+
+When enabled, starting the TUI inside a detected project root reuses a shared
+repo-local app-server for threads started from that cwd. Project detection uses
+the existing `project_root_markers` config. Runtime discovery metadata is stored
+under `.codex/project-server.json` in the project root.
+
 ## JSON Schema
 
 The generated JSON Schema for `config.toml` lives at `codex-rs/core/config.schema.json`.

@@ -1378,6 +1378,7 @@ mod tests {
                     preview: "first prompt".to_string(),
                     ephemeral: true,
                     model_provider: "openai".to_string(),
+                    workspace: None,
                     created_at: 1,
                     updated_at: 2,
                     status: v2::ThreadStatus::Idle,
@@ -1418,6 +1419,7 @@ mod tests {
                         "modelProvider": "openai",
                         "createdAt": 1,
                         "updatedAt": 2,
+                        "workspace": null,
                         "status": {
                             "type": "idle"
                         },

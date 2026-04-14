@@ -48,6 +48,7 @@ use chrono::Local;
 use chrono::Utc;
 use codex_app_server_protocol::AuthMode;
 use codex_app_server_protocol::McpServerElicitationRequest;
+use codex_git_utils::managed_workspace_for_path;
 use codex_app_server_protocol::McpServerElicitationRequestParams;
 use codex_config::types::OAuthCredentialsStoreMode;
 use codex_exec_server::Environment;
@@ -1120,6 +1121,7 @@ impl SessionConfiguration {
 
     fn thread_config_snapshot(&self) -> ThreadConfigSnapshot {
         ThreadConfigSnapshot {
+            workspace: managed_workspace_for_path(self.cwd.as_ref()),
             model: self.collaboration_mode.model().to_string(),
             model_provider_id: self.original_config_do_not_use.model_provider_id.clone(),
             service_tier: self.service_tier,

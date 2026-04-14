@@ -3566,7 +3566,6 @@ impl From<CoreSkillToolDependency> for SkillToolDependency {
         }
     }
 }
-
 impl From<CoreSkillScope> for SkillScope {
     fn from(value: CoreSkillScope) -> Self {
         match value {

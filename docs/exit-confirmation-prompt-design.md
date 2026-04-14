@@ -27,6 +27,9 @@ Exit is coordinated via a single event with explicit modes:
 `App` is the coordinator: it submits `Op::Shutdown` and it exits the UI loop only when
 `ExitMode::Immediate` arrives (typically after `ShutdownComplete`).
 
+In repo-scoped project-server mode, immediate exit is also used as a deliberate
+"detach the TUI, leave the shared app-server running" path.
+
 ## User-triggered quit flows
 
 ### Ctrl+C
@@ -38,16 +41,23 @@ Priority order in the UI layer:
    - When a modal/popup handles Ctrl+C, the quit shortcut is cleared so dismissing a modal cannot
      accidentally prime a subsequent Ctrl+C to quit.
 2. If the user has already armed Ctrl+C and the 1 second window has not expired, the second Ctrl+C
-   triggers shutdown-first quit immediately.
+   triggers the configured quit path immediately.
 3. Otherwise, `ChatWidget` arms Ctrl+C and shows the quit hint (`ctrl + c again to quit`) for
    1 second.
 4. If cancellable work is active (streaming/tools/review), `ChatWidget` submits `Op::Interrupt`.
+
+The configured quit path is mode-dependent:
+
+- Default embedded/explicit-remote mode: shutdown-first quit.
+- Repo-scoped project-server mode: immediate exit on the first Ctrl+C, which detaches the UI and
+  leaves the shared app-server process and in-flight work running.
 
 ### Ctrl+D
 
 - Only participates in quit when the composer is empty **and** no modal is active.
   - On first press, show the quit hint (same as Ctrl+C) and start the 1 second timer.
-  - If pressed again while the hint is visible, request shutdown-first quit.
+  - If pressed again while the hint is visible, request the same mode-dependent quit path as
+    Ctrl+C.
 - With any modal/popup open, key events are routed to the view and Ctrl+D does not attempt to
   quit.
 
@@ -85,6 +95,7 @@ At a minimum, we want coverage for:
 
 - Ctrl+C while working interrupts, does not quit.
 - Ctrl+C while idle and empty shows quit hint, then shutdown-first quit on second press.
+- In project-server mode, Ctrl+C detaches immediately and does not interrupt active work.
 - Ctrl+D with modal open does not quit.
 - `/quit` / `/exit` / `/logout` quit without prompt, but still shutdown-first.
   - Ctrl+D while idle and empty shows quit hint, then shutdown-first quit on second press.
@@ -92,5 +103,6 @@ At a minimum, we want coverage for:
 ## History (high level)
 
 Codex has historically mixed "exit immediately" and "shutdown-first" across quit gestures, largely
-due to incremental changes and regressions in state tracking. This doc reflects the current
-unified, shutdown-first approach. See PR #8936 for the detailed history and rationale.
+due to incremental changes and regressions in state tracking. The current default remains
+shutdown-first, with project-server detach as the explicit exception. See PR #8936 for the
+detailed history and rationale.
