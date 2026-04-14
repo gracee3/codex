@@ -1,5 +1,11 @@
 # Rust/codex-rs
 
+## Branch policy for this fork
+
+- Do not commit changes directly to `tt/main`.
+- Make edits on `tt/base` or short-lived `tt/feature/<name>` branches, and merge into `tt/main` only through the standard fork workflow.
+- Treat `tt/main` as the release-oriented integration branch and keep it read-only for workflow work.
+
 In the codex-rs folder where the rust code lives:
 
 - Crate names are prefixed with `codex-`. For example, the `core` folder's crate is named `codex-core`

@@ -3,24 +3,24 @@
 This fork now uses a three-branch model:
 
 - `main` is a clean mirror of `upstream/main`
-- `tt/cuts` is the long-lived structural reduction branch
-- `tt/main` is the long-lived TT product branch on top of `tt/cuts`
+- `tt/base` is the long-lived structural reduction branch
+- `tt/main` is the long-lived TT product branch on top of `tt/base`
 
 This fork intentionally carries aggressive deletions and Linux-only Cargo
-support on `tt/cuts`. TT product work lands on `tt/main` and `tt/feature/*`.
+support on `tt/base`. TT product work lands on `tt/main` and `tt/feature/*`.
 
 ## Active branches
 
 - `main`
   - exact upstream mirror
   - no TT product or cleanup work should land here directly
-- `tt/cuts`
+- `tt/base`
   - permanent hard-cut layer
   - receives upstream updates by merging `main`
   - owns repo reduction, Linux-only cleanup, and removal of upstream tooling
 - `tt/main`
   - primary TT development branch
-  - receives upstream updates by merging `tt/cuts`
+  - receives upstream updates by merging `tt/base`
 - `tt/feature/<name>`
   - short-lived TT feature branches
 - `releases/tt/<tag>`
@@ -31,35 +31,35 @@ support on `tt/cuts`. TT product work lands on `tt/main` and `tt/feature/*`.
 Refresh the upstream mirror:
 
 ```bash
-make sync-main
+just sync-main
 ```
 
 Create the long-lived TT branches once from the current TT baseline:
 
 ```bash
-make create-tt-main BASE=releases/tt/rust-v0.120.0
-git switch -c tt/cuts
+just create-tt-main releases/tt/rust-v0.120.0
+git switch -c tt/base
 git switch -c tt/main
 ```
 
-Merge upstream into the cut layer first:
+Merge upstream into the base layer first:
 
 ```bash
-git switch tt/cuts
+git switch tt/base
 git merge main
 ```
 
-Then move the cut layer into TT product work:
+Then move the base layer into TT product work:
 
 ```bash
 git switch tt/main
-git merge tt/cuts
+git merge tt/base
 ```
 
 Cut a new TT release from `tt/main`:
 
 ```bash
-make new-release TAG=rust-v0.120.0
+just new-release rust-v0.120.0
 ```
 
 The `TAG` now controls release naming, not patch-stack replay. A TT release is
@@ -69,9 +69,9 @@ plus replayed overlays.
 ## Current policy
 
 - Keep `main` aligned with `upstream/main`
-- Keep structural simplification on `tt/cuts`
+- Keep structural simplification on `tt/base`
 - Keep TT product work on `tt/main`
-- Merge `main` into `tt/cuts`, then `tt/cuts` into `tt/main`
+- Merge `main` into `tt/base`, then `tt/base` into `tt/main`
 - Cut `releases/tt/*` from `tt/main`
 - Do not rebuild upstream compatibility surfaces in this fork
 
@@ -79,10 +79,10 @@ plus replayed overlays.
 
 The fork maintenance helpers now support:
 
-- `make sync-main`
-- `make create-tt-main BASE=<ref>`
-- `make new-release TAG=<rust-vX.Y.Z>`
-- `make new-tt-release TAG=<rust-vX.Y.Z>`
+- `just sync-main`
+- `just create-tt-main <ref>`
+- `just new-release <rust-vX.Y.Z>`
+- `just new-tt-release <rust-vX.Y.Z>`
 
 `scripts/fork-release.sh list-patch-commits` remains only as a historical
-inspection tool for the pre-`tt/cuts` workflow.
+inspection tool for the pre-`tt/base` workflow.

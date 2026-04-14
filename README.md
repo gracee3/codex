@@ -21,7 +21,7 @@ Everything else from upstream has been cut away.
 Build and install the local binaries:
 
 ```bash
-make install
+just install
 ```
 
 Initialize TT in a repository, start the detached runtime, and attach to the
@@ -59,12 +59,12 @@ cargo install --locked cargo-nextest
 cargo build -p codex-tt-cli --bin tt -p codex-cli --bin codex -p codex-app-server --bin codex-app-server
 ```
 
-The root `Makefile` wraps the remaining local workflows:
+The root `justfile` wraps the remaining local workflows:
 
 ```bash
-make build
-make install
-make sync-main
+just build
+just install
+just sync-main
 ```
 
 ## Repo Layout
@@ -72,7 +72,7 @@ make sync-main
 - `codex-rs/tt-cli` contains the `tt` binary
 - `codex-rs/tt-core` contains TT runtime state and routing helpers
 - `docs/tt_codex_runtime_contract.md` describes the detached TT runtime
-- `FORK.md` describes the `main -> tt/cuts -> tt/main` maintenance workflow
+- `FORK.md` describes the `main -> tt/base -> tt/main` maintenance workflow
 
 ## Docs
 

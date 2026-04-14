@@ -33,7 +33,7 @@ Build the supported binaries from the workspace root:
 
 ```bash
 cd ..
-make build
+just build
 ```
 
 Or build directly with Cargo:
@@ -45,7 +45,7 @@ cargo build -p codex-tt-cli --bin tt -p codex-cli --bin codex -p codex-app-serve
 Install locally:
 
 ```bash
-make install
+just install
 ```
 
 ### TT runtime workflow
