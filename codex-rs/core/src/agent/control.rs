@@ -72,8 +72,21 @@ fn assign_managed_subagent_worktree(config: &mut crate::config::Config) {
         config.permissions.sandbox_policy.get(),
         &config.cwd,
     );
-    config.cwd = AbsolutePathBuf::try_from(workspace.workspace_path)
-        .expect("managed subagent worktree path should be absolute");
+    let workspace_path = workspace.workspace_path;
+    let absolute_workspace_path = match AbsolutePathBuf::try_from(workspace_path.clone()) {
+        Ok(path) => path,
+        Err(err) => {
+            warn!(
+                cwd = %config.cwd.display(),
+                repo_root = %repo_root.display(),
+                workspace_path = %workspace_path.display(),
+                "managed subagent worktree path is not absolute: {err}"
+            );
+            cleanup_managed_workspace_path(Some(workspace_path.as_path()));
+            return;
+        }
+    };
+    config.cwd = absolute_workspace_path;
     if config.permissions.file_system_sandbox_policy == inherited_legacy_policy {
         config.permissions.file_system_sandbox_policy =
             FileSystemSandboxPolicy::from_legacy_sandbox_policy(

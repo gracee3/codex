@@ -48,7 +48,6 @@ use chrono::Local;
 use chrono::Utc;
 use codex_app_server_protocol::AuthMode;
 use codex_app_server_protocol::McpServerElicitationRequest;
-use codex_git_utils::managed_workspace_for_path;
 use codex_app_server_protocol::McpServerElicitationRequestParams;
 use codex_config::types::OAuthCredentialsStoreMode;
 use codex_exec_server::Environment;
@@ -1129,7 +1128,6 @@ impl SessionConfiguration {
             approvals_reviewer: self.approvals_reviewer,
             sandbox_policy: self.sandbox_policy.get().clone(),
             cwd: self.cwd.to_path_buf(),
-            workspace: managed_workspace_for_path(self.cwd.as_ref()),
             ephemeral: self.original_config_do_not_use.ephemeral,
             reasoning_effort: self.collaboration_mode.reasoning_effort(),
             personality: self.personality,

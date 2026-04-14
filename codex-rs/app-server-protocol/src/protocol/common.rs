@@ -1384,7 +1384,6 @@ mod tests {
                     status: v2::ThreadStatus::Idle,
                     path: None,
                     cwd: PathBuf::from("/tmp"),
-                    workspace: None,
                     cli_version: "0.0.0".to_string(),
                     source: v2::SessionSource::Exec,
                     agent_nickname: None,
