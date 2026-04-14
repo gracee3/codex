@@ -278,6 +278,7 @@ Experimental API: `thread/start`, `thread/resume`, and `thread/fork` accept `per
 - `cwd` — restrict results to threads whose session cwd exactly matches this path. Relative paths are resolved against the app-server process cwd before matching.
 - `searchTerm` — restrict results to threads whose extracted title contains this substring (case-sensitive).
 - Responses include `agentNickname` and `agentRole` for AgentControl-spawned thread sub-agents when available.
+- Responses may include `workspace` metadata for project-root or Codex-managed subagent worktree sessions: `{ repoRoot, workspacePath, kind }`, where `kind` is `repoRoot` or `ephemeralWorktree`.
 
 Example:
 
@@ -349,7 +350,7 @@ If this was the last subscriber, the server unloads the thread and emits `thread
 
 ### Example: Read a thread
 
-Use `thread/read` to fetch a stored thread by id without resuming it. Pass `includeTurns` when you want the rollout history loaded into `thread.turns`. The returned thread includes `agentNickname` and `agentRole` for AgentControl-spawned thread sub-agents when available.
+Use `thread/read` to fetch a stored thread by id without resuming it. Pass `includeTurns` when you want the rollout history loaded into `thread.turns`. The returned thread includes `agentNickname`, `agentRole`, and any available managed `workspace` metadata for AgentControl-spawned thread sub-agents.
 
 ```json
 { "method": "thread/read", "id": 22, "params": { "threadId": "thr_123" } }

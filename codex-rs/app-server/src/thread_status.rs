@@ -801,6 +801,7 @@ mod tests {
             status: ThreadStatus::NotLoaded,
             path: None,
             cwd: PathBuf::from("/tmp"),
+            workspace: None,
             cli_version: "test".to_string(),
             agent_nickname: None,
             agent_role: None,
