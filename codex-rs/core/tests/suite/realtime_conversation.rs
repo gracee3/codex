@@ -89,6 +89,48 @@ impl Match for RealtimeCallRequestCapture {
     }
 }
 
+fn assert_call_create_multipart(
+    request: WiremockRequest,
+    offer_sdp: &str,
+    expected_session: Value,
+) -> Result<()> {
+    assert_eq!(request.url.path(), "/v1/realtime/calls");
+    assert_eq!(request.url.query(), None);
+    assert_eq!(
+        request
+            .headers
+            .get("content-type")
+            .and_then(|value| value.to_str().ok()),
+        Some("multipart/form-data; boundary=codex-realtime-call-boundary")
+    );
+    let body = String::from_utf8(request.body).context("multipart body should be utf-8")?;
+    let body = body.replace("\r\n", "\n");
+    let offer_sdp = offer_sdp.replace("\r\n", "\n");
+    let sdp_prefix = "--codex-realtime-call-boundary\n\
+Content-Disposition: form-data; name=\"sdp\"\n\
+Content-Type: application/sdp\n\n";
+    let after_sdp = body
+        .strip_prefix(sdp_prefix)
+        .context("multipart body missing sdp part")?;
+    let after_offer = after_sdp
+        .strip_prefix(offer_sdp.as_str())
+        .context("multipart body missing expected SDP offer")?;
+    let after_offer = after_offer.trim_start_matches('\n');
+    let session_prefix = "--codex-realtime-call-boundary\n\
+Content-Disposition: form-data; name=\"session\"\n\
+Content-Type: application/json\n\n";
+    let after_session_prefix = after_offer
+        .strip_prefix(session_prefix)
+        .context("multipart body missing session part")?;
+    let session_body = after_session_prefix
+        .strip_suffix("\n--codex-realtime-call-boundary--\n")
+        .context("multipart body missing closing boundary")?;
+    let actual_session: Value =
+        serde_json::from_str(session_body).context("session part should be valid json")?;
+    assert_eq!(actual_session, expected_session);
+    Ok(())
+}
+
 fn websocket_request_text(
     request: &core_test_support::responses::WebSocketRequest,
 ) -> Option<String> {
@@ -499,32 +541,26 @@ async fn conversation_webrtc_start_posts_generated_session() -> Result<()> {
             .and_then(|value| value.to_str().ok()),
         Some("Bearer dummy")
     );
-    assert_eq!(
-        request
-            .headers
-            .get("content-type")
-            .and_then(|value| value.to_str().ok()),
-        Some("multipart/form-data; boundary=codex-realtime-call-boundary")
-    );
-    let body = String::from_utf8(request.body).context("multipart body should be utf-8")?;
-    let session = r#"{"audio":{"input":{"format":{"type":"audio/pcm","rate":24000}},"output":{"voice":"cove"}},"type":"quicksilver","model":"realtime-test-model","instructions":"backend prompt\n\nstartup context"}"#;
-    assert_eq!(
-        body,
-        format!(
-            "--codex-realtime-call-boundary\r\n\
-             Content-Disposition: form-data; name=\"sdp\"\r\n\
-             Content-Type: application/sdp\r\n\
-             \r\n\
-             v=offer\r\n\
-             \r\n\
-             --codex-realtime-call-boundary\r\n\
-             Content-Disposition: form-data; name=\"session\"\r\n\
-             Content-Type: application/json\r\n\
-             \r\n\
-             {session}\r\n\
-             --codex-realtime-call-boundary--\r\n"
-        )
-    );
+    assert_call_create_multipart(
+        request,
+        "v=offer",
+        json!({
+            "audio": {
+                "input": {
+                    "format": {
+                        "type": "audio/pcm",
+                        "rate": 24000
+                    }
+                },
+                "output": {
+                    "voice": "cove"
+                }
+            },
+            "type": "quicksilver",
+            "model": "realtime-test-model",
+            "instructions": "backend prompt\n\nstartup context"
+        }),
+    )?;
 
     // Phase 3: the server joins that same call over the direct sideband WebSocket, sends the
     // ordinary session.update, and keeps the conversation alive until the client closes it.

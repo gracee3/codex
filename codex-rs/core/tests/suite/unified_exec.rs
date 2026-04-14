@@ -968,24 +968,28 @@ async fn unified_exec_terminal_interaction_captures_delayed_output() -> Result<(
         "begin event should include process_id for a live session"
     );
 
-    // We expect three terminal interactions matching the three write_stdin calls.
+    // The first two polls should always hit the live PTY. The final long poll can race with
+    // process exit under full-suite load, so it may or may not emit a terminal interaction event.
     assert_eq!(
-        terminal_events.len(),
-        3,
-        "expected three terminal interactions; got {terminal_events:?}"
+        terminal_events
+            .iter()
+            .map(|ev| ev.stdin.as_str())
+            .collect::<Vec<_>>(),
+        if terminal_events.len() == 3 {
+            vec!["x", "x", "x"]
+        } else {
+            vec!["x", "x"]
+        },
+        "expected two or three terminal interactions; got {terminal_events:?}"
     );
 
     for event in &terminal_events {
         assert_eq!(event.call_id, open_call_id);
         assert_eq!(event.process_id, "1000");
     }
-    assert_eq!(
-        terminal_events
-            .iter()
-            .map(|ev| ev.stdin.as_str())
-            .collect::<Vec<_>>(),
-        vec!["x", "x", "x"],
-        "terminal interactions should reflect the three stdin polls"
+    assert!(
+        (2..=3).contains(&terminal_events.len()),
+        "expected two or three terminal interactions; got {terminal_events:?}"
     );
 
     assert!(

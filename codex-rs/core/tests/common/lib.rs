@@ -5,6 +5,7 @@ use anyhow::ensure;
 use codex_arg0::Arg0PathEntryGuard;
 use codex_utils_cargo_bin::CargoBinError;
 use ctor::ctor;
+use std::process::Command;
 use std::sync::OnceLock;
 use tempfile::TempDir;
 
@@ -349,7 +350,78 @@ pub fn format_with_current_shell_display_non_login(command: &str) -> String {
 }
 
 pub fn stdio_server_bin() -> Result<String, CargoBinError> {
-    codex_utils_cargo_bin::cargo_bin("test_stdio_server").map(|p| p.to_string_lossy().to_string())
+    match codex_utils_cargo_bin::cargo_bin("test_stdio_server") {
+        Ok(path) => Ok(path.to_string_lossy().to_string()),
+        Err(_) => Ok(build_test_stdio_server_bin().to_string_lossy().to_string()),
+    }
+}
+
+pub fn codex_bin() -> PathBuf {
+    match codex_utils_cargo_bin::cargo_bin("codex") {
+        Ok(path) => path,
+        Err(_) => build_codex_bin(),
+    }
+}
+
+fn build_codex_bin() -> PathBuf {
+    static CODEX_BIN: OnceLock<PathBuf> = OnceLock::new();
+    CODEX_BIN
+        .get_or_init(|| {
+            let repo_root = codex_utils_cargo_bin::repo_root()
+                .expect("failed to resolve repo root for codex binary");
+            let workspace_root = repo_root.join("codex-rs");
+            let target_dir = repo_root.join("target/test-binaries");
+            let bin = target_dir.join("debug/codex");
+            if bin.is_file() {
+                return bin;
+            }
+            let status = Command::new("cargo")
+                .current_dir(workspace_root)
+                .arg("build")
+                .arg("-p")
+                .arg("codex-cli")
+                .arg("--bin")
+                .arg("codex")
+                .arg("--target-dir")
+                .arg(&target_dir)
+                .status()
+                .expect("failed to build codex binary");
+            assert!(status.success(), "failed to build codex binary: {status}");
+            bin
+        })
+        .clone()
+}
+
+fn build_test_stdio_server_bin() -> PathBuf {
+    static STDIO_SERVER_BIN: OnceLock<PathBuf> = OnceLock::new();
+    STDIO_SERVER_BIN
+        .get_or_init(|| {
+            let repo_root = codex_utils_cargo_bin::repo_root()
+                .expect("failed to resolve repo root for test_stdio_server");
+            let workspace_root = repo_root.join("codex-rs");
+            let target_dir = repo_root.join("target/test-binaries");
+            let bin = target_dir.join("debug/test_stdio_server");
+            if bin.is_file() {
+                return bin;
+            }
+            let status = Command::new("cargo")
+                .current_dir(workspace_root)
+                .arg("build")
+                .arg("-p")
+                .arg("codex-rmcp-client")
+                .arg("--bin")
+                .arg("test_stdio_server")
+                .arg("--target-dir")
+                .arg(&target_dir)
+                .status()
+                .expect("failed to build test_stdio_server");
+            assert!(
+                status.success(),
+                "failed to build test_stdio_server: {status}"
+            );
+            bin
+        })
+        .clone()
 }
 
 pub mod fs_wait {

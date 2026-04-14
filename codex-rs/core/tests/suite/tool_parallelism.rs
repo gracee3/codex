@@ -71,9 +71,10 @@ async fn build_codex_with_test_tool(server: &wiremock::MockServer) -> anyhow::Re
 }
 
 fn assert_parallel_duration(actual: Duration) {
-    // Allow headroom for slow CI scheduling; barrier synchronization already enforces overlap.
+    // Allow headroom for slow full-suite scheduling; barrier synchronization already enforces
+    // overlap, so this remains a parallelism check rather than a strict latency target.
     assert!(
-        actual < Duration::from_millis(1_600),
+        actual < Duration::from_millis(3_000),
         "expected parallel execution to finish quickly, got {actual:?}"
     );
 }

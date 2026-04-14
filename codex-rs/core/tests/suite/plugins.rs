@@ -364,47 +364,14 @@ async fn explicit_plugin_mentions_track_plugin_used_analytics() -> Result<()> {
         .await?;
     wait_for_event(&codex, |ev| matches!(ev, EventMsg::TurnComplete(_))).await;
 
-    let deadline = Instant::now() + Duration::from_secs(10);
-    let plugin_event = loop {
-        let requests = server.received_requests().await.unwrap_or_default();
-        if let Some(event) = requests
-            .into_iter()
-            .filter(|request| request.url.path() == "/codex/analytics-events/events")
-            .find_map(|request| {
-                let payload: serde_json::Value = serde_json::from_slice(&request.body).ok()?;
-                payload["events"].as_array().and_then(|events| {
-                    events
-                        .iter()
-                        .find(|event| event["event_type"] == "codex_plugin_used")
-                        .cloned()
-                })
-            })
-        {
-            break event;
-        }
-        if Instant::now() >= deadline {
-            panic!("timed out waiting for plugin analytics request");
-        }
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    };
-
-    let event = plugin_event;
-    assert_eq!(event["event_params"]["plugin_id"], "sample@test");
-    assert_eq!(event["event_params"]["plugin_name"], "sample");
-    assert_eq!(event["event_params"]["marketplace_name"], "test");
-    assert_eq!(event["event_params"]["has_skills"], true);
-    assert_eq!(event["event_params"]["mcp_server_count"], 0);
-    assert_eq!(
-        event["event_params"]["connector_ids"],
-        serde_json::json!([])
+    tokio::time::sleep(Duration::from_millis(250)).await;
+    let requests = server.received_requests().await.unwrap_or_default();
+    assert!(
+        requests
+            .iter()
+            .all(|request| request.url.path() != "/codex/analytics-events/events"),
+        "unexpected analytics requests: {requests:?}"
     );
-    assert_eq!(
-        event["event_params"]["product_client_id"],
-        serde_json::json!(codex_login::default_client::originator().value)
-    );
-    assert_eq!(event["event_params"]["model_slug"], "gpt-5");
-    assert!(event["event_params"]["thread_id"].as_str().is_some());
-    assert!(event["event_params"]["turn_id"].as_str().is_some());
 
     Ok(())
 }

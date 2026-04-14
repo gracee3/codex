@@ -5,6 +5,7 @@
 use anyhow::Result;
 use anyhow::anyhow;
 use codex_features::Feature;
+use core_test_support::codex_bin;
 use core_test_support::responses::ev_assistant_message;
 use core_test_support::responses::ev_completed;
 use core_test_support::responses::ev_function_call;
@@ -40,7 +41,7 @@ struct ResponsesApiProxy {
 impl ResponsesApiProxy {
     fn start(upstream_url: &str, dump_dir: &Path) -> Result<Self> {
         let server_info = dump_dir.join("server-info.json");
-        let mut child = StdCommand::new(codex_utils_cargo_bin::cargo_bin("codex")?)
+        let mut child = StdCommand::new(codex_bin())
             .args(["responses-api-proxy", "--server-info"])
             .arg(&server_info)
             .args(["--upstream-url", upstream_url, "--dump-dir"])

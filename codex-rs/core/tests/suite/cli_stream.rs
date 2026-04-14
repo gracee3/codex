@@ -3,6 +3,7 @@ use codex_git_utils::collect_git_info;
 use codex_login::CODEX_API_KEY_ENV_VAR;
 use codex_protocol::protocol::GitInfo;
 use codex_utils_cargo_bin::find_resource;
+use core_test_support::codex_bin;
 use core_test_support::fs_wait;
 use core_test_support::responses;
 use core_test_support::skip_if_no_network;
@@ -14,6 +15,10 @@ use wiremock::MockServer;
 fn repo_root() -> std::path::PathBuf {
     #[expect(clippy::expect_used)]
     codex_utils_cargo_bin::repo_root().expect("failed to resolve repo root")
+}
+
+fn codex_command() -> AssertCommand {
+    AssertCommand::new(codex_bin())
 }
 
 fn cli_responses_fixture() -> std::path::PathBuf {
@@ -40,8 +45,7 @@ async fn responses_mode_stream_cli() {
         "model_providers.mock={{ name = \"mock\", base_url = \"{}/v1\", env_key = \"PATH\", wire_api = \"responses\" }}",
         server.uri()
     );
-    let bin = codex_utils_cargo_bin::cargo_bin("codex").unwrap();
-    let mut cmd = AssertCommand::new(bin);
+    let mut cmd = codex_command();
     cmd.timeout(Duration::from_secs(30));
     cmd.arg("exec")
         .arg("--skip-git-repo-check")
@@ -104,8 +108,7 @@ async fn responses_mode_stream_cli_supports_openai_base_url_config_override() {
     let resp_mock = responses::mount_sse_once(&server, sse).await;
 
     let home = TempDir::new().unwrap();
-    let bin = codex_utils_cargo_bin::cargo_bin("codex").unwrap();
-    let mut cmd = AssertCommand::new(bin);
+    let mut cmd = codex_command();
     cmd.timeout(Duration::from_secs(30));
     cmd.arg("exec")
         .arg("--skip-git-repo-check")
@@ -157,8 +160,7 @@ async fn exec_cli_applies_model_instructions_file() {
 
     let home = TempDir::new().unwrap();
     let repo_root = repo_root();
-    let bin = codex_utils_cargo_bin::cargo_bin("codex").unwrap();
-    let mut cmd = AssertCommand::new(bin);
+    let mut cmd = codex_command();
     cmd.arg("exec")
         .arg("--skip-git-repo-check")
         .arg("-c")
@@ -227,8 +229,7 @@ async fn exec_cli_profile_applies_model_instructions_file() {
     .unwrap();
 
     let repo_root = repo_root();
-    let bin = codex_utils_cargo_bin::cargo_bin("codex").unwrap();
-    let mut cmd = AssertCommand::new(bin);
+    let mut cmd = codex_command();
     cmd.arg("exec")
         .arg("--skip-git-repo-check")
         .arg("--profile")
@@ -276,8 +277,7 @@ async fn responses_api_stream_cli() {
     let repo_root = repo_root();
 
     let home = TempDir::new().unwrap();
-    let bin = codex_utils_cargo_bin::cargo_bin("codex").unwrap();
-    let mut cmd = AssertCommand::new(bin);
+    let mut cmd = codex_command();
     cmd.arg("exec")
         .arg("--skip-git-repo-check")
         .arg("-c")
@@ -313,8 +313,7 @@ async fn integration_creates_and_checks_session_file() -> anyhow::Result<()> {
     let repo_root = repo_root();
 
     // 4. Run the codex CLI and invoke `exec`, which is what records a session.
-    let bin = codex_utils_cargo_bin::cargo_bin("codex").unwrap();
-    let mut cmd = AssertCommand::new(bin);
+    let mut cmd = codex_command();
     cmd.arg("exec")
         .arg("--skip-git-repo-check")
         .arg("-c")
@@ -434,8 +433,7 @@ async fn integration_creates_and_checks_session_file() -> anyhow::Result<()> {
     // Second run: resume should update the existing file.
     let marker2 = format!("integration-resume-{}", Uuid::new_v4());
     let prompt2 = format!("echo {marker2}");
-    let bin2 = codex_utils_cargo_bin::cargo_bin("codex").unwrap();
-    let mut cmd2 = AssertCommand::new(bin2);
+    let mut cmd2 = codex_command();
     cmd2.arg("exec")
         .arg("--skip-git-repo-check")
         .arg("-c")
