@@ -3566,43 +3566,6 @@ impl From<CoreSkillToolDependency> for SkillToolDependency {
         }
     }
 }
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export_to = "v2/")]
-pub enum ManagedWorkspaceKind {
-    RepoRoot,
-    EphemeralWorktree,
-}
-
-impl From<CoreManagedGitWorkspaceKind> for ManagedWorkspaceKind {
-    fn from(value: CoreManagedGitWorkspaceKind) -> Self {
-        match value {
-            CoreManagedGitWorkspaceKind::RepoRoot => Self::RepoRoot,
-            CoreManagedGitWorkspaceKind::EphemeralWorktree => Self::EphemeralWorktree,
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export_to = "v2/")]
-pub struct ManagedWorkspace {
-    pub repo_root: PathBuf,
-    pub workspace_path: PathBuf,
-    pub kind: ManagedWorkspaceKind,
-}
-
-impl From<CoreManagedGitWorkspace> for ManagedWorkspace {
-    fn from(value: CoreManagedGitWorkspace) -> Self {
-        Self {
-            repo_root: value.repo_root,
-            workspace_path: value.workspace_path,
-            kind: value.kind.into(),
-        }
-    }
-}
-
-
 impl From<CoreSkillScope> for SkillScope {
     fn from(value: CoreSkillScope) -> Self {
         match value {
@@ -3663,9 +3626,6 @@ impl From<CoreManagedGitWorkspace> for ManagedWorkspace {
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "v2/")]
 pub struct Thread {
-    /// Managed workspace metadata for repo-root/project-server sessions and
-    /// Codex-managed subagent worktrees when available.
-    pub workspace: Option<ManagedWorkspace>,
     pub id: String,
     /// Source thread id when this thread was created by forking another thread.
     pub forked_from_id: Option<String>,
