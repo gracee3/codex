@@ -1721,55 +1721,6 @@ async fn single_reasoning_option_skips_selection() {
 }
 
 #[tokio::test]
-async fn feedback_selection_popup_snapshot() {
-    let (mut chat, _rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
-
-    // Open the feedback category selection popup via slash command.
-    chat.dispatch_command(SlashCommand::Feedback);
-
-    let popup = render_bottom_popup(&chat, /*width*/ 80);
-    assert_chatwidget_snapshot!("feedback_selection_popup", popup);
-}
-
-#[tokio::test]
-async fn feedback_upload_consent_popup_snapshot() {
-    let (mut chat, _rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
-
-    chat.show_selection_view(crate::bottom_pane::feedback_upload_consent_params(
-        chat.app_event_tx.clone(),
-        crate::app_event::FeedbackCategory::Bug,
-        chat.current_rollout_path.clone(),
-        &codex_feedback::FeedbackDiagnostics::new(vec![codex_feedback::FeedbackDiagnostic {
-            headline: "Proxy environment variables are set and may affect connectivity."
-                .to_string(),
-            details: vec!["HTTPS_PROXY = hello".to_string()],
-        }]),
-    ));
-
-    let popup = render_bottom_popup(&chat, /*width*/ 80);
-    assert_chatwidget_snapshot!("feedback_upload_consent_popup", popup);
-}
-
-#[tokio::test]
-async fn feedback_good_result_consent_popup_includes_connectivity_diagnostics_filename() {
-    let (mut chat, _rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
-
-    chat.show_selection_view(crate::bottom_pane::feedback_upload_consent_params(
-        chat.app_event_tx.clone(),
-        crate::app_event::FeedbackCategory::GoodResult,
-        chat.current_rollout_path.clone(),
-        &codex_feedback::FeedbackDiagnostics::new(vec![codex_feedback::FeedbackDiagnostic {
-            headline: "Proxy environment variables are set and may affect connectivity."
-                .to_string(),
-            details: vec!["HTTPS_PROXY = hello".to_string()],
-        }]),
-    ));
-
-    let popup = render_bottom_popup(&chat, /*width*/ 80);
-    assert_chatwidget_snapshot!("feedback_good_result_consent_popup", popup);
-}
-
-#[tokio::test]
 async fn reasoning_popup_escape_returns_to_model_popup() {
     let (mut chat, _rx, _op_rx) = make_chatwidget_manual(Some("gpt-5.1-codex-max")).await;
     chat.thread_id = Some(ThreadId::new());
