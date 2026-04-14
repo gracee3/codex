@@ -98,6 +98,7 @@ impl AnyToolResult {
         result.to_response_item(&call_id, &payload)
     }
 
+    #[allow(dead_code)]
     pub(crate) fn tool_result_json(self) -> serde_json::Value {
         let Self {
             payload, result, ..

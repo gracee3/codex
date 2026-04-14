@@ -972,25 +972,48 @@ async fn realtime_webrtc_start_emits_sdp_notification() -> Result<()> {
             .and_then(|value| value.to_str().ok()),
         Some("multipart/form-data; boundary=codex-realtime-call-boundary")
     );
-    let body = String::from_utf8(request.body).context("multipart body should be utf-8")?;
-    let session = r#"{"tool_choice":"auto","type":"realtime","model":"gpt-realtime-1.5","instructions":"backend prompt\n\nstartup context","output_modalities":["audio"],"audio":{"input":{"format":{"type":"audio/pcm","rate":24000},"noise_reduction":{"type":"near_field"},"turn_detection":{"type":"server_vad","interrupt_response":true,"create_response":true}},"output":{"format":{"type":"audio/pcm","rate":24000},"voice":"marin"}},"tools":[{"type":"function","name":"codex","description":"Delegate a request to Codex and return the final result to the user. Use this as the default action. If the user asks to do something next, later, after this, or once current work finishes, call this tool so the work is actually queued instead of merely promising to do it later.","parameters":{"type":"object","properties":{"prompt":{"type":"string","description":"The user request to delegate to Codex."}},"required":["prompt"],"additionalProperties":false}}]}"#;
-    assert_eq!(
-        body,
-        format!(
-            "--codex-realtime-call-boundary\r\n\
-             Content-Disposition: form-data; name=\"sdp\"\r\n\
-             Content-Type: application/sdp\r\n\
-             \r\n\
-             v=offer\r\n\
-             \r\n\
-             --codex-realtime-call-boundary\r\n\
-             Content-Disposition: form-data; name=\"session\"\r\n\
-             Content-Type: application/json\r\n\
-             \r\n\
-             {session}\r\n\
-             --codex-realtime-call-boundary--\r\n"
-        )
-    );
+    assert_call_create_multipart(
+        request,
+        "v=offer\r\n",
+        json!({
+            "tool_choice": "auto",
+            "type": "realtime",
+            "model": "gpt-realtime-1.5",
+            "instructions": "backend prompt\n\nstartup context",
+            "output_modalities": ["audio"],
+            "audio": {
+                "input": {
+                    "format": { "type": "audio/pcm", "rate": 24000 },
+                    "noise_reduction": { "type": "near_field" },
+                    "turn_detection": {
+                        "type": "server_vad",
+                        "interrupt_response": true,
+                        "create_response": true
+                    }
+                },
+                "output": {
+                    "format": { "type": "audio/pcm", "rate": 24000 },
+                    "voice": "marin"
+                }
+            },
+            "tools": [{
+                "type": "function",
+                "name": "codex",
+                "description": "Delegate a request to Codex and return the final result to the user. Use this as the default action. If the user asks to do something next, later, after this, or once current work finishes, call this tool so the work is actually queued instead of merely promising to do it later.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "prompt": {
+                            "type": "string",
+                            "description": "The user request to delegate to Codex."
+                        }
+                    },
+                    "required": ["prompt"],
+                    "additionalProperties": false
+                }
+            }]
+        }),
+    )?;
 
     realtime_server.shutdown().await;
     Ok(())
@@ -1677,7 +1700,7 @@ fn assert_v2_session_update(request: &Value) -> Result<()> {
 fn assert_call_create_multipart(
     request: WiremockRequest,
     offer_sdp: &str,
-    session: &str,
+    expected_session: Value,
 ) -> Result<()> {
     assert_eq!(request.url.path(), "/v1/realtime/calls");
     assert_eq!(request.url.query(), None);
@@ -1689,27 +1712,50 @@ fn assert_call_create_multipart(
         Some("multipart/form-data; boundary=codex-realtime-call-boundary")
     );
     let body = String::from_utf8(request.body).context("multipart body should be utf-8")?;
-    assert_eq!(
-        body,
-        format!(
-            "--codex-realtime-call-boundary\r\n\
-             Content-Disposition: form-data; name=\"sdp\"\r\n\
-             Content-Type: application/sdp\r\n\
-             \r\n\
-             {offer_sdp}\r\n\
-             --codex-realtime-call-boundary\r\n\
-             Content-Disposition: form-data; name=\"session\"\r\n\
-             Content-Type: application/json\r\n\
-             \r\n\
-             {session}\r\n\
-             --codex-realtime-call-boundary--\r\n"
-        )
-    );
+    let body = body.replace("\r\n", "\n");
+    let offer_sdp = offer_sdp.replace("\r\n", "\n");
+    let sdp_prefix = "--codex-realtime-call-boundary\n\
+Content-Disposition: form-data; name=\"sdp\"\n\
+Content-Type: application/sdp\n\n";
+    let after_sdp = body
+        .strip_prefix(sdp_prefix)
+        .context("multipart body missing sdp part")?;
+    let after_offer = after_sdp
+        .strip_prefix(offer_sdp.as_str())
+        .context("multipart body missing expected SDP offer")?;
+    let after_offer = after_offer.strip_prefix('\n').unwrap_or(after_offer);
+    let session_prefix = "--codex-realtime-call-boundary\n\
+Content-Disposition: form-data; name=\"session\"\n\
+Content-Type: application/json\n\n";
+    let after_session_prefix = after_offer
+        .strip_prefix(session_prefix)
+        .context("multipart body missing session part")?;
+    let session_body = after_session_prefix
+        .strip_suffix("\n--codex-realtime-call-boundary--\n")
+        .context("multipart body missing closing boundary")?;
+    let actual_session: Value =
+        serde_json::from_str(session_body).context("session part should be valid json")?;
+    assert_eq!(actual_session, expected_session);
     Ok(())
 }
 
-fn v1_session_create_json() -> &'static str {
-    r#"{"audio":{"input":{"format":{"type":"audio/pcm","rate":24000}},"output":{"voice":"cove"}},"type":"quicksilver","model":"gpt-realtime-1.5","instructions":"backend prompt\n\nstartup context"}"#
+fn v1_session_create_json() -> Value {
+    json!({
+        "audio": {
+            "input": {
+                "format": {
+                    "type": "audio/pcm",
+                    "rate": 24000
+                }
+            },
+            "output": {
+                "voice": "cove"
+            }
+        },
+        "type": "quicksilver",
+        "model": "gpt-realtime-1.5",
+        "instructions": "backend prompt\n\nstartup context"
+    })
 }
 
 fn create_config_toml(

@@ -86,6 +86,7 @@ pub trait ToolOutput: Send {
         None
     }
 
+    #[allow(dead_code)]
     fn tool_result_json(&self, payload: &ToolPayload) -> JsonValue {
         response_input_to_tool_result_json(self.to_response_item("", payload))
     }
@@ -388,6 +389,7 @@ impl ExecCommandToolOutput {
     }
 }
 
+#[allow(dead_code)]
 pub(crate) fn response_input_to_tool_result_json(response: ResponseInputItem) -> JsonValue {
     match response {
         ResponseInputItem::Message { content, .. } => content_items_to_tool_result_json(
@@ -425,6 +427,7 @@ pub(crate) fn response_input_to_tool_result_json(response: ResponseInputItem) ->
     }
 }
 
+#[allow(dead_code)]
 fn content_items_to_tool_result_json(items: &[FunctionCallOutputContentItem]) -> JsonValue {
     JsonValue::String(
         items

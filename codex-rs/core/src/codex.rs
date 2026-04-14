@@ -1222,23 +1222,7 @@ pub(crate) struct SessionSettingsUpdate {
     pub(crate) app_server_client_version: Option<String>,
 }
 
-pub(crate) struct AppServerClientMetadata {
-    pub(crate) client_name: Option<String>,
-    pub(crate) client_version: Option<String>,
-}
-
 impl Session {
-    pub(crate) async fn app_server_client_metadata(&self) -> AppServerClientMetadata {
-        let state = self.state.lock().await;
-        AppServerClientMetadata {
-            client_name: state.session_configuration.app_server_client_name.clone(),
-            client_version: state
-                .session_configuration
-                .app_server_client_version
-                .clone(),
-        }
-    }
-
     /// Builds the `x-codex-beta-features` header value for this session.
     ///
     /// `ModelClient` is session-scoped and intentionally does not depend on the full `Config`, so

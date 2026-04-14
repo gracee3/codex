@@ -62,6 +62,7 @@ where
         .to_response_item(call_id, payload)
 }
 
+#[allow(dead_code)]
 pub(crate) fn tool_output_json_result<T>(value: &T, tool_name: &str) -> JsonValue
 where
     T: Serialize,

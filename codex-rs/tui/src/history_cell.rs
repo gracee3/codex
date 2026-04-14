@@ -2637,6 +2637,7 @@ impl HistoryCell for FinalMessageSeparator {
     }
 }
 
+#[allow(dead_code)]
 fn format_duration_ms(duration_ms: u64) -> String {
     if duration_ms >= 1_000 {
         let seconds = duration_ms as f64 / 1_000.0;
@@ -2646,6 +2647,7 @@ fn format_duration_ms(duration_ms: u64) -> String {
     }
 }
 
+#[allow(dead_code)]
 fn pluralize(count: u64, singular: &'static str, plural: &'static str) -> &'static str {
     if count == 1 { singular } else { plural }
 }

@@ -5,7 +5,6 @@ use std::time::Duration;
 
 use anyhow::Result;
 use app_test_support::ChatGptAuthFixture;
-use app_test_support::DEFAULT_CLIENT_NAME;
 use app_test_support::McpProcess;
 use app_test_support::start_analytics_events_server;
 use app_test_support::to_response;
@@ -43,6 +42,7 @@ use serde_json::json;
 use tempfile::TempDir;
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
+use tokio::time::sleep;
 use tokio::time::timeout;
 use wiremock::Mock;
 use wiremock::MockServer;
@@ -310,39 +310,18 @@ async fn plugin_install_tracks_analytics_event() -> Result<()> {
     .await??;
     let response: PluginInstallResponse = to_response(response)?;
     assert_eq!(response.apps_needing_auth, Vec::<AppSummary>::new());
-
-    let payload = timeout(DEFAULT_TIMEOUT, async {
-        loop {
-            let Some(requests) = analytics_server.received_requests().await else {
-                tokio::time::sleep(Duration::from_millis(25)).await;
-                continue;
-            };
-            if let Some(request) = requests.iter().find(|request| {
-                request.method == "POST" && request.url.path() == "/codex/analytics-events/events"
-            }) {
-                break request.body.clone();
-            }
-            tokio::time::sleep(Duration::from_millis(25)).await;
-        }
-    })
-    .await?;
-    let payload: serde_json::Value = serde_json::from_slice(&payload).expect("analytics payload");
-    assert_eq!(
-        payload,
-        json!({
-            "events": [{
-                "event_type": "codex_plugin_installed",
-                "event_params": {
-                    "plugin_id": "sample-plugin@debug",
-                    "plugin_name": "sample-plugin",
-                    "marketplace_name": "debug",
-                    "has_skills": false,
-                    "mcp_server_count": 0,
-                    "connector_ids": [],
-                    "product_client_id": DEFAULT_CLIENT_NAME,
-                }
-            }]
-        })
+    // The standalone `codex-app-server` binary used by these tests hard-disables analytics in
+    // this fork, so install succeeds without posting telemetry.
+    sleep(Duration::from_millis(100)).await;
+    let requests = analytics_server
+        .received_requests()
+        .await
+        .unwrap_or_default();
+    assert!(
+        requests
+            .iter()
+            .all(|request| request.url.path() != "/codex/analytics-events/events"),
+        "unexpected analytics requests: {requests:?}"
     );
     Ok(())
 }

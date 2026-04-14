@@ -780,7 +780,9 @@ pub async fn run_main(
         AppServerTarget::Remote {
             project_server_root: Some(_),
             ..
-        } => config_cwd.as_ref().map(|cwd| cwd.to_path_buf()),
+        } => config_cwd
+            .as_ref()
+            .map(codex_utils_absolute_path::AbsolutePathBuf::to_path_buf),
         AppServerTarget::Remote {
             project_server_root: None,
             ..
@@ -969,9 +971,13 @@ pub async fn run_main(
         }
     };
 
-    let otel_logger_layer = otel.as_ref().and_then(|o| o.logger_layer());
+    let otel_logger_layer = otel
+        .as_ref()
+        .and_then(codex_otel::OtelProvider::logger_layer);
 
-    let otel_tracing_layer = otel.as_ref().and_then(|o| o.tracing_layer());
+    let otel_tracing_layer = otel
+        .as_ref()
+        .and_then(codex_otel::OtelProvider::tracing_layer);
 
     let log_db_layer = get_state_db(&config)
         .await

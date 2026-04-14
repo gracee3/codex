@@ -1648,7 +1648,6 @@ impl PendingUnauthorizedRetry {
 
 #[derive(Clone, Copy, Debug, Default)]
 struct AuthRequestTelemetryContext {
-    auth_mode: Option<&'static str>,
     auth_header_attached: bool,
     auth_header_name: Option<&'static str>,
     retry_after_unauthorized: bool,
@@ -1658,15 +1657,11 @@ struct AuthRequestTelemetryContext {
 
 impl AuthRequestTelemetryContext {
     fn new(
-        auth_mode: Option<AuthMode>,
+        _auth_mode: Option<AuthMode>,
         api_auth: &CoreAuthProvider,
         retry: PendingUnauthorizedRetry,
     ) -> Self {
         Self {
-            auth_mode: auth_mode.map(|mode| match mode {
-                AuthMode::ApiKey => "ApiKey",
-                AuthMode::Chatgpt | AuthMode::ChatgptAuthTokens => "Chatgpt",
-            }),
             auth_header_attached: api_auth.auth_header_attached(),
             auth_header_name: api_auth.auth_header_name(),
             retry_after_unauthorized: retry.retry_after_unauthorized,

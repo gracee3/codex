@@ -4,6 +4,7 @@ use crate::codex::SteerInputError;
 use crate::config::ConstraintResult;
 use crate::file_watcher::WatchRegistration;
 use codex_features::Feature;
+use codex_git_utils::ManagedGitWorkspace;
 use codex_protocol::config_types::ApprovalsReviewer;
 use codex_protocol::config_types::Personality;
 use codex_protocol::config_types::ServiceTier;
@@ -38,6 +39,7 @@ pub struct ThreadConfigSnapshot {
     pub approvals_reviewer: ApprovalsReviewer,
     pub sandbox_policy: SandboxPolicy,
     pub cwd: PathBuf,
+    pub workspace: Option<ManagedGitWorkspace>,
     pub ephemeral: bool,
     pub reasoning_effort: Option<ReasoningEffort>,
     pub personality: Option<Personality>,

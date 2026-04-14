@@ -425,6 +425,7 @@ pub(crate) struct CodexMessageProcessor {
     pending_fuzzy_searches: Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>,
     fuzzy_search_sessions: Arc<Mutex<HashMap<String, FuzzyFileSearchSession>>>,
     background_tasks: TaskTracker,
+    #[allow(dead_code)]
     log_db: Option<LogDbLayer>,
 }
 
@@ -7668,6 +7669,7 @@ impl CodexMessageProcessor {
         });
     }
 
+    #[allow(dead_code)]
     async fn resolve_rollout_path(
         &self,
         conversation_id: ThreadId,
@@ -8825,6 +8827,7 @@ fn build_thread_from_snapshot(
         status: ThreadStatus::NotLoaded,
         path,
         cwd: config_snapshot.cwd.clone(),
+        workspace: config_snapshot.workspace.clone().map(Into::into),
         cli_version: env!("CARGO_PKG_VERSION").to_string(),
         agent_nickname: config_snapshot.session_source.get_nickname(),
         agent_role: config_snapshot.session_source.get_agent_role(),
@@ -8868,6 +8871,7 @@ pub(crate) fn summary_to_thread(summary: ConversationSummary) -> Thread {
         status: ThreadStatus::NotLoaded,
         path: Some(path),
         cwd,
+        workspace: None,
         cli_version,
         agent_nickname: source.get_nickname(),
         agent_role: source.get_agent_role(),

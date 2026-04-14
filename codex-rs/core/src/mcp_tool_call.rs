@@ -501,19 +501,13 @@ async fn notify_mcp_tool_call_event(sess: &Session, turn_context: &TurnContext, 
     sess.send_event(turn_context, event).await;
 }
 
-struct McpAppUsageMetadata {
-    connector_id: Option<String>,
-    app_name: Option<String>,
-}
-
 async fn maybe_track_codex_app_used(
     _sess: &Session,
     _turn_context: &TurnContext,
     server: &str,
     _tool_name: &str,
 ) {
-    if server != CODEX_APPS_MCP_SERVER_NAME {
-    }
+    if server != CODEX_APPS_MCP_SERVER_NAME {}
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -993,31 +987,6 @@ pub(crate) async fn lookup_mcp_tool_metadata(
             .and_then(|meta| meta.get(MCP_TOOL_CODEX_APPS_META_KEY))
             .and_then(serde_json::Value::as_object)
             .cloned(),
-    })
-}
-
-async fn lookup_mcp_app_usage_metadata(
-    sess: &Session,
-    server: &str,
-    tool_name: &str,
-) -> Option<McpAppUsageMetadata> {
-    let tools = sess
-        .services
-        .mcp_connection_manager
-        .read()
-        .await
-        .list_all_tools()
-        .await;
-
-    tools.into_values().find_map(|tool_info| {
-        if tool_info.server_name == server && tool_info.tool.name == tool_name {
-            Some(McpAppUsageMetadata {
-                connector_id: tool_info.connector_id,
-                app_name: tool_info.connector_name,
-            })
-        } else {
-            None
-        }
     })
 }
 

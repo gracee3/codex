@@ -162,7 +162,6 @@ fn auth_request_telemetry_context_tracks_attached_auth_and_retry_phase() {
         }),
     );
 
-    assert_eq!(auth_context.auth_mode, Some("Chatgpt"));
     assert!(auth_context.auth_header_attached);
     assert_eq!(auth_context.auth_header_name, Some("authorization"));
     assert!(auth_context.retry_after_unauthorized);

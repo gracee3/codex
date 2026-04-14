@@ -621,9 +621,15 @@ async fn command_exec_tty_supports_initial_size_and_resize() -> Result<()> {
     let command_request_id = mcp
         .send_command_exec_request(CommandExecParams {
             command: vec![
-                "sh".to_string(),
-                "-lc".to_string(),
-                "stty -echo; printf 'start:%s\\n' \"$(stty size)\"; IFS= read _line; printf 'after:%s\\n' \"$(stty size)\"".to_string(),
+                "python3".to_string(),
+                "-c".to_string(),
+                "import fcntl, struct, sys, termios\n\
+rows, cols, _, _ = struct.unpack('HHHH', fcntl.ioctl(sys.stdin.fileno(), termios.TIOCGWINSZ, struct.pack('HHHH', 0, 0, 0, 0)))\n\
+print(f'start:{rows} {cols}', flush=True)\n\
+sys.stdin.readline()\n\
+rows, cols, _, _ = struct.unpack('HHHH', fcntl.ioctl(sys.stdin.fileno(), termios.TIOCGWINSZ, struct.pack('HHHH', 0, 0, 0, 0)))\n\
+print(f'after:{rows} {cols}', flush=True)\n"
+                    .to_string(),
             ],
             process_id: Some(process_id.clone()),
             tty: true,

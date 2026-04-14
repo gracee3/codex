@@ -17,10 +17,6 @@ pub use tags::SessionMetricTagValues;
 
 static GLOBAL_METRICS: OnceLock<MetricsClient> = OnceLock::new();
 
-pub(crate) fn install_global(metrics: MetricsClient) {
-    let _ = GLOBAL_METRICS.set(metrics);
-}
-
 pub fn global() -> Option<MetricsClient> {
     GLOBAL_METRICS.get().cloned()
 }

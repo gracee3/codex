@@ -8,6 +8,7 @@ mod ghost_commits;
 mod info;
 mod operations;
 mod platform;
+mod worktree;
 
 pub use apply::ApplyGitRequest;
 pub use apply::ApplyGitResult;
@@ -49,6 +50,12 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 use serde::Serialize;
 use ts_rs::TS;
+pub use worktree::ManagedGitWorkspace;
+pub use worktree::ManagedGitWorkspaceKind;
+pub use worktree::create_managed_worktree;
+pub use worktree::managed_workspace_for_path;
+pub use worktree::managed_worktree_root;
+pub use worktree::remove_managed_worktree;
 
 type CommitID = String;
 

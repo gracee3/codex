@@ -104,6 +104,7 @@ impl ToolRouter {
         }
     }
 
+    #[allow(dead_code)]
     pub fn specs(&self) -> Vec<ToolSpec> {
         self.specs
             .iter()
@@ -115,6 +116,7 @@ impl ToolRouter {
         self.model_visible_specs.clone()
     }
 
+    #[allow(dead_code)]
     pub fn find_spec(&self, tool_name: &str) -> Option<ToolSpec> {
         self.specs
             .iter()

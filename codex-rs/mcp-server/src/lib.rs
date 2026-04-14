@@ -90,7 +90,9 @@ pub async fn run_main(
     let fmt_layer = tracing_subscriber::fmt::layer()
         .with_writer(std::io::stderr)
         .with_filter(EnvFilter::from_default_env());
+    #[allow(clippy::redundant_closure_for_method_calls)]
     let otel_logger_layer = otel.as_ref().and_then(|provider| provider.logger_layer());
+    #[allow(clippy::redundant_closure_for_method_calls)]
     let otel_tracing_layer = otel.as_ref().and_then(|provider| provider.tracing_layer());
 
     let _ = tracing_subscriber::registry()
