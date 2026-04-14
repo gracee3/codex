@@ -1,9 +1,7 @@
 SHELL := /bin/bash
 
 FORK_SCRIPT := ./scripts/fork-release.sh
-INSTALL_SCRIPT := ./scripts/install-codex.sh
 INSTALL_DIR ?= $(HOME)/.local/bin
-UNINSTALL_VERSION ?=
 
 .DEFAULT_GOAL := help
 
@@ -15,10 +13,12 @@ help:
 	@echo "codex fork maintenance"
 	@echo ""
 	@echo "Workflow:"
-	@echo "  # Sync upstream into main, create tt/main once, work there, then cut releases from tt/main"
+	@echo "  # Sync upstream into main, merge main -> tt/cuts -> tt/main, then cut releases from tt/main"
 	@echo "  make sync-main"
-	@echo "  make create-tt-main BASE=releases/tt/rust-v0.120.0"
+	@echo "  make create-tt-main BASE=releases/tt/rust-v0.120.0 # then create tt/cuts once"
+	@echo "  git switch tt/cuts && git merge main"
 	@echo "  git switch tt/main"
+	@echo "  git merge tt/cuts"
 	@echo "  make new-release"
 	@echo "  make build"
 	@echo "  make install"
@@ -93,4 +93,4 @@ install-release: build-release
 	@install -m 0755 codex-rs/target/release/codex-app-server "$(INSTALL_DIR)/codex-app-server"
 
 uninstall:
-	@$(INSTALL_SCRIPT) --install-dir $(INSTALL_DIR) uninstall $(UNINSTALL_VERSION)
+	@rm -f "$(INSTALL_DIR)/codex" "$(INSTALL_DIR)/tt" "$(INSTALL_DIR)/codex-app-server"

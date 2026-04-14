@@ -1,22 +1,15 @@
 /// Update action the CLI should perform after the TUI exits.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UpdateAction {
-    /// Update via `npm install -g @openai/codex@latest`.
-    NpmGlobalLatest,
-    /// Update via `bun install -g @openai/codex@latest`.
-    BunGlobalLatest,
-    /// Update via `brew upgrade codex`.
-    BrewUpgrade,
+    /// Rebuild the supported local binaries from source.
+    RebuildFromSource,
 }
 
 impl UpdateAction {
     /// Returns the list of command-line arguments for invoking the update.
     pub fn command_args(self) -> (&'static str, &'static [&'static str]) {
-        match self {
-            UpdateAction::NpmGlobalLatest => ("npm", &["install", "-g", "@openai/codex"]),
-            UpdateAction::BunGlobalLatest => ("bun", &["install", "-g", "@openai/codex"]),
-            UpdateAction::BrewUpgrade => ("brew", &["upgrade", "--cask", "codex"]),
-        }
+        let _ = self;
+        ("make", &["install"])
     }
 
     /// Returns string representation of the command-line arguments for invoking the update.
@@ -29,35 +22,20 @@ impl UpdateAction {
 
 #[cfg(not(debug_assertions))]
 pub(crate) fn get_update_action() -> Option<UpdateAction> {
-    let exe = std::env::current_exe().unwrap_or_default();
-    let managed_by_npm = std::env::var_os("CODEX_MANAGED_BY_NPM").is_some();
-    let managed_by_bun = std::env::var_os("CODEX_MANAGED_BY_BUN").is_some();
-
-    detect_update_action(
-        cfg!(target_os = "macos"),
-        &exe,
-        managed_by_npm,
-        managed_by_bun,
-    )
+    Some(UpdateAction::RebuildFromSource)
 }
 
 #[cfg(any(not(debug_assertions), test))]
 fn detect_update_action(
-    is_macos: bool,
+    _is_macos: bool,
     current_exe: &std::path::Path,
-    managed_by_npm: bool,
-    managed_by_bun: bool,
+    _managed_by_npm: bool,
+    _managed_by_bun: bool,
 ) -> Option<UpdateAction> {
-    if managed_by_npm {
-        Some(UpdateAction::NpmGlobalLatest)
-    } else if managed_by_bun {
-        Some(UpdateAction::BunGlobalLatest)
-    } else if is_macos
-        && (current_exe.starts_with("/opt/homebrew") || current_exe.starts_with("/usr/local"))
-    {
-        Some(UpdateAction::BrewUpgrade)
-    } else {
+    if current_exe.as_os_str().is_empty() {
         None
+    } else {
+        Some(UpdateAction::RebuildFromSource)
     }
 }
 
@@ -74,7 +52,7 @@ mod tests {
                 /*managed_by_npm*/ false,
                 /*managed_by_bun*/ false
             ),
-            None
+            Some(UpdateAction::RebuildFromSource)
         );
         assert_eq!(
             detect_update_action(
@@ -83,7 +61,7 @@ mod tests {
                 /*managed_by_npm*/ true,
                 /*managed_by_bun*/ false
             ),
-            Some(UpdateAction::NpmGlobalLatest)
+            Some(UpdateAction::RebuildFromSource)
         );
         assert_eq!(
             detect_update_action(
@@ -92,7 +70,7 @@ mod tests {
                 /*managed_by_npm*/ false,
                 /*managed_by_bun*/ true
             ),
-            Some(UpdateAction::BunGlobalLatest)
+            Some(UpdateAction::RebuildFromSource)
         );
         assert_eq!(
             detect_update_action(
@@ -101,7 +79,7 @@ mod tests {
                 /*managed_by_npm*/ false,
                 /*managed_by_bun*/ false
             ),
-            Some(UpdateAction::BrewUpgrade)
+            Some(UpdateAction::RebuildFromSource)
         );
         assert_eq!(
             detect_update_action(
@@ -110,7 +88,7 @@ mod tests {
                 /*managed_by_npm*/ false,
                 /*managed_by_bun*/ false
             ),
-            Some(UpdateAction::BrewUpgrade)
+            Some(UpdateAction::RebuildFromSource)
         );
     }
 }

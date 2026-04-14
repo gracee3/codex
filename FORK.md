@@ -1,36 +1,30 @@
 # Fork Maintenance
 
-This fork now uses a two-lane model:
+This fork now uses a three-branch model:
 
 - `main` is a clean mirror of `upstream/main`
-- `tt/main` is the long-lived TT product branch
+- `tt/cuts` is the long-lived structural reduction branch
+- `tt/main` is the long-lived TT product branch on top of `tt/cuts`
 
-TT is no longer treated as a small replayable overlay. Ongoing TT development,
-including the separate `tt` binary and deeper runtime changes, should land on
-`tt/main` and `tt/feature/*` branches. TT releases are cut from `tt/main`.
+This fork intentionally carries aggressive deletions and Linux-only Cargo
+support on `tt/cuts`. TT product work lands on `tt/main` and `tt/feature/*`.
 
 ## Active branches
 
 - `main`
   - exact upstream mirror
-  - no TT product work should land here directly
+  - no TT product or cleanup work should land here directly
+- `tt/cuts`
+  - permanent hard-cut layer
+  - receives upstream updates by merging `main`
+  - owns repo reduction, Linux-only cleanup, and removal of upstream tooling
 - `tt/main`
   - primary TT development branch
-  - receives upstream updates by merging `main`
+  - receives upstream updates by merging `tt/cuts`
 - `tt/feature/<name>`
   - short-lived TT feature branches
 - `releases/tt/<tag>`
   - TT release branches cut from `tt/main`
-
-The legacy overlay branches remain as historical bootstrap material only:
-
-- `fork/tt-runtime-contract`
-- `fork/app-server-rollout`
-
-Those branches should not be used as the primary ongoing TT workflow.
-
-`fork/maint` may continue to carry generic fork-maintenance automation. Keep it
-small and utility-focused.
 
 ## Workflow
 
@@ -40,23 +34,26 @@ Refresh the upstream mirror:
 make sync-main
 ```
 
-Create the long-lived TT branch once from the current TT baseline:
+Create the long-lived TT branches once from the current TT baseline:
 
 ```bash
 make create-tt-main BASE=releases/tt/rust-v0.120.0
+git switch -c tt/cuts
+git switch -c tt/main
 ```
 
-Move to the TT product branch and do TT work there:
+Merge upstream into the cut layer first:
 
 ```bash
-git switch tt/main
-```
-
-Merge upstream mirror updates into the TT branch at explicit sync points:
-
-```bash
-git switch tt/main
+git switch tt/cuts
 git merge main
+```
+
+Then move the cut layer into TT product work:
+
+```bash
+git switch tt/main
+git merge tt/cuts
 ```
 
 Cut a new TT release from `tt/main`:
@@ -72,10 +69,11 @@ plus replayed overlays.
 ## Current policy
 
 - Keep `main` aligned with `upstream/main`
-- Keep TT work on `tt/main`
-- Merge `main` into `tt/main` instead of rebasing the TT product branch
+- Keep structural simplification on `tt/cuts`
+- Keep TT product work on `tt/main`
+- Merge `main` into `tt/cuts`, then `tt/cuts` into `tt/main`
 - Cut `releases/tt/*` from `tt/main`
-- Do not rely on TT-specific `fork/*` branches for day-to-day product work
+- Do not rebuild upstream compatibility surfaces in this fork
 
 ## Tooling
 
@@ -86,5 +84,5 @@ The fork maintenance helpers now support:
 - `make new-release TAG=<rust-vX.Y.Z>`
 - `make new-tt-release TAG=<rust-vX.Y.Z>`
 
-`scripts/fork-release.sh list-patch-commits` remains available only as a
-historical inspection tool for the old overlay workflow.
+`scripts/fork-release.sh list-patch-commits` remains only as a historical
+inspection tool for the pre-`tt/cuts` workflow.

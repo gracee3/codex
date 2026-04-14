@@ -1,6 +1,6 @@
 Generate a file named AGENTS.md that serves as a contributor guide for this repository.
-Your goal is to produce a clear, concise, and well-structured document with descriptive headings and actionable explanations for each section.
-Follow the outline below, but adapt as needed — add sections if relevant, and omit those that do not apply to this project.
+Write for the TT Rust fork only: Linux x86_64, Cargo-based workflows, and the
+Rust workspace under `codex-rs/`.
 
 Document Requirements
 
@@ -19,7 +19,8 @@ Project Structure & Module Organization
 
 Build, Test, and Development Commands
 
-- List key commands for building, testing, and running locally (e.g., npm test, make build).
+- List key commands for building, testing, and running locally (for example
+  `make build`, `make install`, `just fmt`, and `cargo test -p <crate>`).
 - Briefly explain what each command does.
 
 Coding Style & Naming Conventions

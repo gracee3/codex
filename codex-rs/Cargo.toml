@@ -58,7 +58,6 @@ members = [
     "otel",
     "tui",
     "tools",
-    "v8-poc",
     "utils/absolute-path",
     "utils/cargo-bin",
     "git-utils",
@@ -190,8 +189,6 @@ codex-utils-sleep-inhibitor = { path = "utils/sleep-inhibitor" }
 codex-utils-stream-parser = { path = "utils/stream-parser" }
 codex-utils-string = { path = "utils/string" }
 codex-utils-template = { path = "utils/template" }
-codex-v8-poc = { path = "v8-poc" }
-codex-windows-sandbox = { path = "windows-sandbox-rs" }
 core_test_support = { path = "core/tests/common" }
 mcp_test_support = { path = "mcp-server/tests/common" }
 
@@ -281,7 +278,6 @@ regex = "1.12.3"
 regex-lite = "0.1.8"
 reqwest = "0.12"
 rmcp = { version = "0.15.0", default-features = false }
-runfiles = { git = "https://github.com/dzbarsky/rules_rust", rev = "b56cbaa8465e74127f1ea216f813cd377295ad81" }
 rustls = { version = "0.23", default-features = false, features = [
     "ring",
     "std",
@@ -409,7 +405,6 @@ ignored = [
     "openssl-sys",
     "codex-utils-readiness",
     "codex-utils-template",
-    "codex-v8-poc",
 ]
 
 [profile.release]
