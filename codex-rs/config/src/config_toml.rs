@@ -10,6 +10,7 @@ use crate::types::ApprovalsReviewer;
 use crate::types::AppsConfigToml;
 use crate::types::AuthCredentialsStoreMode;
 use crate::types::History;
+use crate::types::MarketplaceConfig;
 use crate::types::McpServerConfig;
 use crate::types::MemoriesToml;
 use crate::types::Notice;
@@ -316,6 +317,10 @@ pub struct ConfigToml {
     /// User-level plugin config entries keyed by plugin name.
     #[serde(default)]
     pub plugins: HashMap<String, PluginConfig>,
+
+    /// User-level marketplace entries keyed by marketplace name.
+    #[serde(default)]
+    pub marketplaces: HashMap<String, MarketplaceConfig>,
 
     /// Centralized feature flags (new). Prefer this over individual toggles.
     #[serde(default)]

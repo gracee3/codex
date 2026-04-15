@@ -279,7 +279,7 @@
               "type": "string"
             },
             "path": {
-              "type": "string"
+              "$ref": "#/definitions/AbsolutePathBuf"
             },
             "type": {
               "enum": [
@@ -1062,8 +1062,12 @@
           "type": "integer"
         },
         "cwd": {
-          "description": "Working directory captured for the thread.",
-          "type": "string"
+          "allOf": [
+            {
+              "$ref": "#/definitions/AbsolutePathBuf"
+            }
+          ],
+          "description": "Working directory captured for the thread."
         },
         "ephemeral": {
           "description": "Whether the thread is ephemeral and should not be materialized on disk.",
@@ -1359,8 +1363,12 @@
               "type": "array"
             },
             "cwd": {
-              "description": "The command's working directory.",
-              "type": "string"
+              "allOf": [
+                {
+                  "$ref": "#/definitions/AbsolutePathBuf"
+                }
+              ],
+              "description": "The command's working directory."
             },
             "durationMs": {
               "description": "The duration of the command execution in milliseconds.",
@@ -1689,7 +1697,7 @@
               "type": "string"
             },
             "path": {
-              "type": "string"
+              "$ref": "#/definitions/AbsolutePathBuf"
             },
             "type": {
               "enum": [
@@ -1722,9 +1730,13 @@
               ]
             },
             "savedPath": {
-              "type": [
-                "string",
-                "null"
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/AbsolutePathBuf"
+                },
+                {
+                  "type": "null"
+                }
               ]
             },
             "status": {
@@ -2222,7 +2234,15 @@
       "description": "Reviewer currently used for approval requests on this thread."
     },
     "cwd": {
-      "type": "string"
+      "$ref": "#/definitions/AbsolutePathBuf"
+    },
+    "instructionSources": {
+      "default": [],
+      "description": "Instruction source files currently loaded for this thread.",
+      "items": {
+        "$ref": "#/definitions/AbsolutePathBuf"
+      },
+      "type": "array"
     },
     "model": {
       "type": "string"

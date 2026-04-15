@@ -2,7 +2,7 @@
 
 This fork now uses a three-branch model:
 
-- `main` is a clean mirror of `upstream/main`
+- `main` is the upstream release-sync branch
 - `tt/base` is the long-lived structural reduction branch
 - `tt/main` is the long-lived TT product branch on top of `tt/base`
 
@@ -12,7 +12,8 @@ support on `tt/base`. TT product work lands on `tt/main` and `tt/feature/*`.
 ## Active branches
 
 - `main`
-  - exact upstream mirror
+  - usually refreshed from upstream before each TT release merge
+  - may be pinned to a specific upstream release tag during a sync cycle
   - no TT product or cleanup work should land here directly
 - `tt/base`
   - permanent hard-cut layer
@@ -28,11 +29,15 @@ support on `tt/base`. TT product work lands on `tt/main` and `tt/feature/*`.
 
 ## Workflow
 
-Refresh the upstream mirror:
+Refresh `main` from upstream:
 
 ```bash
 just sync-main
 ```
+
+If the fork is intentionally syncing to a stable upstream release instead of
+upstream tip, pin `main` to the chosen release tag before merging it into
+`tt/base`.
 
 Create the long-lived TT branches once from the current TT baseline:
 
@@ -46,6 +51,7 @@ Merge upstream into the base layer first:
 
 ```bash
 git switch tt/base
+git branch -f tt/base tt/main
 git merge main
 ```
 
@@ -68,12 +74,51 @@ plus replayed overlays.
 
 ## Current policy
 
-- Keep `main` aligned with `upstream/main`
+- Keep `main` aligned with the selected upstream sync target for the cycle
 - Keep structural simplification on `tt/base`
 - Keep TT product work on `tt/main`
 - Merge `main` into `tt/base`, then `tt/base` into `tt/main`
 - Cut `releases/tt/*` from `tt/main`
 - Do not rebuild upstream compatibility surfaces in this fork
+
+## Release Merge Notes
+
+For the first upstream release merge, resolve conflicts in a way that teaches
+`rerere` repeatable patterns instead of optimizing for a one-off clean merge.
+
+Recurring conflict classes so far:
+
+- Keep TT deletions for removed surfaces:
+  - `.github/` Bazel and release automation
+  - Bazel lockfiles and Bazel-only crate metadata
+  - `code-mode`, JS REPL, and related tests
+  - removed platform-specific sandbox code and dead compatibility surfaces
+- Re-review manually for retained Rust crates:
+  - `codex-rs/core`
+  - `codex-rs/app-server*`
+  - `codex-rs/tui`
+  - `codex-rs/exec*`
+  - `codex-rs/tools`
+- Check the top-level Rust workspace after every sync:
+  - workspace version
+  - newly added retained crates in `members`
+  - matching `workspace.dependencies` entries
+- Prefer deleting newly added upstream files that live entirely inside already
+  cut subsystems rather than keeping dead support code around.
+
+Recommended merge order for each release cycle:
+
+```bash
+git switch main
+# Pin to upstream tag or update to upstream branch tip for the selected cycle.
+
+git switch tt/base
+git branch -f tt/base tt/main
+git merge main
+
+git switch tt/main
+git merge tt/base
+```
 
 ## Tooling
 
