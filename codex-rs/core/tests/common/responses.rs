@@ -40,12 +40,14 @@ use crate::test_codex::ApplyPatchModelOutput;
 #[derive(Debug, Clone)]
 pub struct ResponseMock {
     requests: Arc<Mutex<Vec<ResponsesRequest>>>,
+    notify: Arc<Notify>,
 }
 
 impl ResponseMock {
     fn new() -> Self {
         Self {
             requests: Arc::new(Mutex::new(Vec::new())),
+            notify: Arc::new(Notify::new()),
         }
     }
 
@@ -59,6 +61,24 @@ impl ResponseMock {
 
     pub fn requests(&self) -> Vec<ResponsesRequest> {
         self.requests.lock().unwrap().clone()
+    }
+
+    pub async fn wait_for_request_count(&self, expected: usize, timeout_duration: Duration) {
+        tokio::time::timeout(timeout_duration, async {
+            loop {
+                if self.requests.lock().unwrap().len() >= expected {
+                    return;
+                }
+                self.notify.notified().await;
+            }
+        })
+        .await
+        .unwrap_or_else(|_| {
+            panic!(
+                "timed out waiting for {expected} response request(s); saw {}",
+                self.requests.lock().unwrap().len()
+            )
+        });
     }
 
     pub fn last_request(&self) -> Option<ResponsesRequest> {
@@ -583,6 +603,7 @@ impl Match for ResponseMock {
             .lock()
             .unwrap()
             .push(ResponsesRequest(request.clone()));
+        self.notify.notify_waiters();
 
         // Enforce invariant checks on every request body captured by the mock.
         // Panic on orphan tool outputs or calls to catch regressions early.

@@ -29,6 +29,7 @@ use codex_app_server_protocol::TurnStartParams;
 use codex_app_server_protocol::TurnStartResponse;
 use codex_app_server_protocol::UserInput as V2UserInput;
 use codex_config::types::AuthCredentialsStoreMode;
+use codex_features::Feature;
 use codex_protocol::models::ContentItem;
 use codex_protocol::models::ResponseItem;
 use core_test_support::responses;
@@ -143,10 +144,11 @@ async fn auto_compaction_remote_emits_started_and_completed_items() -> Result<()
     .await;
 
     let codex_home = TempDir::new()?;
+    let feature_flags = BTreeMap::from([(Feature::Plugins, false)]);
     write_mock_responses_config_toml(
         codex_home.path(),
         &server.uri(),
-        &BTreeMap::default(),
+        &feature_flags,
         REMOTE_AUTO_COMPACT_LIMIT,
         Some(true),
         "mock_provider",
@@ -180,10 +182,16 @@ async fn auto_compaction_remote_emits_started_and_completed_items() -> Result<()
     assert_eq!(completed.thread_id, thread_id);
     assert_eq!(started_id, completed_id);
 
+    compact_mock
+        .wait_for_request_count(1, DEFAULT_READ_TIMEOUT)
+        .await;
     let compact_requests = compact_mock.requests();
     assert_eq!(compact_requests.len(), 1);
     assert_eq!(compact_requests[0].path(), "/v1/responses/compact");
 
+    responses_log
+        .wait_for_request_count(3, DEFAULT_READ_TIMEOUT)
+        .await;
     let response_requests = responses_log.requests();
     assert_eq!(response_requests.len(), 3);
 

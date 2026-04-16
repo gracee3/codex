@@ -264,6 +264,9 @@ async fn mcp_server_elicitation_round_trip() -> Result<()> {
         }
     }
 
+    response_mock
+        .wait_for_request_count(3, DEFAULT_READ_TIMEOUT)
+        .await;
     let requests = response_mock.requests();
     assert_eq!(requests.len(), 3);
     let function_call_output = requests[2].function_call_output(TOOL_CALL_ID);
@@ -479,6 +482,7 @@ mcp_oauth_credentials_store = "file"
 
 [features]
 apps = true
+plugins = false
 
 [model_providers.mock_provider]
 name = "Mock provider for test"
