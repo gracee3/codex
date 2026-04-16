@@ -350,9 +350,13 @@ pub fn format_with_current_shell_display_non_login(command: &str) -> String {
 }
 
 pub fn stdio_server_bin() -> Result<String, CargoBinError> {
+    let source = test_stdio_server_source();
     match codex_utils_cargo_bin::cargo_bin("test_stdio_server") {
-        Ok(path) => Ok(path.to_string_lossy().to_string()),
+        Ok(path) if binary_is_up_to_date(path.as_path(), source.as_path()) => {
+            Ok(path.to_string_lossy().to_string())
+        }
         Err(_) => Ok(build_test_stdio_server_bin().to_string_lossy().to_string()),
+        Ok(_) => Ok(build_test_stdio_server_bin().to_string_lossy().to_string()),
     }
 }
 
@@ -401,7 +405,8 @@ fn build_test_stdio_server_bin() -> PathBuf {
             let workspace_root = repo_root.join("codex-rs");
             let target_dir = repo_root.join("target/test-binaries");
             let bin = target_dir.join("debug/test_stdio_server");
-            if bin.is_file() {
+            let source = test_stdio_server_source();
+            if binary_is_up_to_date(bin.as_path(), source.as_path()) {
                 return bin;
             }
             let status = Command::new("cargo")
@@ -422,6 +427,28 @@ fn build_test_stdio_server_bin() -> PathBuf {
             bin
         })
         .clone()
+}
+
+fn test_stdio_server_source() -> PathBuf {
+    codex_utils_cargo_bin::repo_root()
+        .expect("failed to resolve repo root for test_stdio_server source")
+        .join("codex-rs/rmcp-client/src/bin/test_stdio_server.rs")
+}
+
+fn binary_is_up_to_date(bin: &std::path::Path, source: &std::path::Path) -> bool {
+    let Ok(bin_metadata) = std::fs::metadata(bin) else {
+        return false;
+    };
+    let Ok(source_metadata) = std::fs::metadata(source) else {
+        return false;
+    };
+    let Ok(bin_modified) = bin_metadata.modified() else {
+        return false;
+    };
+    let Ok(source_modified) = source_metadata.modified() else {
+        return false;
+    };
+    bin_modified >= source_modified
 }
 
 pub mod fs_wait {
