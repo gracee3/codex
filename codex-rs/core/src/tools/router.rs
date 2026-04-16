@@ -22,6 +22,7 @@ use codex_tools::ToolSpec;
 use codex_tools::ToolsConfig;
 use rmcp::model::Tool;
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::sync::Arc;
 use tracing::instrument;
 
@@ -42,6 +43,7 @@ pub struct ToolRouter {
 
 pub(crate) struct ToolRouterParams<'a> {
     pub(crate) mcp_tools: Option<HashMap<String, Tool>>,
+    pub(crate) parallel_mcp_tools: Option<HashSet<String>>,
     pub(crate) tool_namespaces: Option<HashMap<String, ToolNamespace>>,
     pub(crate) app_tools: Option<HashMap<String, ToolInfo>>,
     pub(crate) discoverable_tools: Option<Vec<DiscoverableTool>>,
@@ -50,6 +52,7 @@ pub(crate) struct ToolRouterParams<'a> {
 
 pub(crate) struct McpToolRouterInputs {
     pub(crate) mcp_tools: HashMap<String, Tool>,
+    pub(crate) parallel_mcp_tools: HashSet<String>,
     pub(crate) tool_namespaces: HashMap<String, ToolNamespace>,
 }
 
@@ -58,6 +61,11 @@ pub(crate) fn map_mcp_tool_infos(mcp_tools: &HashMap<String, ToolInfo>) -> McpTo
         mcp_tools: mcp_tools
             .iter()
             .map(|(name, tool)| (name.clone(), tool.tool.clone()))
+            .collect(),
+        parallel_mcp_tools: mcp_tools
+            .iter()
+            .filter(|(_, tool)| tool.supports_parallel_tool_calls)
+            .map(|(name, _)| name.clone())
             .collect(),
         tool_namespaces: mcp_tools
             .iter()
@@ -78,6 +86,7 @@ impl ToolRouter {
     pub fn from_config(config: &ToolsConfig, params: ToolRouterParams<'_>) -> Self {
         let ToolRouterParams {
             mcp_tools,
+            parallel_mcp_tools,
             tool_namespaces,
             app_tools,
             discoverable_tools,
@@ -86,6 +95,7 @@ impl ToolRouter {
         let builder = build_specs_with_discoverable_tools(
             config,
             mcp_tools,
+            parallel_mcp_tools,
             app_tools,
             tool_namespaces,
             discoverable_tools,

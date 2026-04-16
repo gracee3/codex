@@ -31,6 +31,7 @@ use crate::mcp_tool_approval_templates::render_mcp_tool_approval_template;
 use codex_config::types::AppToolApproval;
 use codex_features::Feature;
 use codex_mcp::CODEX_APPS_MCP_SERVER_NAME;
+use codex_mcp::MCP_SANDBOX_STATE_META_CAPABILITY;
 use codex_mcp::mcp_permission_prompt_is_auto_approved;
 use codex_otel::sanitize_metric_tag_value;
 use codex_protocol::mcp::CallToolResult;
@@ -135,8 +136,13 @@ pub(crate) async fn handle_mcp_tool_call(
         );
         return CallToolResult::from_result(result);
     }
-    let request_meta =
-        build_mcp_tool_call_request_meta(turn_context.as_ref(), &server, metadata.as_ref());
+    let request_meta = build_mcp_tool_call_request_meta(
+        sess.as_ref(),
+        turn_context.as_ref(),
+        &server,
+        metadata.as_ref(),
+    )
+    .await;
     let connector_id = metadata
         .as_ref()
         .and_then(|metadata| metadata.connector_id.clone());
@@ -553,7 +559,8 @@ fn custom_mcp_tool_approval_mode(
         .unwrap_or_default()
 }
 
-fn build_mcp_tool_call_request_meta(
+async fn build_mcp_tool_call_request_meta(
+    sess: &Session,
     turn_context: &TurnContext,
     server: &str,
     metadata: Option<&McpToolApprovalMetadata>,
@@ -574,6 +581,25 @@ fn build_mcp_tool_call_request_meta(
         request_meta.insert(
             MCP_TOOL_CODEX_APPS_META_KEY.to_string(),
             serde_json::Value::Object(codex_apps_meta),
+        );
+    }
+
+    let server_supports_sandbox_meta = sess
+        .services
+        .mcp_connection_manager
+        .read()
+        .await
+        .server_supports_sandbox_state_meta_capability(server)
+        .await
+        .unwrap_or(false);
+    if server_supports_sandbox_meta {
+        request_meta.insert(
+            MCP_SANDBOX_STATE_META_CAPABILITY.to_string(),
+            serde_json::json!({
+                "sandboxPolicy": turn_context.sandbox_policy.get().clone(),
+                "sandboxCwd": turn_context.cwd.as_path(),
+                "useLegacyLandlock": false,
+            }),
         );
     }
 

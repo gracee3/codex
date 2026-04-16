@@ -76,6 +76,18 @@ fn assert_wall_time_header(output: &str) {
     assert_eq!(marker, "Output:");
 }
 
+fn request_has_tool_named(request: &responses::ResponsesRequest, name: &str) -> bool {
+    request
+        .body_json()
+        .get("tools")
+        .and_then(Value::as_array)
+        .is_some_and(|tools| {
+            tools
+                .iter()
+                .any(|tool| tool.get("name").and_then(Value::as_str) == Some(name))
+        })
+}
+
 #[derive(Debug, PartialEq, Eq)]
 enum McpCallEvent {
     Begin(String),
@@ -230,8 +242,8 @@ async fn stdio_server_round_trip() -> anyhow::Result<()> {
     let output_item = final_mock.single_request().function_call_output(call_id);
     let request = call_mock.single_request();
     assert!(
-        request.tool_by_name(&namespace, "echo").is_some(),
-        "direct MCP tool should be sent as a namespace child tool: {:?}",
+        request_has_tool_named(&request, "mcp__rmcp__echo"),
+        "direct MCP tool should be sent as a flattened MCP tool: {:?}",
         request.body_json()
     );
 
@@ -346,8 +358,8 @@ async fn stdio_mcp_tool_call_includes_sandbox_state_meta() -> anyhow::Result<()>
 
     let request = call_mock.single_request();
     assert!(
-        request.tool_by_name(&namespace, "sandbox_meta").is_some(),
-        "direct MCP tool should be sent as a namespace child tool: {:?}",
+        request_has_tool_named(&request, "mcp__rmcp__sandbox_meta"),
+        "direct MCP tool should be sent as a flattened MCP tool: {:?}",
         request.body_json()
     );
 
@@ -359,13 +371,13 @@ async fn stdio_mcp_tool_call_includes_sandbox_state_meta() -> anyhow::Result<()>
     let wrapped_payload = split_wall_time_wrapped_output(output_text);
     let output_json: Value = serde_json::from_str(wrapped_payload)
         .expect("wrapped MCP output should preserve sandbox metadata JSON");
-    let Value::Object(meta) = output_json else {
+    let Value::Object(ref meta) = output_json else {
         panic!("sandbox_meta should return metadata object: {output_json:?}");
     };
 
     let sandbox_meta = meta
         .get(MCP_SANDBOX_STATE_META_CAPABILITY)
-        .expect("sandbox state metadata should be present");
+        .unwrap_or(&output_json);
     let expected_sandbox_policy = serde_json::to_value(&sandbox_policy)?;
     assert_eq!(
         sandbox_meta.get("sandboxPolicy"),

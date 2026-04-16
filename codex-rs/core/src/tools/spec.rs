@@ -18,6 +18,7 @@ use codex_tools::ToolsConfig;
 use codex_tools::WaitAgentTimeoutOptions;
 use codex_tools::build_tool_registry_plan;
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::sync::Arc;
 
 pub(crate) fn tool_user_shell_type(user_shell: &Shell) -> ToolUserShellType {
@@ -33,6 +34,7 @@ pub(crate) fn tool_user_shell_type(user_shell: &Shell) -> ToolUserShellType {
 pub(crate) fn build_specs_with_discoverable_tools(
     config: &ToolsConfig,
     mcp_tools: Option<HashMap<String, rmcp::model::Tool>>,
+    parallel_mcp_tools: Option<HashSet<String>>,
     app_tools: Option<HashMap<String, ToolInfo>>,
     tool_namespaces: Option<HashMap<String, ToolNamespace>>,
     discoverable_tools: Option<Vec<DiscoverableTool>>,
@@ -84,6 +86,7 @@ pub(crate) fn build_specs_with_discoverable_tools(
         config,
         ToolRegistryPlanParams {
             mcp_tools: mcp_tools.as_ref(),
+            parallel_mcp_tools: parallel_mcp_tools.as_ref(),
             tool_namespaces: tool_namespaces.as_ref(),
             app_tools: app_tool_sources.as_deref(),
             discoverable_tools: discoverable_tools.as_deref(),

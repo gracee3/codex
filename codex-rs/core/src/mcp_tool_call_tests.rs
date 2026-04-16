@@ -550,7 +550,7 @@ fn sanitize_mcp_tool_result_for_model_preserves_image_when_supported() {
 
 #[tokio::test]
 async fn mcp_tool_call_request_meta_includes_turn_metadata_for_custom_server() {
-    let (_, turn_context) = make_session_and_context().await;
+    let (session, turn_context) = make_session_and_context().await;
     let expected_turn_metadata = serde_json::from_str::<serde_json::Value>(
         &turn_context
             .turn_metadata_state
@@ -559,9 +559,14 @@ async fn mcp_tool_call_request_meta_includes_turn_metadata_for_custom_server() {
     )
     .expect("turn metadata json");
 
-    let meta =
-        build_mcp_tool_call_request_meta(&turn_context, "custom_server", /*metadata*/ None)
-            .expect("custom servers should receive turn metadata");
+    let meta = build_mcp_tool_call_request_meta(
+        session.as_ref(),
+        &turn_context,
+        "custom_server",
+        /*metadata*/ None,
+    )
+    .await
+    .expect("custom servers should receive turn metadata");
 
     assert_eq!(
         meta,
@@ -573,7 +578,7 @@ async fn mcp_tool_call_request_meta_includes_turn_metadata_for_custom_server() {
 
 #[tokio::test]
 async fn codex_apps_tool_call_request_meta_includes_turn_metadata_and_codex_apps_meta() {
-    let (_, turn_context) = make_session_and_context().await;
+    let (session, turn_context) = make_session_and_context().await;
     let expected_turn_metadata = serde_json::from_str::<serde_json::Value>(
         &turn_context
             .turn_metadata_state
@@ -602,10 +607,12 @@ async fn codex_apps_tool_call_request_meta_includes_turn_metadata_and_codex_apps
 
     assert_eq!(
         build_mcp_tool_call_request_meta(
+            session.as_ref(),
             &turn_context,
             CODEX_APPS_MCP_SERVER_NAME,
             Some(&metadata),
-        ),
+        )
+        .await,
         Some(serde_json::json!({
             crate::X_CODEX_TURN_METADATA_HEADER: expected_turn_metadata,
             MCP_TOOL_CODEX_APPS_META_KEY: {

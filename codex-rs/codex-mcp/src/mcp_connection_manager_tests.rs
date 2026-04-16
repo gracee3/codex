@@ -32,6 +32,7 @@ fn create_test_tool(server_name: &str, tool_name: &str) -> ToolInfo {
         connector_name: None,
         plugin_display_names: Vec::new(),
         connector_description: None,
+        supports_parallel_tool_calls: false,
     }
 }
 

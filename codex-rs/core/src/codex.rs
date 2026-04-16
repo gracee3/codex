@@ -6915,6 +6915,9 @@ pub(crate) async fn built_tools(
             mcp_tools: mcp_tool_router_inputs
                 .as_ref()
                 .map(|inputs| inputs.mcp_tools.clone()),
+            parallel_mcp_tools: mcp_tool_router_inputs
+                .as_ref()
+                .map(|inputs| inputs.parallel_mcp_tools.clone()),
             tool_namespaces: mcp_tool_router_inputs
                 .as_ref()
                 .map(|inputs| inputs.tool_namespaces.clone()),

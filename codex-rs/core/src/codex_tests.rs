@@ -308,6 +308,7 @@ fn test_tool_runtime(session: Arc<Session>, turn_context: Arc<TurnContext>) -> T
         &turn_context.tools_config,
         crate::tools::router::ToolRouterParams {
             mcp_tools: None,
+            parallel_mcp_tools: None,
             tool_namespaces: None,
             app_tools: None,
             discoverable_tools: None,
@@ -433,6 +434,7 @@ fn make_mcp_tool(
         connector_name: connector_name.map(str::to_string),
         plugin_display_names: Vec::new(),
         connector_description: None,
+        supports_parallel_tool_calls: false,
     }
 }
 
@@ -5357,6 +5359,7 @@ async fn fatal_tool_error_stops_turn_and_reports_error() {
         &turn_context.tools_config,
         crate::tools::router::ToolRouterParams {
             mcp_tools: Some(mcp_tool_router_inputs.mcp_tools),
+            parallel_mcp_tools: Some(mcp_tool_router_inputs.parallel_mcp_tools),
             tool_namespaces: Some(mcp_tool_router_inputs.tool_namespaces),
             app_tools,
             discoverable_tools: None,

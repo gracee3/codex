@@ -118,6 +118,7 @@ fn codex_app_tool(
         connector_name: connector_name.map(ToOwned::to_owned),
         connector_description: None,
         plugin_display_names: plugin_names(plugin_display_names),
+        supports_parallel_tool_calls: false,
     }
 }
 
@@ -197,6 +198,7 @@ fn accessible_connectors_from_mcp_tools_carries_plugin_display_names() {
                 connector_name: None,
                 connector_description: None,
                 plugin_display_names: plugin_names(&["ignored"]),
+                supports_parallel_tool_calls: false,
             },
         ),
     ]);
@@ -332,6 +334,7 @@ fn accessible_connectors_from_mcp_tools_preserves_description() {
             connector_name: Some("Calendar".to_string()),
             connector_description: Some("Plan events".to_string()),
             plugin_display_names: Vec::new(),
+            supports_parallel_tool_calls: false,
         },
     )]);
 

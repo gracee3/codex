@@ -1303,6 +1303,7 @@ fn tool_suggest_is_not_registered_without_feature_flag() {
     let (tools, _) = build_specs_with_discoverable_tools(
         &tools_config,
         /*mcp_tools*/ None,
+        /*parallel_mcp_tools*/ None,
         /*app_tools*/ None,
         /*tool_namespaces*/ None,
         Some(vec![discoverable_connector(
@@ -1344,6 +1345,7 @@ fn tool_suggest_can_be_registered_without_search_tool() {
     let (tools, _) = build_specs_with_discoverable_tools(
         &tools_config,
         /*mcp_tools*/ None,
+        /*parallel_mcp_tools*/ None,
         /*app_tools*/ None,
         /*tool_namespaces*/ None,
         Some(vec![discoverable_connector(
@@ -1413,6 +1415,7 @@ fn tool_suggest_description_lists_discoverable_tools() {
     let (tools, _) = build_specs_with_discoverable_tools(
         &tools_config,
         /*mcp_tools*/ None,
+        /*parallel_mcp_tools*/ None,
         /*app_tools*/ None,
         /*tool_namespaces*/ None,
         Some(discoverable_tools),
@@ -1524,6 +1527,7 @@ fn build_specs<'a>(
     build_specs_with_discoverable_tools(
         config,
         mcp_tools,
+        /*parallel_mcp_tools*/ None,
         app_tools,
         /*tool_namespaces*/ None,
         /*discoverable_tools*/ None,
@@ -1534,6 +1538,7 @@ fn build_specs<'a>(
 fn build_specs_with_discoverable_tools<'a>(
     config: &ToolsConfig,
     mcp_tools: Option<HashMap<String, rmcp::model::Tool>>,
+    parallel_mcp_tools: Option<std::collections::HashSet<String>>,
     app_tools: Option<Vec<ToolRegistryPlanAppTool<'a>>>,
     tool_namespaces: Option<HashMap<String, ToolNamespace>>,
     discoverable_tools: Option<Vec<DiscoverableTool>>,
@@ -1542,6 +1547,7 @@ fn build_specs_with_discoverable_tools<'a>(
     build_specs_with_optional_tool_namespaces(
         config,
         mcp_tools,
+        parallel_mcp_tools,
         tool_namespaces,
         app_tools,
         discoverable_tools,
@@ -1552,6 +1558,7 @@ fn build_specs_with_discoverable_tools<'a>(
 fn build_specs_with_optional_tool_namespaces<'a>(
     config: &ToolsConfig,
     mcp_tools: Option<HashMap<String, rmcp::model::Tool>>,
+    parallel_mcp_tools: Option<std::collections::HashSet<String>>,
     tool_namespaces: Option<HashMap<String, ToolNamespace>>,
     app_tools: Option<Vec<ToolRegistryPlanAppTool<'a>>>,
     discoverable_tools: Option<Vec<DiscoverableTool>>,
@@ -1561,6 +1568,7 @@ fn build_specs_with_optional_tool_namespaces<'a>(
         config,
         ToolRegistryPlanParams {
             mcp_tools: mcp_tools.as_ref(),
+            parallel_mcp_tools: parallel_mcp_tools.as_ref(),
             tool_namespaces: tool_namespaces.as_ref(),
             app_tools: app_tools.as_deref(),
             discoverable_tools: discoverable_tools.as_deref(),

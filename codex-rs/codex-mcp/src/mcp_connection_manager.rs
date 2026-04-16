@@ -154,6 +154,8 @@ pub struct ToolInfo {
     #[serde(default)]
     pub plugin_display_names: Vec<String>,
     pub connector_description: Option<String>,
+    #[serde(default)]
+    pub supports_parallel_tool_calls: bool,
 }
 
 impl ToolInfo {
@@ -438,6 +440,7 @@ struct ManagedClient {
     tools: Vec<ToolInfo>,
     tool_filter: ToolFilter,
     tool_timeout: Option<Duration>,
+    supports_parallel_tool_calls: bool,
     server_instructions: Option<String>,
     server_supports_sandbox_state_meta_capability: bool,
     codex_apps_tools_cache_context: Option<CodexAppsToolsCacheContext>,
@@ -517,6 +520,7 @@ impl AsyncManagedClient {
                             .startup_timeout_sec
                             .or(Some(DEFAULT_STARTUP_TIMEOUT)),
                         tool_timeout: config.tool_timeout_sec.unwrap_or(DEFAULT_TOOL_TIMEOUT),
+                        supports_parallel_tool_calls: config.supports_parallel_tool_calls,
                         tool_filter: startup_tool_filter,
                         tx_event,
                         elicitation_requests,
@@ -907,6 +911,7 @@ impl McpConnectionManager {
             CODEX_APPS_MCP_SERVER_NAME,
             &managed_client.client,
             managed_client.tool_timeout,
+            managed_client.supports_parallel_tool_calls,
             managed_client.server_instructions.as_deref(),
         )
         .await
@@ -1388,6 +1393,7 @@ async fn start_server_task(
     let StartServerTaskParams {
         startup_timeout,
         tool_timeout,
+        supports_parallel_tool_calls,
         tool_filter,
         tx_event,
         elicitation_requests,
@@ -1434,6 +1440,7 @@ async fn start_server_task(
         &server_name,
         &client,
         startup_timeout,
+        supports_parallel_tool_calls,
         initialize_result.instructions.as_deref(),
     )
     .await
@@ -1461,6 +1468,7 @@ async fn start_server_task(
         client: Arc::clone(&client),
         tools,
         tool_timeout: Some(tool_timeout),
+        supports_parallel_tool_calls,
         tool_filter,
         server_instructions: initialize_result.instructions,
         server_supports_sandbox_state_meta_capability,
@@ -1473,6 +1481,7 @@ async fn start_server_task(
 struct StartServerTaskParams {
     startup_timeout: Option<Duration>, // TODO: cancel_token should handle this.
     tool_timeout: Duration,
+    supports_parallel_tool_calls: bool,
     tool_filter: ToolFilter,
     tx_event: Sender<Event>,
     elicitation_requests: ElicitationRequestManager,
@@ -1643,6 +1652,7 @@ async fn list_tools_for_client_uncached(
     server_name: &str,
     client: &Arc<RmcpClient>,
     timeout: Option<Duration>,
+    supports_parallel_tool_calls: bool,
     server_instructions: Option<&str>,
 ) -> Result<Vec<ToolInfo>> {
     let resp = client
@@ -1682,6 +1692,7 @@ async fn list_tools_for_client_uncached(
                 connector_name,
                 plugin_display_names: Vec::new(),
                 connector_description,
+                supports_parallel_tool_calls,
             }
         })
         .collect();

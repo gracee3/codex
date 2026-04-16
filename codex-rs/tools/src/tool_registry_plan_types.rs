@@ -6,6 +6,7 @@ use crate::WaitAgentTimeoutOptions;
 use codex_protocol::dynamic_tools::DynamicToolSpec;
 use rmcp::model::Tool as McpTool;
 use std::collections::HashMap;
+use std::collections::HashSet;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ToolHandlerKind {
@@ -53,6 +54,7 @@ pub struct ToolRegistryPlan {
 #[derive(Debug, Clone, Copy)]
 pub struct ToolRegistryPlanParams<'a> {
     pub mcp_tools: Option<&'a HashMap<String, McpTool>>,
+    pub parallel_mcp_tools: Option<&'a HashSet<String>>,
     pub tool_namespaces: Option<&'a HashMap<String, ToolNamespace>>,
     pub app_tools: Option<&'a [ToolRegistryPlanAppTool<'a>]>,
     pub discoverable_tools: Option<&'a [DiscoverableTool]>,

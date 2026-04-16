@@ -218,6 +218,7 @@ fn build_specs(
     build_specs_with_discoverable_tools(
         config,
         mcp_tools,
+        /*parallel_mcp_tools*/ None,
         app_tools,
         /*tool_namespaces*/ None,
         /*discoverable_tools*/ None,
@@ -303,6 +304,7 @@ fn assert_model_tools(
         &tools_config,
         ToolRouterParams {
             mcp_tools: None,
+            parallel_mcp_tools: None,
             tool_namespaces: None,
             app_tools: None,
             discoverable_tools: None,
@@ -711,6 +713,7 @@ fn tool_suggest_requires_apps_and_plugins_features() {
         let (tools, _) = build_specs_with_discoverable_tools(
             &tools_config,
             /*mcp_tools*/ None,
+            /*parallel_mcp_tools*/ None,
             /*app_tools*/ None,
             /*tool_namespaces*/ None,
             discoverable_tools.clone(),
@@ -798,6 +801,7 @@ fn search_tool_description_falls_back_to_connector_name_without_description() {
                 connector_name: Some("Calendar".to_string()),
                 plugin_display_names: Vec::new(),
                 connector_description: None,
+                supports_parallel_tool_calls: false,
             },
         )])),
         &[],
@@ -850,6 +854,7 @@ fn search_tool_registers_namespaced_app_tool_aliases() {
                     connector_name: Some("Calendar".to_string()),
                     connector_description: None,
                     plugin_display_names: Vec::new(),
+                    supports_parallel_tool_calls: false,
                 },
             ),
             (
@@ -868,6 +873,7 @@ fn search_tool_registers_namespaced_app_tool_aliases() {
                     connector_name: Some("Calendar".to_string()),
                     connector_description: None,
                     plugin_display_names: Vec::new(),
+                    supports_parallel_tool_calls: false,
                 },
             ),
         ])),
