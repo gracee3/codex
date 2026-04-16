@@ -2,6 +2,7 @@ use super::LoadedPlugin;
 use super::PluginLoadOutcome;
 use super::PluginManifestPaths;
 use super::curated_plugins_repo_path;
+use super::installed_marketplaces::installed_marketplace_roots_from_config;
 use super::load_plugin_manifest;
 use super::manifest::PluginManifestInterface;
 use super::marketplace::MarketplaceError;
@@ -166,7 +167,7 @@ pub struct PluginDetail {
     pub installed: bool,
     pub enabled: bool,
     pub skills: Vec<SkillMetadata>,
-    pub disabled_skill_paths: HashSet<PathBuf>,
+    pub disabled_skill_paths: HashSet<AbsolutePathBuf>,
     pub apps: Vec<AppConnectorId>,
     pub mcp_server_names: Vec<String>,
 }
@@ -411,7 +412,7 @@ impl PluginsManager {
         &self,
         config_layer_stack: &ConfigLayerStack,
         plugins_feature_enabled: bool,
-    ) -> Vec<PathBuf> {
+    ) -> Vec<AbsolutePathBuf> {
         if !plugins_feature_enabled {
             return Vec::new();
         }
@@ -838,7 +839,8 @@ impl PluginsManager {
         }
 
         let (installed_plugins, enabled_plugins) = self.configured_plugin_states(config);
-        let marketplace_outcome = list_marketplaces(&self.marketplace_roots(additional_roots))?;
+        let marketplace_outcome =
+            list_marketplaces(&self.marketplace_roots(config, additional_roots))?;
         let mut seen_plugin_keys = HashSet::new();
         let marketplaces = marketplace_outcome
             .marketplaces
@@ -1182,10 +1184,18 @@ impl PluginsManager {
         (installed_plugins, enabled_plugins)
     }
 
-    fn marketplace_roots(&self, additional_roots: &[AbsolutePathBuf]) -> Vec<AbsolutePathBuf> {
+    fn marketplace_roots(
+        &self,
+        config: &Config,
+        additional_roots: &[AbsolutePathBuf],
+    ) -> Vec<AbsolutePathBuf> {
         // Treat the curated catalog as an extra marketplace root so plugin listing can surface it
         // without requiring every caller to know where it is stored.
         let mut roots = additional_roots.to_vec();
+        roots.extend(installed_marketplace_roots_from_config(
+            config,
+            self.codex_home.as_path(),
+        ));
         let curated_repo_root = curated_plugins_repo_path(self.codex_home.as_path());
         if curated_repo_root.is_dir()
             && let Ok(curated_repo_root) = AbsolutePathBuf::try_from(curated_repo_root)
@@ -1688,7 +1698,7 @@ fn load_plugin(
 
 struct ResolvedPluginSkills {
     skills: Vec<SkillMetadata>,
-    disabled_skill_paths: HashSet<PathBuf>,
+    disabled_skill_paths: HashSet<AbsolutePathBuf>,
     had_errors: bool,
 }
 
@@ -1715,8 +1725,10 @@ fn load_plugin_skills(
             .map(|path| SkillRoot {
                 path,
                 scope: SkillScope::User,
+                file_system: Arc::clone(&codex_exec_server::LOCAL_FS),
             }),
     );
+    let outcome = futures::executor::block_on(outcome);
     let had_errors = !outcome.errors.is_empty();
     let skills = outcome
         .skills
@@ -1732,17 +1744,25 @@ fn load_plugin_skills(
     }
 }
 
-fn plugin_skill_roots(plugin_root: &Path, manifest_paths: &PluginManifestPaths) -> Vec<PathBuf> {
-    let mut paths = default_skill_roots(plugin_root);
+fn plugin_skill_roots(
+    plugin_root: &Path,
+    manifest_paths: &PluginManifestPaths,
+) -> Vec<AbsolutePathBuf> {
+    let plugin_root = AbsolutePathBuf::from_absolute_path(plugin_root.to_path_buf())
+        .expect("plugin root should be absolute");
+    let mut paths = default_skill_roots(plugin_root.clone());
     if let Some(path) = &manifest_paths.skills {
-        paths.push(path.to_path_buf());
+        paths.push(AbsolutePathBuf::resolve_path_against_base(
+            path,
+            &plugin_root,
+        ));
     }
     paths.sort_unstable();
     paths.dedup();
     paths
 }
 
-fn default_skill_roots(plugin_root: &Path) -> Vec<PathBuf> {
+fn default_skill_roots(plugin_root: AbsolutePathBuf) -> Vec<AbsolutePathBuf> {
     let skills_dir = plugin_root.join(DEFAULT_SKILLS_DIR_NAME);
     if skills_dir.is_dir() {
         vec![skills_dir]

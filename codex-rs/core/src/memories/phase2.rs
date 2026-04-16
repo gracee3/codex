@@ -318,7 +318,7 @@ mod agent {
         removed_extension_resources: &[crate::memories::extensions::RemovedExtensionResource],
     ) -> Vec<UserInput> {
         let root = memory_root(&config.codex_home);
-        let prompt = build_consolidation_prompt(&root, selection, removed_extension_resources);
+        let prompt = build_consolidation_prompt(&root, selection);
         vec![UserInput::Text {
             text: prompt,
             text_elements: vec![],

@@ -135,6 +135,7 @@ pub(super) async fn try_run_zsh_fork(
         network_sandbox_policy,
         windows_restricted_token_filesystem_overlay: _windows_restricted_token_filesystem_overlay,
         arg0,
+        ..
     } = sandbox_exec_request;
     let ParsedShellCommand { script, login, .. } = extract_shell_script(&command)?;
     let effective_timeout = Duration::from_millis(
@@ -378,7 +379,6 @@ impl CoreShellActionProvider {
         additional_permissions: Option<PermissionProfile>,
     ) -> anyhow::Result<ReviewDecision> {
         let command = join_program_and_argv(program, argv);
-        let workdir = workdir.to_path_buf();
         let session = self.session.clone();
         let turn = self.turn.clone();
         let call_id = self.call_id.clone();
@@ -395,7 +395,7 @@ impl CoreShellActionProvider {
                             source,
                             program: program.to_string_lossy().into_owned(),
                             argv: argv.to_vec(),
-                            cwd: workdir,
+                            cwd: workdir.clone(),
                             additional_permissions,
                         },
                         /*retry_reason*/ None,
@@ -408,7 +408,7 @@ impl CoreShellActionProvider {
                         call_id,
                         approval_id,
                         command,
-                        workdir,
+                        workdir.clone(),
                         /*reason*/ None,
                         /*network_approval_context*/ None,
                         /*proposed_execpolicy_amendment*/ None,
@@ -469,7 +469,7 @@ impl CoreShellActionProvider {
                                 EscalationDecision::deny(Some("User denied execution".to_string()))
                             }
                         },
-                        ReviewDecision::Denied => {
+                        ReviewDecision::Denied | ReviewDecision::TimedOut => {
                             let message = if routes_approval_to_guardian(&self.turn) {
                                 guardian_rejection_message(self.session.as_ref(), &self.call_id)
                                     .await
@@ -724,6 +724,7 @@ impl ShellCommandExecutor for CoreShellCommandExecutor {
                 network_sandbox_policy: self.network_sandbox_policy,
                 windows_restricted_token_filesystem_overlay: None,
                 arg0: self.arg0.clone(),
+                exec_server_env_config: None,
             },
             /*stdout_stream*/ None,
             after_spawn,

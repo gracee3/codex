@@ -176,9 +176,7 @@ impl ToolHandler for ApplyPatchHandler {
             ));
         };
         let fs = environment.get_filesystem();
-        let sandbox = environment
-            .is_remote()
-            .then(|| turn.file_system_sandbox_context(/*additional_permissions*/ None));
+        let sandbox = None;
         match codex_apply_patch::maybe_parse_apply_patch_verified(
             &command,
             &cwd,
@@ -218,6 +216,7 @@ impl ToolHandler for ApplyPatchHandler {
                                 .additional_permissions,
                             permissions_preapproved: effective_additional_permissions
                                 .permissions_preapproved,
+                            timeout_ms: None,
                         };
 
                         let mut orchestrator = ToolOrchestrator::new();
@@ -280,11 +279,7 @@ pub(crate) async fn intercept_apply_patch(
     call_id: &str,
     tool_name: &str,
 ) -> Result<Option<FunctionToolOutput>, FunctionCallError> {
-    let sandbox = turn
-        .environment
-        .as_ref()
-        .filter(|env| env.is_remote())
-        .map(|_| turn.file_system_sandbox_context(/*additional_permissions*/ None));
+    let sandbox = None;
     match codex_apply_patch::maybe_parse_apply_patch_verified(command, cwd, fs, sandbox.as_ref())
         .await
     {
@@ -326,6 +321,7 @@ pub(crate) async fn intercept_apply_patch(
                             .additional_permissions,
                         permissions_preapproved: effective_additional_permissions
                             .permissions_preapproved,
+                        timeout_ms: None,
                     };
 
                     let mut orchestrator = ToolOrchestrator::new();

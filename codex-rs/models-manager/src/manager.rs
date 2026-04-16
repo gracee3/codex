@@ -170,11 +170,12 @@ impl ModelsManager {
     /// When `model_catalog` is provided, it becomes the authoritative remote model list and
     /// background refreshes from `/models` are disabled.
     pub fn new(
-        codex_home: PathBuf,
+        codex_home: impl Into<PathBuf>,
         auth_manager: Arc<AuthManager>,
         model_catalog: Option<ModelsResponse>,
         collaboration_modes_config: CollaborationModesConfig,
     ) -> Self {
+        let codex_home = codex_home.into();
         Self::new_with_provider(
             codex_home,
             auth_manager,
@@ -186,12 +187,13 @@ impl ModelsManager {
 
     /// Construct a manager with an explicit provider used for remote model refreshes.
     pub fn new_with_provider(
-        codex_home: PathBuf,
+        codex_home: impl Into<PathBuf>,
         auth_manager: Arc<AuthManager>,
         model_catalog: Option<ModelsResponse>,
         collaboration_modes_config: CollaborationModesConfig,
         provider: ModelProviderInfo,
     ) -> Self {
+        let codex_home = codex_home.into();
         let auth_manager = required_auth_manager_for_provider(auth_manager, &provider);
         let cache_path = codex_home.join(MODEL_CACHE_FILE);
         let cache_manager = ModelsCacheManager::new(cache_path, DEFAULT_MODEL_CACHE_TTL);

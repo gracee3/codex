@@ -283,7 +283,7 @@ async fn handle_exec_approval_uses_call_id_for_guardian_review_and_approval_id_f
                     approval_id: Some("callback-approval-1".to_string()),
                     turn_id: "child-turn-1".to_string(),
                     command: vec!["rm".to_string(), "-rf".to_string(), "tmp".to_string()],
-                    cwd: PathBuf::from("/tmp"),
+                    cwd: PathBuf::from("/tmp").try_into().unwrap(),
                     reason: Some("unsafe subcommand".to_string()),
                     network_approval_context: None,
                     proposed_execpolicy_amendment: None,
@@ -320,10 +320,12 @@ async fn handle_exec_approval_uses_call_id_for_guardian_review_and_approval_id_f
             risk_level: None,
             user_authorization: None,
             rationale: None,
+            target_item_id: None,
+            decision_source: None,
             action: GuardianAssessmentAction::Command {
                 source: GuardianCommandSource::Shell,
                 command: "rm -rf tmp".to_string(),
-                cwd: "/tmp".into(),
+                cwd: PathBuf::from("/tmp").try_into().unwrap(),
             },
         }
     );

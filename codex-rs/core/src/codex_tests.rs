@@ -415,8 +415,8 @@ fn make_mcp_tool(
 
     ToolInfo {
         server_name: server_name.to_string(),
-        tool_name: tool_name.to_string(),
-        tool_namespace,
+        callable_name: tool_name.to_string(),
+        callable_namespace: tool_namespace,
         server_instructions: None,
         tool: Tool {
             name: tool_name.to_string().into(),
@@ -560,7 +560,6 @@ async fn managed_network_proxy_refreshes_when_sandbox_policy_changes() -> anyhow
                     NetworkDomainPermissionToml::Deny,
                 )]),
             }),
-            danger_full_access_denylist_only: Some(true),
             allow_local_binding: Some(false),
             ..Default::default()
         }),
@@ -590,12 +589,9 @@ async fn managed_network_proxy_refreshes_when_sandbox_policy_changes() -> anyhow
     let spec = spec.recompute_for_sandbox_policy(&SandboxPolicy::DangerFullAccess)?;
     spec.apply_to_started_proxy(&started_proxy).await?;
 
-    assert!(started_proxy.proxy().allow_local_binding());
+    assert!(!started_proxy.proxy().allow_local_binding());
     let current_cfg = started_proxy.proxy().current_cfg().await?;
-    assert_eq!(
-        current_cfg.network.allowed_domains(),
-        Some(vec!["*".to_string()])
-    );
+    assert_eq!(current_cfg.network.allowed_domains(), None);
     assert_eq!(
         current_cfg.network.denied_domains(),
         Some(vec!["blocked.example.com".to_string()])
@@ -620,7 +616,6 @@ async fn managed_network_proxy_decider_survives_full_access_start() -> anyhow::R
         NetworkProxyConfig::default(),
         Some(NetworkConstraints {
             enabled: Some(true),
-            danger_full_access_denylist_only: Some(true),
             ..Default::default()
         }),
         &SandboxPolicy::DangerFullAccess,
@@ -2003,7 +1998,7 @@ async fn set_rate_limits_retains_previous_credits() {
         network_sandbox_policy: config.permissions.network_sandbox_policy,
         windows_sandbox_level: WindowsSandboxLevel::from_config(&config),
         cwd: config.cwd.clone(),
-        codex_home: config.codex_home.clone(),
+        codex_home: config.codex_home.clone().to_path_buf(),
         thread_name: None,
         original_config_do_not_use: Arc::clone(&config),
         metrics_service_name: None,
@@ -2105,7 +2100,7 @@ async fn set_rate_limits_updates_plan_type_when_present() {
         network_sandbox_policy: config.permissions.network_sandbox_policy,
         windows_sandbox_level: WindowsSandboxLevel::from_config(&config),
         cwd: config.cwd.clone(),
-        codex_home: config.codex_home.clone(),
+        codex_home: config.codex_home.clone().to_path_buf(),
         thread_name: None,
         original_config_do_not_use: Arc::clone(&config),
         metrics_service_name: None,
@@ -2454,7 +2449,7 @@ pub(crate) async fn make_session_configuration_for_tests() -> SessionConfigurati
         network_sandbox_policy: config.permissions.network_sandbox_policy,
         windows_sandbox_level: WindowsSandboxLevel::from_config(&config),
         cwd: config.cwd.clone(),
-        codex_home: config.codex_home.clone(),
+        codex_home: config.codex_home.clone().to_path_buf(),
         thread_name: None,
         original_config_do_not_use: Arc::clone(&config),
         metrics_service_name: None,
@@ -2521,7 +2516,7 @@ async fn session_configuration_apply_preserves_split_file_system_policy_on_cwd_o
 async fn new_default_turn_uses_config_aware_skills_for_role_overrides() {
     let (session, _turn_context) = make_session_and_context().await;
     let parent_config = session.get_config().await;
-    let codex_home = parent_config.codex_home.clone();
+    let codex_home = parent_config.codex_home.clone().to_path_buf();
     let skill_dir = codex_home.join("skills").join("demo");
     std::fs::create_dir_all(&skill_dir).expect("create skill dir");
     let skill_path = skill_dir.join("SKILL.md");
@@ -2537,6 +2532,7 @@ async fn new_default_turn_uses_config_aware_skills_for_role_overrides() {
         .skills_for_cwd(
             &crate::skills_load_input_from_config(&parent_config, Vec::new()),
             /*force_reload*/ true,
+            /*fs*/ None,
         )
         .await;
     let parent_skill = parent_outcome
@@ -2679,7 +2675,7 @@ async fn session_new_fails_when_zsh_fork_enabled_without_zsh_path() {
 
     let auth_manager = AuthManager::from_auth_for_testing(CodexAuth::from_api_key("Test API Key"));
     let models_manager = Arc::new(ModelsManager::new(
-        config.codex_home.clone(),
+        config.codex_home.clone().to_path_buf(),
         auth_manager.clone(),
         /*model_catalog*/ None,
         CollaborationModesConfig::default(),
@@ -2717,7 +2713,7 @@ async fn session_new_fails_when_zsh_fork_enabled_without_zsh_path() {
         network_sandbox_policy: config.permissions.network_sandbox_policy,
         windows_sandbox_level: WindowsSandboxLevel::from_config(&config),
         cwd: config.cwd.clone(),
-        codex_home: config.codex_home.clone(),
+        codex_home: config.codex_home.clone().to_path_buf(),
         thread_name: None,
         original_config_do_not_use: Arc::clone(&config),
         metrics_service_name: None,
@@ -2732,7 +2728,7 @@ async fn session_new_fails_when_zsh_fork_enabled_without_zsh_path() {
 
     let (tx_event, _rx_event) = async_channel::unbounded();
     let (agent_status_tx, _agent_status_rx) = watch::channel(AgentStatus::PendingInit);
-    let plugins_manager = Arc::new(PluginsManager::new(config.codex_home.clone()));
+    let plugins_manager = Arc::new(PluginsManager::new(config.codex_home.clone().to_path_buf()));
     let mcp_manager = Arc::new(McpManager::new(Arc::clone(&plugins_manager)));
     let skills_manager = Arc::new(SkillsManager::new(
         config.codex_home.clone(),
@@ -2778,7 +2774,7 @@ pub(crate) async fn make_session_and_context() -> (Session, TurnContext) {
     let conversation_id = ThreadId::default();
     let auth_manager = AuthManager::from_auth_for_testing(CodexAuth::from_api_key("Test API Key"));
     let models_manager = Arc::new(ModelsManager::new(
-        config.codex_home.clone(),
+        config.codex_home.clone().to_path_buf(),
         auth_manager.clone(),
         /*model_catalog*/ None,
         CollaborationModesConfig::default(),
@@ -2820,7 +2816,7 @@ pub(crate) async fn make_session_and_context() -> (Session, TurnContext) {
         network_sandbox_policy: config.permissions.network_sandbox_policy,
         windows_sandbox_level: WindowsSandboxLevel::from_config(&config),
         cwd: config.cwd.clone(),
-        codex_home: config.codex_home.clone(),
+        codex_home: config.codex_home.clone().to_path_buf(),
         thread_name: None,
         original_config_do_not_use: Arc::clone(&config),
         metrics_service_name: None,
@@ -2845,7 +2841,7 @@ pub(crate) async fn make_session_and_context() -> (Session, TurnContext) {
     );
 
     let state = SessionState::new(session_configuration.clone());
-    let plugins_manager = Arc::new(PluginsManager::new(config.codex_home.clone()));
+    let plugins_manager = Arc::new(PluginsManager::new(config.codex_home.clone().to_path_buf()));
     let mcp_manager = Arc::new(McpManager::new(Arc::clone(&plugins_manager)));
     let skills_manager = Arc::new(SkillsManager::new(
         config.codex_home.clone(),
@@ -2859,6 +2855,18 @@ pub(crate) async fn make_session_and_context() -> (Session, TurnContext) {
     );
 
     let skills_watcher = Arc::new(SkillsWatcher::noop());
+    let agent_identity_manager = Arc::new(crate::agent_identity::AgentIdentityManager::new(
+        config.as_ref(),
+        Arc::clone(&auth_manager),
+        session_configuration.session_source.clone(),
+    ));
+    let thread_store = codex_thread_store::LocalThreadStore::new(codex_rollout::RolloutConfig {
+        codex_home: config.codex_home.to_path_buf(),
+        sqlite_home: config.sqlite_home.clone(),
+        cwd: session_configuration.cwd.to_path_buf(),
+        model_provider_id: config.model_provider_id.clone(),
+        generate_memories: config.memories.generate_memories,
+    });
     let services = SessionServices {
         mcp_connection_manager: Arc::new(RwLock::new(McpConnectionManager::new_uninitialized(
             &config.permissions.approval_policy,
@@ -2876,6 +2884,7 @@ pub(crate) async fn make_session_and_context() -> (Session, TurnContext) {
         }),
         rollout: Mutex::new(None),
         user_shell: Arc::new(default_user_shell()),
+        agent_identity_manager,
         shell_snapshot_tx: watch::channel(None).0,
         show_raw_agent_reasoning: config.show_raw_agent_reasoning,
         exec_policy,
@@ -2892,6 +2901,7 @@ pub(crate) async fn make_session_and_context() -> (Session, TurnContext) {
         network_proxy: None,
         network_approval: Arc::clone(&network_approval),
         state_db: None,
+        thread_store,
         model_client: ModelClient::new(
             Some(auth_manager.clone()),
             conversation_id,
@@ -2912,7 +2922,12 @@ pub(crate) async fn make_session_and_context() -> (Session, TurnContext) {
     let effective_skill_roots = plugin_outcome.effective_skill_roots();
     let skills_input =
         crate::skills_load_input_from_config(&per_turn_config, effective_skill_roots);
-    let skills_outcome = Arc::new(services.skills_manager.skills_for_config(&skills_input));
+    let skills_outcome = Arc::new(
+        services
+            .skills_manager
+            .skills_for_config(&skills_input, None)
+            .await,
+    );
     let turn_context = Session::make_turn_context(
         conversation_id,
         Some(Arc::clone(&auth_manager)),
@@ -3608,7 +3623,7 @@ pub(crate) async fn make_session_and_context_with_dynamic_tools_and_rx(
     let conversation_id = ThreadId::default();
     let auth_manager = AuthManager::from_auth_for_testing(CodexAuth::from_api_key("Test API Key"));
     let models_manager = Arc::new(ModelsManager::new(
-        config.codex_home.clone(),
+        config.codex_home.clone().to_path_buf(),
         auth_manager.clone(),
         /*model_catalog*/ None,
         CollaborationModesConfig::default(),
@@ -3650,7 +3665,7 @@ pub(crate) async fn make_session_and_context_with_dynamic_tools_and_rx(
         network_sandbox_policy: config.permissions.network_sandbox_policy,
         windows_sandbox_level: WindowsSandboxLevel::from_config(&config),
         cwd: config.cwd.clone(),
-        codex_home: config.codex_home.clone(),
+        codex_home: config.codex_home.clone().to_path_buf(),
         thread_name: None,
         original_config_do_not_use: Arc::clone(&config),
         metrics_service_name: None,
@@ -3675,7 +3690,7 @@ pub(crate) async fn make_session_and_context_with_dynamic_tools_and_rx(
     );
 
     let state = SessionState::new(session_configuration.clone());
-    let plugins_manager = Arc::new(PluginsManager::new(config.codex_home.clone()));
+    let plugins_manager = Arc::new(PluginsManager::new(config.codex_home.clone().to_path_buf()));
     let mcp_manager = Arc::new(McpManager::new(Arc::clone(&plugins_manager)));
     let skills_manager = Arc::new(SkillsManager::new(
         config.codex_home.clone(),
@@ -3689,6 +3704,18 @@ pub(crate) async fn make_session_and_context_with_dynamic_tools_and_rx(
     );
 
     let skills_watcher = Arc::new(SkillsWatcher::noop());
+    let agent_identity_manager = Arc::new(crate::agent_identity::AgentIdentityManager::new(
+        config.as_ref(),
+        Arc::clone(&auth_manager),
+        session_configuration.session_source.clone(),
+    ));
+    let thread_store = codex_thread_store::LocalThreadStore::new(codex_rollout::RolloutConfig {
+        codex_home: config.codex_home.to_path_buf(),
+        sqlite_home: config.sqlite_home.clone(),
+        cwd: session_configuration.cwd.to_path_buf(),
+        model_provider_id: config.model_provider_id.clone(),
+        generate_memories: config.memories.generate_memories,
+    });
     let services = SessionServices {
         mcp_connection_manager: Arc::new(RwLock::new(McpConnectionManager::new_uninitialized(
             &config.permissions.approval_policy,
@@ -3706,6 +3733,7 @@ pub(crate) async fn make_session_and_context_with_dynamic_tools_and_rx(
         }),
         rollout: Mutex::new(None),
         user_shell: Arc::new(default_user_shell()),
+        agent_identity_manager,
         shell_snapshot_tx: watch::channel(None).0,
         show_raw_agent_reasoning: config.show_raw_agent_reasoning,
         exec_policy,
@@ -3722,6 +3750,7 @@ pub(crate) async fn make_session_and_context_with_dynamic_tools_and_rx(
         network_proxy: None,
         network_approval: Arc::clone(&network_approval),
         state_db: None,
+        thread_store,
         model_client: ModelClient::new(
             Some(Arc::clone(&auth_manager)),
             conversation_id,
@@ -3742,7 +3771,12 @@ pub(crate) async fn make_session_and_context_with_dynamic_tools_and_rx(
     let effective_skill_roots = plugin_outcome.effective_skill_roots();
     let skills_input =
         crate::skills_load_input_from_config(&per_turn_config, effective_skill_roots);
-    let skills_outcome = Arc::new(services.skills_manager.skills_for_config(&skills_input));
+    let skills_outcome = Arc::new(
+        services
+            .skills_manager
+            .skills_for_config(&skills_input, None)
+            .await,
+    );
     let turn_context = Arc::new(Session::make_turn_context(
         conversation_id,
         Some(Arc::clone(&auth_manager)),
@@ -4170,7 +4204,7 @@ async fn handle_output_item_done_records_image_save_history_message() {
     let turn_context = Arc::new(turn_context);
     let call_id = "ig_history_records_message";
     let expected_saved_path = crate::stream_events_utils::image_generation_artifact_path(
-        turn_context.config.codex_home.as_path(),
+        &turn_context.config.codex_home,
         &session.conversation_id.to_string(),
         call_id,
     );
@@ -4194,7 +4228,7 @@ async fn handle_output_item_done_records_image_save_history_message() {
 
     let history = session.clone_history().await;
     let image_output_path = crate::stream_events_utils::image_generation_artifact_path(
-        turn_context.config.codex_home.as_path(),
+        &turn_context.config.codex_home,
         &session.conversation_id.to_string(),
         "<image_id>",
     );
@@ -4222,7 +4256,7 @@ async fn handle_output_item_done_skips_image_save_message_when_save_fails() {
     let turn_context = Arc::new(turn_context);
     let call_id = "ig_history_no_message";
     let expected_saved_path = crate::stream_events_utils::image_generation_artifact_path(
-        turn_context.config.codex_home.as_path(),
+        &turn_context.config.codex_home,
         &session.conversation_id.to_string(),
         call_id,
     );
@@ -5590,8 +5624,7 @@ async fn rejects_escalated_permissions_when_policy_not_on_request() {
             turn: Arc::clone(&turn_context),
             tracker: Arc::clone(&turn_diff_tracker),
             call_id,
-            tool_name: tool_name.to_string(),
-            tool_namespace: None,
+            tool_name: tool_name.to_string().into(),
             payload: ToolPayload::Function {
                 arguments: serde_json::json!({
                     "command": params.command.clone(),
@@ -5669,8 +5702,7 @@ async fn unified_exec_rejects_escalated_permissions_when_policy_not_on_request()
             turn: Arc::clone(&turn_context),
             tracker: Arc::clone(&tracker),
             call_id: "exec-call".to_string(),
-            tool_name: "exec_command".to_string(),
-            tool_namespace: None,
+            tool_name: "exec_command".to_string().into(),
             payload: ToolPayload::Function {
                 arguments: serde_json::json!({
                     "cmd": "echo hi",

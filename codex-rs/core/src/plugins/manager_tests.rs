@@ -85,9 +85,7 @@ fn plugin_config_toml(enabled: bool, plugins_feature_enabled: bool) -> String {
 async fn load_plugins_from_config(config_toml: &str, codex_home: &Path) -> PluginLoadOutcome {
     write_file(&codex_home.join(CONFIG_TOML_FILE), config_toml);
     let config = load_config(codex_home, codex_home).await;
-    PluginsManager::new(codex_home.to_path_buf())
-        .plugins_for_config(&config)
-        .await
+    PluginsManager::new(codex_home.to_path_buf()).plugins_for_config(&config)
 }
 
 async fn load_config(codex_home: &Path, cwd: &Path) -> crate::config::Config {
@@ -325,8 +323,7 @@ async fn plugin_telemetry_metadata_uses_default_mcp_config_path() {
     let metadata = plugin_telemetry_metadata_from_root(
         &PluginId::parse("sample@test").expect("plugin id should parse"),
         &plugin_root.abs(),
-    )
-    .await;
+    );
 
     assert_eq!(
         metadata.capability_summary,
@@ -883,9 +880,7 @@ async fn load_plugins_returns_empty_when_feature_disabled() {
     );
 
     let config = load_config(codex_home.path(), codex_home.path()).await;
-    let outcome = PluginsManager::new(codex_home.path().to_path_buf())
-        .plugins_for_config(&config)
-        .await;
+    let outcome = PluginsManager::new(codex_home.path().to_path_buf()).plugins_for_config(&config);
 
     assert_eq!(outcome, PluginLoadOutcome::default());
 }
@@ -1350,7 +1345,6 @@ enabled = true
                 marketplace_path,
             },
         )
-        .await
         .unwrap_err();
 
     assert!(matches!(err, MarketplaceError::PluginsDisabled));
@@ -1415,7 +1409,6 @@ enabled = false
                 .unwrap(),
             },
         )
-        .await
         .unwrap();
 
     assert!(outcome.plugin.disabled_skill_paths.is_empty());
@@ -2770,8 +2763,7 @@ async fn load_plugins_ignores_project_config_files() {
         &stack,
         &PluginStore::new(codex_home.path().to_path_buf()),
         Some(Product::Codex),
-    )
-    .await;
+    );
 
     assert_eq!(outcome, PluginLoadOutcome::default());
 }

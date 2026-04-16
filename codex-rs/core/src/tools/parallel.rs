@@ -79,7 +79,7 @@ impl ToolCallRuntime {
         source: ToolCallSource,
         cancellation_token: CancellationToken,
     ) -> impl std::future::Future<Output = Result<AnyToolResult, FunctionCallError>> {
-        let supports_parallel = self.router.tool_supports_parallel(&call.tool_name);
+        let supports_parallel = self.router.tool_supports_parallel(&call.tool_name.name);
         let router = Arc::clone(&self.router);
         let session = Arc::clone(&self.session);
         let turn = Arc::clone(&self.turn_context);
@@ -89,8 +89,8 @@ impl ToolCallRuntime {
 
         let dispatch_span = trace_span!(
             "dispatch_tool_call",
-            otel.name = call.tool_name.as_str(),
-            tool_name = call.tool_name.as_str(),
+            otel.name = call.tool_name.display(),
+            tool_name = call.tool_name.display(),
             call_id = call.call_id.as_str(),
             aborted = false,
         );
@@ -172,7 +172,7 @@ impl ToolCallRuntime {
     }
 
     fn abort_message(call: &ToolCall, secs: f32) -> String {
-        match call.tool_name.as_str() {
+        match call.tool_name.name.as_str() {
             "shell" | "container.exec" | "local_shell" | "shell_command" | "unified_exec" => {
                 format!("Wall time: {secs:.1} seconds\naborted by user")
             }

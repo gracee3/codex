@@ -95,8 +95,11 @@ fn deferred_responses_api_tool_serializes_with_defer_loading() {
     );
 
     let serialized = serde_json::to_value(ToolSpec::Function(
-        mcp_tool_to_deferred_responses_api_tool("mcp__codex_apps__lookup_order".to_string(), &tool)
-            .expect("convert deferred tool"),
+        mcp_tool_to_deferred_responses_api_tool(
+            &codex_tools::ToolName::plain("mcp__codex_apps__lookup_order"),
+            &tool,
+        )
+        .expect("convert deferred tool"),
     ))
     .expect("serialize deferred tool");
 
@@ -783,8 +786,8 @@ fn search_tool_description_falls_back_to_connector_name_without_description() {
             "mcp__codex_apps__calendar_create_event".to_string(),
             ToolInfo {
                 server_name: CODEX_APPS_MCP_SERVER_NAME.to_string(),
-                tool_name: "_create_event".to_string(),
-                tool_namespace: "mcp__codex_apps__calendar".to_string(),
+                callable_name: "_create_event".to_string(),
+                callable_namespace: "mcp__codex_apps__calendar".to_string(),
                 server_instructions: None,
                 tool: mcp_tool(
                     "calendar_create_event",
@@ -835,8 +838,8 @@ fn search_tool_registers_namespaced_app_tool_aliases() {
                 "mcp__codex_apps__calendar_create_event".to_string(),
                 ToolInfo {
                     server_name: CODEX_APPS_MCP_SERVER_NAME.to_string(),
-                    tool_name: "_create_event".to_string(),
-                    tool_namespace: "mcp__codex_apps__calendar".to_string(),
+                    callable_name: "_create_event".to_string(),
+                    callable_namespace: "mcp__codex_apps__calendar".to_string(),
                     server_instructions: None,
                     tool: mcp_tool(
                         "calendar-create-event",
@@ -853,8 +856,8 @@ fn search_tool_registers_namespaced_app_tool_aliases() {
                 "mcp__codex_apps__calendar_list_events".to_string(),
                 ToolInfo {
                     server_name: CODEX_APPS_MCP_SERVER_NAME.to_string(),
-                    tool_name: "_list_events".to_string(),
-                    tool_namespace: "mcp__codex_apps__calendar".to_string(),
+                    callable_name: "_list_events".to_string(),
+                    callable_namespace: "mcp__codex_apps__calendar".to_string(),
                     server_instructions: None,
                     tool: mcp_tool(
                         "calendar-list-events",
@@ -872,10 +875,10 @@ fn search_tool_registers_namespaced_app_tool_aliases() {
     )
     .build();
 
-    let alias = tool_handler_key("_create_event", Some("mcp__codex_apps__calendar"));
+    let alias = codex_tools::ToolName::plain("mcp__codex_apps__calendar:_create_event");
 
-    assert!(registry.has_handler(TOOL_SEARCH_TOOL_NAME, /*namespace*/ None));
-    assert!(registry.has_handler(alias.as_str(), /*namespace*/ None));
+    assert!(registry.has_handler(&codex_tools::ToolName::plain(TOOL_SEARCH_TOOL_NAME)));
+    assert!(registry.has_handler(&alias));
 }
 
 #[test]

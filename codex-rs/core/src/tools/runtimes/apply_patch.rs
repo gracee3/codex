@@ -22,6 +22,7 @@ use crate::tools::sandboxing::ToolRuntime;
 use crate::tools::sandboxing::with_cached_approval;
 use codex_apply_patch::ApplyPatchAction;
 use codex_apply_patch::CODEX_CORE_APPLY_PATCH_ARG1;
+use codex_exec_server::FileSystemSandboxContext;
 use codex_protocol::exec_output::ExecToolCallOutput;
 use codex_protocol::exec_output::StreamOutput;
 use codex_protocol::models::PermissionProfile;
@@ -29,6 +30,7 @@ use codex_protocol::protocol::AskForApproval;
 use codex_protocol::protocol::FileChange;
 use codex_protocol::protocol::ReviewDecision;
 use codex_sandboxing::SandboxCommand;
+use codex_sandboxing::SandboxType;
 use codex_sandboxing::SandboxablePreference;
 use codex_utils_absolute_path::AbsolutePathBuf;
 use futures::future::BoxFuture;
@@ -61,7 +63,7 @@ impl ApplyPatchRuntime {
     ) -> GuardianApprovalRequest {
         GuardianApprovalRequest::ApplyPatch {
             id: call_id.to_string(),
-            cwd: req.action.cwd.to_path_buf(),
+            cwd: req.action.cwd.clone(),
             files: req.file_paths.clone(),
             patch: req.action.patch.clone(),
         }
@@ -116,6 +118,23 @@ impl ApplyPatchRuntime {
             sub_id: ctx.turn.sub_id.clone(),
             call_id: ctx.call_id.clone(),
             tx_event: ctx.session.get_tx_event(),
+        })
+    }
+
+    fn file_system_sandbox_context_for_attempt(
+        req: &ApplyPatchRequest,
+        attempt: &SandboxAttempt<'_>,
+    ) -> Option<FileSystemSandboxContext> {
+        if attempt.sandbox == SandboxType::None {
+            return None;
+        }
+
+        Some(FileSystemSandboxContext {
+            sandbox_policy: attempt.policy.clone(),
+            windows_sandbox_level: attempt.windows_sandbox_level,
+            windows_sandbox_private_desktop: attempt.windows_sandbox_private_desktop,
+            use_legacy_landlock: attempt.use_legacy_landlock,
+            additional_permissions: req.additional_permissions.clone(),
         })
     }
 }
@@ -225,6 +244,7 @@ impl ToolRuntime<ApplyPatchRequest, ExecToolCallOutput> for ApplyPatchRuntime {
                 &mut stdout,
                 &mut stderr,
                 fs.as_ref(),
+                None,
             )
             .await;
             let stdout = String::from_utf8_lossy(&stdout).into_owned();

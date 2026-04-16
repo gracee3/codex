@@ -6,6 +6,7 @@ use crate::TOOL_SEARCH_DEFAULT_LIMIT;
 use crate::TOOL_SEARCH_TOOL_NAME;
 use crate::TOOL_SUGGEST_TOOL_NAME;
 use crate::ToolHandlerKind;
+use crate::ToolName;
 use crate::ToolRegistryPlan;
 use crate::ToolRegistryPlanParams;
 use crate::ToolSearchAppSource;
@@ -364,7 +365,8 @@ pub fn build_tool_registry_plan(
         entries.sort_by(|left, right| left.0.cmp(&right.0));
 
         for (name, tool) in entries {
-            match mcp_tool_to_responses_api_tool(name.clone(), tool) {
+            let tool_name = ToolName::plain(name.clone());
+            match mcp_tool_to_responses_api_tool(&tool_name, tool) {
                 Ok(converted_tool) => {
                     plan.push_spec(
                         ToolSpec::Function(converted_tool),

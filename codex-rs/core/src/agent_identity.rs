@@ -8,7 +8,6 @@ use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::SecondsFormat;
 use chrono::Utc;
-use codex_features::Feature;
 use codex_login::AgentIdentityAuthRecord;
 use codex_login::AuthManager;
 use codex_login::CodexAuth;
@@ -104,7 +103,7 @@ impl AgentIdentityManager {
         Self {
             auth_manager,
             chatgpt_base_url: config.chatgpt_base_url.clone(),
-            feature_enabled: config.features.enabled(Feature::UseAgentIdentity),
+            feature_enabled: false,
             abom: build_abom(session_source),
             ensure_lock: Arc::new(Mutex::new(())),
         }

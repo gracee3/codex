@@ -446,7 +446,7 @@ async fn skills_are_not_appended_to_project_doc() {
 
     let cfg = make_config(&tmp, /*limit*/ 4096, /*instructions*/ None).await;
     create_skill(
-        cfg.codex_home.clone(),
+        cfg.codex_home.clone().to_path_buf(),
         "pdf-processing",
         "extract from pdfs",
     );

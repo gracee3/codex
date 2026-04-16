@@ -3,6 +3,7 @@ use std::sync::Arc;
 use crate::codex::make_session_and_context;
 use crate::tools::context::ToolPayload;
 use codex_protocol::models::ResponseItem;
+use codex_tools::ToolName;
 
 use super::ToolRouter;
 
@@ -25,10 +26,9 @@ async fn build_tool_call_uses_namespace_for_registry_name() -> anyhow::Result<()
     .await?
     .expect("function_call should produce a tool call");
 
-    assert_eq!(call.tool_name, tool_name);
     assert_eq!(
-        call.tool_namespace,
-        Some("mcp__codex_apps__calendar".to_string())
+        call.tool_name,
+        ToolName::namespaced("mcp__codex_apps__calendar", tool_name)
     );
     assert_eq!(call.call_id, "call-namespace");
     match call.payload {

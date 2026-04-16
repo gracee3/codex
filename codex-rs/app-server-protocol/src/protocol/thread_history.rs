@@ -2116,7 +2116,7 @@ mod tests {
                 user_authorization: Some(codex_protocol::protocol::GuardianUserAuthorization::Low),
                 rationale: Some("Would delete user data.".into()),
                 decision_source: Some(
-                    codex_protocol::protocol::GuardianAssessmentDecisionSource::Agent,
+                    codex_protocol::approvals::GuardianAssessmentDecisionSource::Agent,
                 ),
                 action: serde_json::from_value(serde_json::json!({
                     "type": "command",

@@ -4,6 +4,7 @@ use tracing::warn;
 
 use super::OPENAI_CURATED_MARKETPLACE_NAME;
 use super::PluginCapabilitySummary;
+use super::PluginReadRequest;
 use super::PluginsManager;
 use crate::config::Config;
 use codex_config::types::ToolSuggestDiscoverableType;
@@ -46,8 +47,6 @@ pub(crate) async fn list_tool_suggest_discoverable_plugins(
     else {
         return Ok(Vec::new());
     };
-    let curated_marketplace_name = curated_marketplace.name;
-
     let mut discoverable_plugins = Vec::<DiscoverablePluginInfo>::new();
     for plugin in curated_marketplace.plugins {
         if plugin.installed
@@ -59,12 +58,15 @@ pub(crate) async fn list_tool_suggest_discoverable_plugins(
 
         let plugin_id = plugin.id.clone();
 
-        match plugins_manager
-            .read_plugin_detail_for_marketplace_plugin(config, &curated_marketplace_name, plugin)
-            .await
-        {
+        match plugins_manager.read_plugin_for_config(
+            config,
+            &PluginReadRequest {
+                plugin_name: plugin.name,
+                marketplace_path: curated_marketplace.path.clone(),
+            },
+        ) {
             Ok(plugin) => {
-                let plugin: PluginCapabilitySummary = plugin.into();
+                let plugin: PluginCapabilitySummary = plugin.plugin.into();
                 discoverable_plugins.push(DiscoverablePluginInfo {
                     id: plugin.config_name,
                     name: plugin.display_name,

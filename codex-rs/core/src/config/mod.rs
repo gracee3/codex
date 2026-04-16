@@ -730,7 +730,7 @@ impl Config {
         &self,
         plugins_manager: &crate::plugins::PluginsManager,
     ) -> McpConfig {
-        let loaded_plugins = plugins_manager.plugins_for_config(self).await;
+        let loaded_plugins = plugins_manager.plugins_for_config(self);
         let mut configured_mcp_servers = self.mcp_servers.get().clone();
         for (name, plugin_server) in loaded_plugins.effective_mcp_servers() {
             configured_mcp_servers.entry(name).or_insert(plugin_server);
@@ -1390,22 +1390,36 @@ pub(crate) fn resolve_web_search_mode_for_turn(
 
 impl Config {
     #[cfg(test)]
-    fn load_from_base_config_with_overrides(
+    fn load_from_base_config_with_overrides<P>(
         cfg: ConfigToml,
         overrides: ConfigOverrides,
-        codex_home: AbsolutePathBuf,
-    ) -> std::io::Result<Self> {
+        codex_home: P,
+    ) -> std::io::Result<Self>
+    where
+        P: TryInto<AbsolutePathBuf>,
+        P::Error: std::fmt::Display,
+    {
         // Note this ignores requirements.toml enforcement for tests.
         let config_layer_stack = ConfigLayerStack::default();
+        let codex_home = codex_home.try_into().map_err(|err| {
+            std::io::Error::new(std::io::ErrorKind::InvalidInput, err.to_string())
+        })?;
         Self::load_config_with_layer_stack(cfg, overrides, codex_home, config_layer_stack)
     }
 
-    pub(crate) fn load_config_with_layer_stack(
+    pub(crate) fn load_config_with_layer_stack<P>(
         cfg: ConfigToml,
         overrides: ConfigOverrides,
-        codex_home: AbsolutePathBuf,
+        codex_home: P,
         config_layer_stack: ConfigLayerStack,
-    ) -> std::io::Result<Self> {
+    ) -> std::io::Result<Self>
+    where
+        P: TryInto<AbsolutePathBuf>,
+        P::Error: std::fmt::Display,
+    {
+        let codex_home = codex_home.try_into().map_err(|err| {
+            std::io::Error::new(std::io::ErrorKind::InvalidInput, err.to_string())
+        })?;
         validate_model_providers(&cfg.model_providers)
             .map_err(|message| std::io::Error::new(std::io::ErrorKind::InvalidInput, message))?;
         // Ensure that every field of ConfigRequirements is applied to the final

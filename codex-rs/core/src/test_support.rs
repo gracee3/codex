@@ -98,11 +98,11 @@ pub async fn resume_thread_from_rollout_with_user_shell_override(
 }
 
 pub fn models_manager_with_provider(
-    codex_home: PathBuf,
+    codex_home: impl Into<PathBuf>,
     auth_manager: Arc<AuthManager>,
     provider: ModelProviderInfo,
 ) -> ModelsManager {
-    ModelsManager::with_provider_for_tests(codex_home, auth_manager, provider)
+    ModelsManager::with_provider_for_tests(codex_home.into(), auth_manager, provider)
 }
 
 pub fn get_model_offline(model: Option<&str>) -> String {

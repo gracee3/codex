@@ -235,7 +235,6 @@ async fn list_skills_skips_cwd_roots_when_environment_disabled() -> Result<()> {
         SessionSource::Exec,
         CollaborationModesConfig::default(),
         Arc::new(EnvironmentManager::new(Some("none".to_string()))),
-        /*analytics_events_client*/ None,
     );
     let new_thread = thread_manager.start_thread(config.clone()).await?;
     let cwd = config.cwd.to_path_buf();

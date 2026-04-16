@@ -202,18 +202,18 @@ async fn list_tool_suggest_discoverable_plugins_does_not_reload_marketplace_per_
     let logs = String::from_utf8(buffer.lock().expect("buffer lock").clone())
         .expect("utf8 logs")
         .replace('\\', "/");
-    assert_eq!(logs.matches("ignoring interface.defaultPrompt").count(), 2);
+    assert_eq!(logs.matches("ignoring interface.defaultPrompt").count(), 4);
     let normalized_logs = logs.replace('\\', "/");
     assert_eq!(
         normalized_logs
             .matches("build-ios-apps/.codex-plugin/plugin.json")
             .count(),
-        1
+        2
     );
     assert_eq!(
         normalized_logs
             .matches("life-science-research/.codex-plugin/plugin.json")
             .count(),
-        1
+        2
     );
 }

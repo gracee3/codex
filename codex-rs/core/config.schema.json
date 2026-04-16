@@ -453,9 +453,6 @@
             "steer": {
               "type": "boolean"
             },
-            "telepathy": {
-              "type": "boolean"
-            },
             "tool_call_mcp_elicitation": {
               "type": "boolean"
             },
@@ -474,9 +471,6 @@
             "unified_exec": {
               "type": "boolean"
             },
-            "use_agent_identity": {
-              "type": "boolean"
-            },
             "use_legacy_landlock": {
               "type": "boolean"
             },
@@ -490,9 +484,6 @@
               "type": "boolean"
             },
             "web_search_request": {
-              "type": "boolean"
-            },
-            "workspace_dependencies": {
               "type": "boolean"
             }
           },
@@ -2121,9 +2112,6 @@
         "steer": {
           "type": "boolean"
         },
-        "telepathy": {
-          "type": "boolean"
-        },
         "tool_call_mcp_elicitation": {
           "type": "boolean"
         },
@@ -2142,9 +2130,6 @@
         "unified_exec": {
           "type": "boolean"
         },
-        "use_agent_identity": {
-          "type": "boolean"
-        },
         "use_legacy_landlock": {
           "type": "boolean"
         },
@@ -2158,9 +2143,6 @@
           "type": "boolean"
         },
         "web_search_request": {
-          "type": "boolean"
-        },
-        "workspace_dependencies": {
           "type": "boolean"
         }
       },

@@ -333,6 +333,7 @@ pub(crate) async fn execute_exec_request(
         network_sandbox_policy,
         windows_restricted_token_filesystem_overlay,
         arg0,
+        ..
     } = exec_request;
 
     let params = ExecParams {
@@ -804,7 +805,7 @@ async fn exec(
         program: PathBuf::from(program),
         args: args.into(),
         arg0: arg0_ref,
-        cwd: cwd.to_path_buf(),
+        cwd: cwd.clone(),
         network_sandbox_policy,
         // The environment already has attempt-scoped proxy settings from
         // apply_to_env_for_attempt above. Passing network here would reapply

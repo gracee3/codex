@@ -10,6 +10,7 @@ use codex_protocol::config_types::Personality;
 use codex_protocol::config_types::ServiceTier;
 use codex_protocol::error::CodexErr;
 use codex_protocol::error::Result as CodexResult;
+use codex_protocol::mcp::CallToolResult as McpCallToolResult;
 use codex_protocol::models::ContentItem;
 use codex_protocol::models::ResponseInputItem;
 use codex_protocol::models::ResponseItem;
@@ -165,6 +166,37 @@ impl CodexThread {
         }
     }
 
+    /// Append a prebuilt message to the thread history without creating a user turn.
+    ///
+    /// If a turn is currently running, the item is injected into that turn's pending input.
+    /// Otherwise it is recorded directly into the session history and persisted to the rollout.
+    pub async fn inject_message_without_turn(&self, message: ResponseItem) -> CodexResult<()> {
+        let pending_item = pending_message_input_item(&message)?;
+        if self
+            .codex
+            .session
+            .inject_response_items(vec![pending_item])
+            .await
+            .is_err()
+        {
+            let turn_context = self.codex.session.new_default_turn().await;
+            if self.codex.session.reference_context_item().await.is_none() {
+                self.codex
+                    .session
+                    .record_context_updates_and_set_reference_context_item(turn_context.as_ref())
+                    .await;
+            }
+            self.codex
+                .session
+                .record_conversation_items(turn_context.as_ref(), &[message])
+                .await;
+            self.codex.session.ensure_rollout_materialized().await;
+            self.codex.session.flush_rollout().await;
+        }
+
+        Ok(())
+    }
+
     /// Append a prebuilt message to the thread history without treating it as a user turn.
     ///
     /// If the thread already has an active turn, the message is queued as pending input for that
@@ -220,6 +252,19 @@ impl CodexThread {
             .await?;
 
         Ok(serde_json::to_value(result)?)
+    }
+
+    pub async fn call_mcp_tool(
+        &self,
+        server: &str,
+        tool: &str,
+        arguments: Option<serde_json::Value>,
+        meta: Option<serde_json::Value>,
+    ) -> anyhow::Result<McpCallToolResult> {
+        self.codex
+            .session
+            .call_tool(server, tool, arguments, meta)
+            .await
     }
 
     pub fn enabled(&self, feature: Feature) -> bool {

@@ -74,7 +74,7 @@ pub async fn list_cached_all_connectors(config: &Config) -> Option<Vec<AppInfo>>
     let token_data = get_chatgpt_token_data()?;
     let cache_key = all_connectors_cache_key(config, &token_data);
     let connectors = codex_connectors::cached_all_connectors(&cache_key)?;
-    let connectors = merge_plugin_apps(connectors, plugin_apps_for_config(config).await);
+    let connectors = merge_plugin_apps(connectors, plugin_apps_for_config(config));
     Some(filter_disallowed_connectors(connectors))
 }
 
@@ -105,7 +105,7 @@ pub async fn list_all_connectors_with_options(
         },
     )
     .await?;
-    let connectors = merge_plugin_apps(connectors, plugin_apps_for_config(config).await);
+    let connectors = merge_plugin_apps(connectors, plugin_apps_for_config(config));
     Ok(filter_disallowed_connectors(connectors))
 }
 
@@ -118,10 +118,9 @@ fn all_connectors_cache_key(config: &Config, token_data: &TokenData) -> AllConne
     )
 }
 
-async fn plugin_apps_for_config(config: &Config) -> Vec<codex_core::plugins::AppConnectorId> {
+fn plugin_apps_for_config(config: &Config) -> Vec<codex_core::plugins::AppConnectorId> {
     PluginsManager::new(config.codex_home.to_path_buf())
         .plugins_for_config(config)
-        .await
         .effective_apps()
 }
 

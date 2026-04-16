@@ -435,6 +435,10 @@ pub struct ToolRegistryBuilder {
     specs: Vec<ConfiguredToolSpec>,
 }
 
+pub(crate) fn tool_handler_key(name: &str, namespace: Option<&str>) -> ToolName {
+    ToolName::new(namespace.map(str::to_string), name)
+}
+
 impl ToolRegistryBuilder {
     pub fn new() -> Self {
         Self {

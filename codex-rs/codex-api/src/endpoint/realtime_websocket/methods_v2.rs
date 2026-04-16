@@ -29,8 +29,8 @@ use serde_json::json;
 const REALTIME_V2_OUTPUT_MODALITY_AUDIO: &str = "audio";
 const REALTIME_V2_OUTPUT_MODALITY_TEXT: &str = "text";
 const REALTIME_V2_TOOL_CHOICE: &str = "auto";
-const REALTIME_V2_BACKGROUND_AGENT_TOOL_NAME: &str = "background_agent";
-const REALTIME_V2_BACKGROUND_AGENT_TOOL_DESCRIPTION: &str = "Send a user request to the background agent. Use this as the default action. Do not rephrase the user's ask or rewrite it in your own words; pass along the user's own words. If the background agent is idle, this starts a new task and returns the final result to the user. If the background agent is already working on a task, this sends the request as guidance to steer that previous task. If the user asks to do something next, later, after this, or once current work finishes, call this tool so the work is actually queued instead of merely promising to do it later.";
+const REALTIME_V2_BACKGROUND_AGENT_TOOL_NAME: &str = "codex";
+const REALTIME_V2_BACKGROUND_AGENT_TOOL_DESCRIPTION: &str = "Delegate a request to Codex and return the final result to the user. Use this as the default action. If the user asks to do something next, later, after this, or once current work finishes, call this tool so the work is actually queued instead of merely promising to do it later.";
 
 pub(super) fn conversation_item_create_message(text: String) -> RealtimeOutboundMessage {
     RealtimeOutboundMessage::ConversationItemCreate {
@@ -103,7 +103,7 @@ pub(super) fn session_update_session(
                     "properties": {
                         "prompt": {
                             "type": "string",
-                            "description": "The user request to delegate to the background agent."
+                            "description": "The user request to delegate to Codex."
                         }
                     },
                     "required": ["prompt"],

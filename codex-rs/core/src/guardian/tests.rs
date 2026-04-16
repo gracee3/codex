@@ -264,7 +264,7 @@ fn format_guardian_action_pretty_truncates_large_string_fields() -> serde_json::
     let patch = "line\n".repeat(100_000);
     let action = GuardianApprovalRequest::ApplyPatch {
         id: "patch-1".to_string(),
-        cwd: PathBuf::from("/tmp"),
+        cwd: PathBuf::from("/tmp").try_into().unwrap(),
         files: Vec::new(),
         patch: patch.clone(),
     };
@@ -329,7 +329,7 @@ fn guardian_assessment_action_redacts_apply_patch_patch_text() {
     let file = PathBuf::from(file).abs();
     let action = GuardianApprovalRequest::ApplyPatch {
         id: "patch-1".to_string(),
-        cwd: cwd.clone(),
+        cwd: cwd.clone().try_into().unwrap(),
         files: vec![file.clone()],
         patch: "*** Begin Patch\n*** Update File: guardian.txt\n@@\n+secret\n*** End Patch"
             .to_string(),
@@ -357,7 +357,7 @@ fn guardian_request_turn_id_prefers_network_access_owner_turn() {
     };
     let apply_patch = GuardianApprovalRequest::ApplyPatch {
         id: "patch-1".to_string(),
-        cwd: PathBuf::from("/tmp"),
+        cwd: PathBuf::from("/tmp").try_into().unwrap(),
         files: vec![PathBuf::from("/tmp/guardian.txt").abs()],
         patch: "*** Begin Patch\n*** Update File: guardian.txt\n@@\n+hello\n*** End Patch"
             .to_string(),
@@ -384,7 +384,7 @@ async fn cancelled_guardian_review_emits_terminal_abort_without_warning() {
         &turn,
         GuardianApprovalRequest::ApplyPatch {
             id: "patch-1".to_string(),
-            cwd: PathBuf::from("/tmp"),
+            cwd: PathBuf::from("/tmp").try_into().unwrap(),
             files: vec![PathBuf::from("/tmp/guardian.txt").abs()],
             patch: "*** Begin Patch\n*** Update File: guardian.txt\n@@\n+hello\n*** End Patch"
                 .to_string(),
@@ -584,7 +584,7 @@ async fn guardian_review_request_layout_matches_model_visible_request_snapshot()
                 "origin".to_string(),
                 "guardian-approval-mvp".to_string(),
             ],
-            cwd: PathBuf::from("/repo/codex-rs/core"),
+            cwd: PathBuf::from("/repo/codex-rs/core").try_into().unwrap(),
             sandbox_permissions: crate::sandboxing::SandboxPermissions::UseDefault,
             additional_permissions: None,
             justification: Some(
@@ -665,7 +665,7 @@ async fn guardian_reuses_prompt_cache_key_and_appends_prior_reviews() -> anyhow:
         GuardianApprovalRequest::Shell {
             id: "shell-1".to_string(),
             command: vec!["git".to_string(), "push".to_string()],
-            cwd: PathBuf::from("/repo/codex-rs/core"),
+            cwd: PathBuf::from("/repo/codex-rs/core").try_into().unwrap(),
             sandbox_permissions: crate::sandboxing::SandboxPermissions::UseDefault,
             additional_permissions: None,
             justification: Some("Need to push the first docs fix.".to_string()),
@@ -690,7 +690,7 @@ async fn guardian_reuses_prompt_cache_key_and_appends_prior_reviews() -> anyhow:
                 "push".to_string(),
                 "--force-with-lease".to_string(),
             ],
-            cwd: PathBuf::from("/repo/codex-rs/core"),
+            cwd: PathBuf::from("/repo/codex-rs/core").try_into().unwrap(),
             sandbox_permissions: crate::sandboxing::SandboxPermissions::UseDefault,
             additional_permissions: None,
             justification: Some("Need to push the second docs fix.".to_string()),
@@ -810,7 +810,7 @@ async fn guardian_review_surfaces_responses_api_errors_in_rejection_reason() -> 
         GuardianApprovalRequest::Shell {
             id: "shell-guardian-error".to_string(),
             command: vec!["git".to_string(), "push".to_string()],
-            cwd: PathBuf::from("/repo/codex-rs/core"),
+            cwd: PathBuf::from("/repo/codex-rs/core").try_into().unwrap(),
             sandbox_permissions: crate::sandboxing::SandboxPermissions::UseDefault,
             additional_permissions: None,
             justification: Some("Need to push the reviewed docs fix.".to_string()),
@@ -928,7 +928,7 @@ async fn guardian_parallel_reviews_fork_from_last_committed_trunk_history() -> a
     let initial_request = GuardianApprovalRequest::Shell {
         id: "shell-guardian-1".to_string(),
         command: vec!["git".to_string(), "status".to_string()],
-        cwd: PathBuf::from("/repo/codex-rs/core"),
+        cwd: PathBuf::from("/repo/codex-rs/core").try_into().unwrap(),
         sandbox_permissions: crate::sandboxing::SandboxPermissions::UseDefault,
         additional_permissions: None,
         justification: Some("Inspect repo state before proceeding.".to_string()),
@@ -941,7 +941,7 @@ async fn guardian_parallel_reviews_fork_from_last_committed_trunk_history() -> a
     let second_request = GuardianApprovalRequest::Shell {
         id: "shell-guardian-2".to_string(),
         command: vec!["git".to_string(), "diff".to_string()],
-        cwd: PathBuf::from("/repo/codex-rs/core"),
+        cwd: PathBuf::from("/repo/codex-rs/core").try_into().unwrap(),
         sandbox_permissions: crate::sandboxing::SandboxPermissions::UseDefault,
         additional_permissions: None,
         justification: Some("Inspect pending changes before proceeding.".to_string()),
@@ -949,7 +949,7 @@ async fn guardian_parallel_reviews_fork_from_last_committed_trunk_history() -> a
     let third_request = GuardianApprovalRequest::Shell {
         id: "shell-guardian-3".to_string(),
         command: vec!["git".to_string(), "push".to_string()],
-        cwd: PathBuf::from("/repo/codex-rs/core"),
+        cwd: PathBuf::from("/repo/codex-rs/core").try_into().unwrap(),
         sandbox_permissions: crate::sandboxing::SandboxPermissions::UseDefault,
         additional_permissions: None,
         justification: Some("Inspect whether pushing is safe before proceeding.".to_string()),

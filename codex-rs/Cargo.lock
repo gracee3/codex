@@ -1116,6 +1116,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "codex-analytics"
+version = "0.121.0"
+dependencies = [
+ "codex-app-server-protocol",
+ "codex-git-utils",
+ "codex-login",
+ "codex-plugin",
+ "codex-protocol",
+ "codex-utils-absolute-path",
+ "os_info",
+ "pretty_assertions",
+ "serde",
+ "serde_json",
+ "sha1",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "codex-ansi-escape"
 version = "0.121.0"
 dependencies = [
@@ -1663,6 +1682,7 @@ name = "codex-core-skills"
 version = "0.121.0"
 dependencies = [
  "anyhow",
+ "codex-analytics",
  "codex-app-server-protocol",
  "codex-config",
  "codex-exec-server",
@@ -1769,6 +1789,7 @@ dependencies = [
  "tokio",
  "tokio-tungstenite",
  "tracing",
+ "uuid",
 ]
 
 [[package]]
@@ -2530,6 +2551,7 @@ dependencies = [
  "codex-cli",
  "codex-cloud-requirements",
  "codex-config",
+ "codex-core",
  "codex-exec-server",
  "codex-features",
  "codex-file-search",

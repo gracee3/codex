@@ -389,7 +389,6 @@ fn filter_tool_suggest_discoverable_connectors(
 async fn tool_suggest_connector_ids(config: &Config) -> HashSet<String> {
     let mut connector_ids = PluginsManager::new(config.codex_home.to_path_buf())
         .plugins_for_config(config)
-        .await
         .capability_summaries()
         .iter()
         .flat_map(|plugin| plugin.app_connector_ids.iter())

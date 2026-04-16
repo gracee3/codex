@@ -846,14 +846,9 @@ async fn guardian_review_decision_maps_to_mcp_tool_decision() {
         ReviewDecision::TimedOut,
     )
     .await;
-    let McpToolApprovalDecision::Decline {
-        message: Some(message),
-    } = timeout
-    else {
-        panic!("guardian timeout should carry a timeout message");
+    let McpToolApprovalDecision::Decline { message: None } = timeout else {
+        panic!("guardian timeout should decline without a custom message");
     };
-    assert!(message.contains("did not finish before its deadline"));
-    assert!(!message.contains("unacceptable risk"));
     assert_eq!(
         mcp_tool_approval_decision_from_guardian(
             session.as_ref(),

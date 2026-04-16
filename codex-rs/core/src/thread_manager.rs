@@ -671,7 +671,7 @@ impl ThreadManager {
             }
             ForkSnapshot::Interrupted => {
                 let history = match history {
-                    InitialHistory::New => InitialHistory::New,
+                    InitialHistory::New | InitialHistory::Cleared => InitialHistory::New,
                     InitialHistory::Forked(history) => InitialHistory::Forked(history),
                     InitialHistory::Resumed(resumed) => InitialHistory::Forked(resumed.history),
                 };
@@ -1086,7 +1086,7 @@ fn append_interrupted_boundary(history: InitialHistory, turn_id: Option<String>)
     }));
 
     match history {
-        InitialHistory::New => InitialHistory::Forked(vec![
+        InitialHistory::New | InitialHistory::Cleared => InitialHistory::Forked(vec![
             RolloutItem::ResponseItem(interrupted_turn_history_marker()),
             aborted_event,
         ]),

@@ -92,9 +92,7 @@ impl ToolHandler for ViewImageHandler {
                 "view_image is unavailable in this session".to_string(),
             ));
         };
-        let sandbox = environment
-            .is_remote()
-            .then(|| turn.file_system_sandbox_context(/*additional_permissions*/ None));
+        let sandbox = None;
 
         let metadata = environment
             .get_filesystem()

@@ -916,6 +916,7 @@ async fn mcp_tool_approval_decision_from_guardian(
         ReviewDecision::Denied => McpToolApprovalDecision::Decline {
             message: Some(guardian_rejection_message(sess, call_id).await),
         },
+        ReviewDecision::TimedOut => McpToolApprovalDecision::Decline { message: None },
         ReviewDecision::Abort => McpToolApprovalDecision::Decline { message: None },
     }
 }
@@ -1446,7 +1447,7 @@ async fn persist_custom_mcp_tool_approval(
         if !servers.contains_key(server) {
             anyhow::bail!("MCP server `{server}` is not configured in config.toml");
         }
-        config.codex_home.clone()
+        config.codex_home.clone().to_path_buf()
     };
 
     ConfigEditsBuilder::new(&config_folder)

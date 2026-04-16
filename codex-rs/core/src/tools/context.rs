@@ -90,6 +90,10 @@ pub trait ToolOutput: Send {
     fn tool_result_json(&self, payload: &ToolPayload) -> JsonValue {
         response_input_to_tool_result_json(self.to_response_item("", payload))
     }
+
+    fn code_mode_result(&self, payload: &ToolPayload) -> JsonValue {
+        self.tool_result_json(payload)
+    }
 }
 
 impl ToolOutput for CallToolResult {

@@ -39,6 +39,7 @@ use codex_protocol::protocol::RealtimeConversationRealtimeEvent;
 use codex_protocol::protocol::RealtimeConversationSdpEvent;
 use codex_protocol::protocol::RealtimeConversationStartedEvent;
 use codex_protocol::protocol::RealtimeHandoffRequested;
+use codex_protocol::protocol::RealtimeOutputModality;
 use codex_protocol::protocol::RealtimeVoice;
 use codex_protocol::protocol::RealtimeVoicesList;
 use http::HeaderMap;
@@ -597,6 +598,7 @@ pub(crate) async fn build_realtime_session_config(
         session_id: Some(session_id.unwrap_or_else(|| sess.conversation_id.to_string())),
         event_parser,
         session_mode,
+        output_modality: RealtimeOutputModality::Audio,
         voice,
     })
 }
@@ -774,6 +776,14 @@ fn realtime_text_from_handoff_request(handoff: &RealtimeHandoffRequested) -> Opt
     (!active_transcript.is_empty())
         .then_some(active_transcript)
         .or((!handoff.input_transcript.is_empty()).then_some(handoff.input_transcript.clone()))
+}
+
+fn wrap_realtime_delegation_input(input: &str) -> String {
+    let escaped = input
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;");
+    format!("<realtime_delegation>\n  <input>{escaped}</input>\n</realtime_delegation>")
 }
 
 fn realtime_api_key(auth: Option<&CodexAuth>, provider: &ModelProviderInfo) -> CodexResult<String> {
@@ -1061,7 +1071,11 @@ fn spawn_realtime_input_task(input: RealtimeInputTask) -> JoinHandle<()> {
                                 }
                                 RealtimeEvent::SessionUpdated { .. }
                                 | RealtimeEvent::InputTranscriptDelta(_)
+                                | RealtimeEvent::InputTranscriptDone(_)
                                 | RealtimeEvent::OutputTranscriptDelta(_)
+                                | RealtimeEvent::OutputTranscriptDone(_)
+                                | RealtimeEvent::ResponseCreated(_)
+                                | RealtimeEvent::ResponseDone(_)
                                 | RealtimeEvent::ConversationItemDone { .. } => {}
                             }
                             if forward_event && events_tx.send(event).await.is_err() {

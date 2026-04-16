@@ -161,7 +161,9 @@ pub(super) fn build_stage_one_input_message(
 /// case of large memory files, the `memory_summary.md` is truncated at
 /// [phase_one::MEMORY_TOOL_DEVELOPER_INSTRUCTIONS_SUMMARY_TOKEN_LIMIT].
 pub(crate) async fn build_memory_tool_developer_instructions(codex_home: &Path) -> Option<String> {
-    let base_path = memory_root(codex_home);
+    let codex_home =
+        codex_utils_absolute_path::AbsolutePathBuf::from_absolute_path(codex_home).ok()?;
+    let base_path = memory_root(&codex_home);
     let memory_summary_path = base_path.join("memory_summary.md");
     let memory_summary = fs::read_to_string(&memory_summary_path)
         .await

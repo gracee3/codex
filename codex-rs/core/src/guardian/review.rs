@@ -109,6 +109,8 @@ async fn run_guardian_review(
                 risk_level: None,
                 user_authorization: None,
                 rationale: None,
+                target_item_id: None,
+                decision_source: None,
                 action: action_summary.clone(),
             }),
         )
@@ -128,6 +130,8 @@ async fn run_guardian_review(
                     risk_level: None,
                     user_authorization: None,
                     rationale: None,
+                    target_item_id: None,
+                    decision_source: None,
                     action: action_summary,
                 }),
             )
@@ -178,6 +182,8 @@ async fn run_guardian_review(
                         risk_level: None,
                         user_authorization: None,
                         rationale: None,
+                        target_item_id: None,
+                        decision_source: None,
                         action: action_summary,
                     }),
                 )
@@ -231,6 +237,8 @@ async fn run_guardian_review(
                 risk_level: Some(assessment.risk_level),
                 user_authorization: Some(assessment.user_authorization),
                 rationale: Some(assessment.rationale.clone()),
+                target_item_id: None,
+                decision_source: None,
                 action: terminal_action,
             }),
         )
