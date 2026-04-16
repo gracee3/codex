@@ -174,7 +174,7 @@ impl SkillsToggleView {
 
         item.enabled = !item.enabled;
         self.app_event_tx.send(AppEvent::SetSkillEnabled {
-            path: item.path.clone(),
+            path: item.path.clone().to_path_buf(),
             enabled: item.enabled,
         });
     }

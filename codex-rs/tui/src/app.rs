@@ -1095,7 +1095,7 @@ impl App {
         overrides.cwd = Some(cwd.clone());
         let cwd_display = cwd.display().to_string();
         ConfigBuilder::default()
-            .codex_home(self.config.codex_home.clone())
+            .codex_home(self.config.codex_home.to_path_buf())
             .cli_overrides(self.cli_kv_overrides.clone())
             .harness_overrides(overrides)
             .build()
@@ -1784,7 +1784,11 @@ impl App {
                     cwd: self
                         .thread_cwd(thread_id)
                         .await
-                        .unwrap_or_else(|| self.config.cwd.to_path_buf()),
+                        .map(|path| {
+                            AbsolutePathBuf::try_from(path)
+                                .unwrap_or_else(|_| self.config.cwd.clone())
+                        })
+                        .unwrap_or_else(|| self.config.cwd.clone()),
                     changes: HashMap::new(),
                 }),
             ),
@@ -2480,7 +2484,7 @@ impl App {
         session.thread_id = thread_id;
         session.thread_name = notification.thread.name.clone();
         session.model_provider_id = notification.thread.model_provider.clone();
-        session.cwd = notification.thread.cwd.clone();
+        session.cwd = notification.thread.cwd.clone().to_path_buf();
         let rollout_path = notification.thread.path.clone();
         if let Some(model) =
             read_session_model(&self.config, thread_id, rollout_path.as_deref()).await
@@ -2921,7 +2925,7 @@ impl App {
                 approval_policy: self.config.permissions.approval_policy.value(),
                 approvals_reviewer: self.config.approvals_reviewer,
                 sandbox_policy: self.config.permissions.sandbox_policy.get().clone(),
-                cwd: thread.cwd.clone(),
+                cwd: thread.cwd.clone().to_path_buf(),
                 reasoning_effort: self.chat_widget.current_reasoning_effort(),
                 history_log_id: 0,
                 history_entry_count: 0,
@@ -2931,7 +2935,7 @@ impl App {
         session.thread_id = thread_id;
         session.thread_name = thread.name.clone();
         session.model_provider_id = thread.model_provider.clone();
-        session.cwd = thread.cwd.clone();
+        session.cwd = thread.cwd.clone().to_path_buf();
         session.rollout_path = thread.path.clone();
         if let Some(model) =
             read_session_model(&self.config, thread_id, thread.path.as_deref()).await
@@ -5227,7 +5231,15 @@ impl App {
                     .await
                 {
                     Ok(()) => {
-                        self.chat_widget.update_skill_enabled(path.clone(), enabled);
+                        self.chat_widget.update_skill_enabled(
+                            AbsolutePathBuf::try_from(path.clone()).unwrap_or_else(|_| {
+                                AbsolutePathBuf::resolve_path_against_base(
+                                    &path,
+                                    std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/")),
+                                )
+                            }),
+                            enabled,
+                        );
                         if let Err(err) = self.refresh_in_memory_config_from_disk().await {
                             tracing::warn!(
                                 error = %err,

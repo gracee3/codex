@@ -1269,7 +1269,12 @@ fn thread_session_state_to_legacy_event(
         approval_policy: session.approval_policy,
         approvals_reviewer: session.approvals_reviewer,
         sandbox_policy: session.sandbox_policy,
-        cwd: session.cwd,
+        cwd: session.cwd.clone().try_into().unwrap_or_else(|_| {
+            AbsolutePathBuf::resolve_path_against_base(
+                &session.cwd,
+                std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/")),
+            )
+        }),
         reasoning_effort: session.reasoning_effort,
         history_log_id: session.history_log_id,
         history_entry_count: usize::try_from(session.history_entry_count).unwrap_or(usize::MAX),
@@ -1353,7 +1358,12 @@ fn exec_approval_request_from_params(
             .as_deref()
             .map(split_command_string)
             .unwrap_or_default(),
-        cwd: params.cwd.unwrap_or_default(),
+        cwd: params.cwd.unwrap_or_else(|| {
+            AbsolutePathBuf::resolve_path_against_base(
+                ".",
+                std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/")),
+            )
+        }),
         reason: params.reason,
         network_approval_context: params
             .network_approval_context
@@ -1909,7 +1919,7 @@ impl ChatWidget {
         self.thread_name = event.thread_name.clone();
         self.forked_from = event.forked_from_id;
         self.current_rollout_path = event.rollout_path.clone();
-        self.current_cwd = Some(event.cwd.clone());
+        self.current_cwd = Some(event.cwd.clone().to_path_buf());
         match AbsolutePathBuf::try_from(event.cwd.clone()) {
             Ok(cwd) => self.config.cwd = cwd,
             Err(err) => {
@@ -3457,7 +3467,7 @@ impl ChatWidget {
     fn on_view_image_tool_call(&mut self, event: ViewImageToolCallEvent) {
         self.flush_answer_stream_with_separator();
         self.add_to_history(history_cell::new_view_image_tool_call(
-            event.path,
+            event.path.to_path_buf(),
             &self.config.cwd,
         ));
         self.request_redraw();
@@ -3470,9 +3480,9 @@ impl ChatWidget {
     fn on_image_generation_end(&mut self, event: ImageGenerationEndEvent) {
         self.flush_answer_stream_with_separator();
         let saved_path = event.saved_path.map(|saved_path| {
-            Url::from_file_path(Path::new(&saved_path))
+            Url::from_file_path(saved_path.as_path())
                 .map(|url| url.to_string())
-                .unwrap_or(saved_path)
+                .unwrap_or_else(|_| saved_path.to_string_lossy().into_owned())
         });
         self.add_to_history(history_cell::new_image_generation_call(
             event.call_id,
@@ -4280,7 +4290,7 @@ impl ChatWidget {
             id: ev.call_id,
             reason: ev.reason,
             changes: ev.changes.clone(),
-            cwd: self.config.cwd.to_path_buf(),
+            cwd: self.config.cwd.clone(),
         };
         self.bottom_pane
             .push_approval_request(request, &self.config.features);
@@ -5201,6 +5211,9 @@ impl ChatWidget {
             SlashCommand::MemoryUpdate => {
                 self.add_app_server_stub_message("Memory maintenance");
             }
+            SlashCommand::Memories => {
+                self.add_app_server_stub_message("Memory maintenance");
+            }
             SlashCommand::Mcp => {
                 self.add_mcp_output();
             }
@@ -5482,6 +5495,13 @@ impl ChatWidget {
         }
     }
 
+    fn maybe_defer_user_message_for_realtime(
+        &mut self,
+        user_message: UserMessage,
+    ) -> Option<UserMessage> {
+        Some(user_message)
+    }
+
     fn submit_user_message(&mut self, user_message: UserMessage) {
         if !self.is_session_configured() {
             tracing::warn!("cannot submit user message before session is configured; queueing");
@@ -5574,11 +5594,11 @@ impl ChatWidget {
                 if let Some(skill) = skills
                     .iter()
                     .find(|skill| skill.path_to_skills_md.as_path() == path)
-                    && selected_skill_paths.insert(skill.path_to_skills_md.clone())
+                    && selected_skill_paths.insert(skill.path_to_skills_md.clone().to_path_buf())
                 {
                     items.push(UserInput::Skill {
                         name: skill.name.clone(),
-                        path: skill.path_to_skills_md.clone(),
+                        path: skill.path_to_skills_md.clone().to_path_buf(),
                     });
                 }
             }
@@ -5586,13 +5606,13 @@ impl ChatWidget {
             let skill_mentions = find_skill_mentions_with_tool_mentions(&mentions, skills);
             for skill in skill_mentions {
                 if bound_names.contains(skill.name.as_str())
-                    || !selected_skill_paths.insert(skill.path_to_skills_md.clone())
+                    || !selected_skill_paths.insert(skill.path_to_skills_md.clone().to_path_buf())
                 {
                     continue;
                 }
                 items.push(UserInput::Skill {
                     name: skill.name.clone(),
-                    path: skill.path_to_skills_md.clone(),
+                    path: skill.path_to_skills_md.clone().to_path_buf(),
                 });
             }
         }
@@ -6446,7 +6466,8 @@ impl ChatWidget {
             | ServerNotification::ContextCompacted(_)
             | ServerNotification::FuzzyFileSearchSessionUpdated(_)
             | ServerNotification::FuzzyFileSearchSessionCompleted(_)
-            | ServerNotification::ThreadRealtimeTranscriptUpdated(_)
+            | ServerNotification::ThreadRealtimeTranscriptDelta(_)
+            | ServerNotification::ThreadRealtimeTranscriptDone(_)
             | ServerNotification::WindowsWorldWritableWarning(_)
             | ServerNotification::WindowsSandboxSetupCompleted(_)
             | ServerNotification::AccountLoginCompleted(_) => {}
@@ -6637,13 +6658,14 @@ impl ChatWidget {
 
     fn on_guardian_review_notification(
         &mut self,
-        id: String,
+        id: Option<String>,
         turn_id: String,
         review: codex_app_server_protocol::GuardianApprovalReview,
         action: GuardianApprovalReviewAction,
     ) {
         self.on_guardian_assessment(GuardianAssessmentEvent {
-            id,
+            id: id.unwrap_or_else(|| turn_id.clone()),
+            target_item_id: None,
             turn_id,
             status: match review.status {
                 codex_app_server_protocol::GuardianApprovalReviewStatus::InProgress => {
@@ -6656,6 +6678,9 @@ impl ChatWidget {
                     GuardianAssessmentStatus::Denied
                 }
                 codex_app_server_protocol::GuardianApprovalReviewStatus::Aborted => {
+                    GuardianAssessmentStatus::Aborted
+                }
+                codex_app_server_protocol::GuardianApprovalReviewStatus::TimedOut => {
                     GuardianAssessmentStatus::Aborted
                 }
             },
@@ -6690,6 +6715,7 @@ impl ChatWidget {
                 }
             }),
             rationale: review.rationale,
+            decision_source: None,
             action: action.into(),
         });
     }
@@ -7274,18 +7300,7 @@ impl ChatWidget {
             "<none>".to_string(),
             refreshing_rate_limits,
         );
-        let agents_summary_handle = handle.clone();
-        tokio::spawn(async move {
-            let agents_summary = match crate::status::discover_agents_summary(&config).await {
-                Ok(summary) => summary,
-                Err(err) => {
-                    tracing::warn!(error = %err, "failed to discover project docs for /status");
-                    "<none>".to_string()
-                }
-            };
-            agents_summary_handle.finish_agents_summary_discovery(agents_summary);
-            frame_requester.schedule_frame();
-        });
+        drop(frame_requester);
         if let Some(request_id) = request_id {
             self.refreshing_status_outputs.push((request_id, handle));
         }
@@ -10551,7 +10566,7 @@ impl ChatWidget {
             return;
         }
 
-        let plugins = PluginsManager::new(self.config.codex_home.clone())
+        let plugins = PluginsManager::new(self.config.codex_home.to_path_buf())
             .plugins_for_config(&self.config)
             .capability_summaries()
             .to_vec();

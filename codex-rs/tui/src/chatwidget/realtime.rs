@@ -331,6 +331,7 @@ impl ChatWidget {
             RealtimeEvent::OutputTranscriptDelta(_) => {}
             RealtimeEvent::OutputTranscriptDone(_) => {}
             RealtimeEvent::AudioOut(frame) => self.enqueue_realtime_audio_out(&frame),
+            RealtimeEvent::ResponseCreated(_) | RealtimeEvent::ResponseDone(_) => {}
             RealtimeEvent::ResponseCancelled(_) => self.interrupt_realtime_audio_playback(),
             RealtimeEvent::ConversationItemAdded(_item) => {}
             RealtimeEvent::ConversationItemDone { .. } => {}

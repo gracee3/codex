@@ -153,6 +153,7 @@ impl TtRuntime {
                     developer_instructions: Some(role_instructions),
                     personality: self.config.personality,
                     ephemeral: Some(false),
+                    session_start_source: None,
                     dynamic_tools: None,
                     mock_experimental_field: None,
                     experimental_raw_events: false,

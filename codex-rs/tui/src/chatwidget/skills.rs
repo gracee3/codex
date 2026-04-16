@@ -67,7 +67,7 @@ impl ChatWidget {
 
         let mut initial_state = HashMap::new();
         for skill in &self.skills_all {
-            initial_state.insert(skill.path.clone(), skill.enabled);
+            initial_state.insert(skill.path.clone().to_path_buf(), skill.enabled);
         }
         self.skills_initial_state = Some(initial_state);
 
@@ -109,7 +109,7 @@ impl ChatWidget {
         };
         let mut current_state = HashMap::new();
         for skill in &self.skills_all {
-            current_state.insert(skill.path.clone(), skill.enabled);
+            current_state.insert(skill.path.clone().to_path_buf(), skill.enabled);
         }
 
         let mut enabled_count = 0;

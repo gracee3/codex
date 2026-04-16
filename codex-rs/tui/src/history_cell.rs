@@ -903,6 +903,18 @@ pub fn new_approval_decision_cell(
                 ],
             )
         }
+        TimedOut => {
+            let snippet = Span::from(exec_snippet(&command)).dim();
+            (
+                "! ".yellow(),
+                vec![
+                    actor.subject().into(),
+                    "timed out".bold(),
+                    " while reviewing ".into(),
+                    snippet,
+                ],
+            )
+        }
     };
 
     Box::new(PrefixedWrappedHistoryCell::new(

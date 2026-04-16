@@ -403,6 +403,7 @@ impl AppServerSession {
                 params: TurnStartParams {
                     thread_id: thread_id.to_string(),
                     input: items.into_iter().map(Into::into).collect(),
+                    responsesapi_client_metadata: None,
                     cwd: Some(cwd),
                     approval_policy: Some(approval_policy.into()),
                     approvals_reviewer: Some(approvals_reviewer.into()),
@@ -453,6 +454,7 @@ impl AppServerSession {
                 params: TurnSteerParams {
                     thread_id: thread_id.to_string(),
                     input: items.into_iter().map(Into::into).collect(),
+                    responsesapi_client_metadata: None,
                     expected_turn_id: turn_id,
                 },
             })
@@ -625,6 +627,7 @@ impl AppServerSession {
                 request_id,
                 params: ThreadRealtimeStartParams {
                     thread_id: thread_id.to_string(),
+                    output_modality: params.output_modality,
                     prompt: params.prompt,
                     session_id: params.session_id,
                     voice: params.voice,
@@ -800,7 +803,7 @@ fn approvals_reviewer_override_from_config(
 fn config_request_overrides_from_config(
     config: &Config,
 ) -> Option<HashMap<String, serde_json::Value>> {
-    config.active_profile.as_ref().map(|profile| {
+    config.active_profile.as_ref().map(|profile: &String| {
         HashMap::from([(
             "profile".to_string(),
             serde_json::Value::String(profile.clone()),
@@ -950,7 +953,7 @@ async fn thread_session_state_from_thread_start_response(
         response.approval_policy.to_core(),
         response.approvals_reviewer.to_core(),
         response.sandbox.to_core(),
-        response.cwd.clone(),
+        response.cwd.clone().to_path_buf(),
         response.reasoning_effort,
         config,
     )
@@ -972,7 +975,7 @@ async fn thread_session_state_from_thread_resume_response(
         response.approval_policy.to_core(),
         response.approvals_reviewer.to_core(),
         response.sandbox.to_core(),
-        response.cwd.clone(),
+        response.cwd.clone().to_path_buf(),
         response.reasoning_effort,
         config,
     )
@@ -994,7 +997,7 @@ async fn thread_session_state_from_thread_fork_response(
         response.approval_policy.to_core(),
         response.approvals_reviewer.to_core(),
         response.sandbox.to_core(),
-        response.cwd.clone(),
+        response.cwd.clone().to_path_buf(),
         response.reasoning_effort,
         config,
     )

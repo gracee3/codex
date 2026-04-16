@@ -68,6 +68,7 @@ struct StatusRateLimitState {
 #[derive(Debug, Clone)]
 pub(crate) struct StatusHistoryHandle {
     rate_limit_state: Arc<RwLock<StatusRateLimitState>>,
+    agents_summary: Arc<RwLock<String>>,
 }
 
 impl StatusHistoryHandle {
@@ -88,6 +89,15 @@ impl StatusHistoryHandle {
             .expect("status history rate-limit state poisoned");
         state.rate_limits = rate_limits;
         state.refreshing_rate_limits = false;
+    }
+
+    pub(crate) fn finish_agents_summary_refresh(&self, agents_summary: String) {
+        #[expect(clippy::expect_used)]
+        let mut summary = self
+            .agents_summary
+            .write()
+            .expect("status history agents summary state poisoned");
+        *summary = agents_summary;
     }
 }
 
@@ -350,10 +360,13 @@ impl StatusHistoryCell {
                 session_id,
                 forked_from,
                 token_usage,
-                agents_summary,
+                agents_summary: agents_summary.clone(),
                 rate_limit_state: rate_limit_state.clone(),
             },
-            StatusHistoryHandle { rate_limit_state },
+            StatusHistoryHandle {
+                rate_limit_state,
+                agents_summary,
+            },
         )
     }
 

@@ -1850,11 +1850,11 @@ impl ChatComposer {
         let skills_ready = self
             .skills
             .as_ref()
-            .is_some_and(|skills| !skills.is_empty());
+            .is_some_and(|skills: &Vec<SkillMetadata>| !skills.is_empty());
         let plugins_ready = self
             .plugins
             .as_ref()
-            .is_some_and(|plugins| !plugins.is_empty());
+            .is_some_and(|plugins: &Vec<PluginCapabilitySummary>| !plugins.is_empty());
         let connectors_ready = self.connectors_enabled
             && self
                 .connectors_snapshot
@@ -3360,7 +3360,7 @@ impl ChatComposer {
 
         if let Some(plugins) = self.plugins.as_ref() {
             for plugin in plugins {
-                let (plugin_name, marketplace_name) = plugin
+                let (plugin_name, marketplace_name): (&str, &str) = plugin
                     .config_name
                     .split_once('@')
                     .unwrap_or((plugin.config_name.as_str(), ""));
