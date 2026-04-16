@@ -29,6 +29,7 @@ use codex_app_server_protocol::TurnStatus;
 use codex_app_server_protocol::UserInput;
 use codex_arg0::Arg0DispatchPaths;
 use codex_core::config::Config;
+use codex_core::config::ConfigBuilder;
 use codex_core::config::ConfigOverrides;
 use codex_protocol::protocol::AskForApproval;
 use codex_tt_core::DispatchEnvelope;
@@ -36,6 +37,7 @@ use codex_tt_core::ProjectPaths;
 use codex_tt_core::ResultEnvelope;
 use codex_tt_core::Role;
 use codex_tt_core::TtState;
+use codex_tt_core::activate_tt_env;
 use codex_tt_core::append_log;
 use codex_tt_core::default_log_event;
 use codex_tt_core::ensure_project_artifacts;
@@ -54,7 +56,6 @@ const LOOP_POLL_INTERVAL: Duration = Duration::from_secs(1);
 const START_TIMEOUT: Duration = Duration::from_secs(15);
 const STOP_TIMEOUT: Duration = Duration::from_secs(10);
 const APP_SERVER_LISTEN_URL: &str = "ws://127.0.0.1:0";
-const DAEMON_LOG_FILE: &str = "daemon.log";
 
 #[derive(Clone)]
 struct RequestIdSequencer {
@@ -281,7 +282,7 @@ pub(crate) async fn start_daemon(
     let daemon_log = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open(project_paths.tt_dir().join(DAEMON_LOG_FILE))
+        .open(project_paths.daemon_log_path())
         .context("open TT daemon log")?;
     let daemon_log_err = daemon_log
         .try_clone()
@@ -359,8 +360,9 @@ pub(crate) async fn reconcile_runtime_state(project_paths: &ProjectPaths) -> Res
 pub(crate) async fn run_daemon(repo_root: PathBuf, arg0_paths: Arg0DispatchPaths) -> Result<()> {
     let project_paths = ProjectPaths::new(repo_root.clone());
     ensure_project_artifacts(&project_paths)?;
+    activate_tt_env(&project_paths);
     let mut state = load_state(&project_paths)?;
-    let mut app_server = spawn_app_server(&arg0_paths).await?;
+    let mut app_server = spawn_app_server(&project_paths, &arg0_paths).await?;
 
     state.runtime_running = true;
     state.runtime_pid = Some(std::process::id());
@@ -701,18 +703,19 @@ fn director_prompt(result: &ResultEnvelope) -> String {
 }
 
 async fn load_config(repo_root: PathBuf, arg0_paths: &Arg0DispatchPaths) -> Result<Config> {
-    Config::load_with_cli_overrides_and_harness_overrides(
-        Vec::new(),
-        ConfigOverrides {
+    let project_paths = ProjectPaths::new(repo_root.clone());
+    ConfigBuilder::default()
+        .codex_home(project_paths.codex_home())
+        .harness_overrides(ConfigOverrides {
             cwd: Some(repo_root),
             codex_self_exe: arg0_paths.codex_self_exe.clone(),
             codex_linux_sandbox_exe: arg0_paths.codex_linux_sandbox_exe.clone(),
             main_execve_wrapper_exe: arg0_paths.main_execve_wrapper_exe.clone(),
             ..Default::default()
-        },
-    )
-    .await
-    .context("load TT config")
+        })
+        .build()
+        .await
+        .context("load TT config")
 }
 
 fn config_request_overrides_from_config(
@@ -738,7 +741,10 @@ struct SpawnedAppServer {
     websocket_url: String,
 }
 
-async fn spawn_app_server(arg0_paths: &Arg0DispatchPaths) -> Result<SpawnedAppServer> {
+async fn spawn_app_server(
+    project_paths: &ProjectPaths,
+    arg0_paths: &Arg0DispatchPaths,
+) -> Result<SpawnedAppServer> {
     let program = resolve_codex_app_server_binary(arg0_paths);
     let mut command = Command::new(program);
     command
@@ -746,10 +752,11 @@ async fn spawn_app_server(arg0_paths: &Arg0DispatchPaths) -> Result<SpawnedAppSe
         .arg(APP_SERVER_LISTEN_URL)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::piped());
-    if let Ok(codex_home) = std::env::var("CODEX_HOME") {
-        command.env("CODEX_HOME", codex_home);
-    }
+        .stderr(Stdio::piped())
+        .current_dir(project_paths.repo_root())
+        .env("CODEX_HOME", project_paths.codex_home())
+        .env("TT_HOME", project_paths.tt_dir())
+        .env("TT_REPO_ROOT", project_paths.repo_root());
     let mut child = command.spawn().context("spawn codex-app-server for TT")?;
     let stderr = child
         .stderr

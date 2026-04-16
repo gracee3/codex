@@ -11,10 +11,14 @@ use serde::Deserialize;
 use serde::Serialize;
 
 const TT_DIR: &str = ".tt";
+const CODEX_DIR: &str = ".codex";
+const TT_RUNTIME_DIR: &str = "tt";
 const PLAN_FILE: &str = "plan.md";
 const ROSTER_FILE: &str = "roster.md";
 const STATE_FILE: &str = "state.json";
 const LOG_FILE: &str = "log.ndjson";
+const ACTIVATE_FILE: &str = "activate";
+const DAEMON_LOG_FILE: &str = "daemon.log";
 const ROLES_DIR: &str = "roles";
 const DIRECTOR_ROLE_FILE: &str = "director.md";
 const DEVELOPER_ROLE_FILE: &str = "developer.md";
@@ -132,8 +136,20 @@ impl ProjectPaths {
         self.repo_root.join(TT_DIR)
     }
 
+    pub fn codex_home(&self) -> PathBuf {
+        self.repo_root.join(CODEX_DIR)
+    }
+
+    pub fn runtime_dir(&self) -> PathBuf {
+        self.codex_home().join(TT_RUNTIME_DIR)
+    }
+
     pub fn roles_dir(&self) -> PathBuf {
         self.tt_dir().join(ROLES_DIR)
+    }
+
+    pub fn activate_path(&self) -> PathBuf {
+        self.tt_dir().join(ACTIVATE_FILE)
     }
 
     pub fn plan_path(&self) -> PathBuf {
@@ -145,11 +161,15 @@ impl ProjectPaths {
     }
 
     pub fn state_path(&self) -> PathBuf {
-        self.tt_dir().join(STATE_FILE)
+        self.runtime_dir().join(STATE_FILE)
     }
 
     pub fn log_path(&self) -> PathBuf {
-        self.tt_dir().join(LOG_FILE)
+        self.runtime_dir().join(LOG_FILE)
+    }
+
+    pub fn daemon_log_path(&self) -> PathBuf {
+        self.runtime_dir().join(DAEMON_LOG_FILE)
     }
 
     pub fn role_path(&self, role: Role) -> PathBuf {
@@ -160,12 +180,31 @@ impl ProjectPaths {
     }
 }
 
+pub fn activate_tt_env(paths: &ProjectPaths) {
+    let codex_home = paths.codex_home();
+    let tt_home = paths.tt_dir();
+    let repo_root = paths.repo_root().to_path_buf();
+
+    // SAFETY: TT sets these process-scoped variables before spawning worker threads so all child
+    // Codex processes resolve the same repo-local home and checked-in defaults layer.
+    unsafe {
+        std::env::set_var("CODEX_HOME", &codex_home);
+        std::env::set_var("TT_HOME", &tt_home);
+        std::env::set_var("TT_REPO_ROOT", &repo_root);
+    }
+}
+
 pub fn ensure_project_artifacts(paths: &ProjectPaths) -> Result<()> {
     fs::create_dir_all(paths.roles_dir())
         .with_context(|| format!("create TT roles dir {}", paths.roles_dir().display()))?;
+    fs::create_dir_all(paths.runtime_dir())
+        .with_context(|| format!("create TT runtime dir {}", paths.runtime_dir().display()))?;
+
+    migrate_legacy_runtime_artifacts(paths)?;
 
     write_if_missing(&paths.plan_path(), default_plan_markdown())?;
     write_if_missing(&paths.roster_path(), default_roster_markdown())?;
+    write_if_missing(&paths.activate_path(), default_activate_script())?;
     write_if_missing(
         &paths.role_path(Role::Director),
         default_director_role_markdown(),
@@ -285,12 +324,55 @@ fn write_if_missing(path: &Path, contents: &str) -> Result<()> {
     fs::write(path, contents).with_context(|| format!("write {}", path.display()))
 }
 
+fn migrate_legacy_runtime_artifacts(paths: &ProjectPaths) -> Result<()> {
+    for (legacy_path, runtime_path) in [
+        (paths.tt_dir().join(STATE_FILE), paths.state_path()),
+        (paths.tt_dir().join(LOG_FILE), paths.log_path()),
+        (
+            paths.tt_dir().join(DAEMON_LOG_FILE),
+            paths.daemon_log_path(),
+        ),
+    ] {
+        if !legacy_path.exists() || runtime_path.exists() {
+            continue;
+        }
+        fs::rename(&legacy_path, &runtime_path).with_context(|| {
+            format!(
+                "migrate TT runtime artifact {} -> {}",
+                legacy_path.display(),
+                runtime_path.display()
+            )
+        })?;
+    }
+    Ok(())
+}
+
 fn default_plan_markdown() -> &'static str {
     "# TT Plan\n\n## Current Objective\n- Establish the current objective.\n\n## Milestone\n- Record the active milestone.\n\n## Active Todos\n- Add current todos here.\n\n## Constraints\n- Capture repo, product, or runtime constraints here.\n\n## Open Questions\n- Record decisions that still need operator input.\n\n## Recent Decisions\n- Append resolved decisions as they happen.\n\n## Next Likely Dispatches\n- Note the next likely Director to Developer handoffs.\n"
 }
 
 fn default_roster_markdown() -> &'static str {
     "# TT Roster\n\n## Director\n- Own orchestration, prioritization, evaluation, and operator interaction.\n- Emit structured dispatches only.\n- Do not simulate implementation work.\n\n## Developer\n- Own scoped execution only.\n- Emit structured results only.\n- Do not self-dispatch or silently expand scope.\n"
+}
+
+fn default_activate_script() -> &'static str {
+    r#"#!/usr/bin/env bash
+if [ -n "${BASH_SOURCE[0]:-}" ]; then
+  _tt_activate_source="${BASH_SOURCE[0]}"
+else
+  _tt_activate_source="$0"
+fi
+_tt_activate_dir="$(cd "$(dirname "${_tt_activate_source}")" && pwd -P)"
+_tt_repo_root="$(cd "${_tt_activate_dir}/.." && pwd -P)"
+
+export TT_REPO_ROOT="${_tt_repo_root}"
+export TT_HOME="${_tt_repo_root}/.tt"
+export CODEX_HOME="${_tt_repo_root}/.codex"
+
+unset _tt_activate_source
+unset _tt_activate_dir
+unset _tt_repo_root
+"#
 }
 
 fn default_director_role_markdown() -> &'static str {
@@ -314,10 +396,19 @@ mod tests {
 
         assert!(paths.plan_path().exists());
         assert!(paths.roster_path().exists());
+        assert!(paths.activate_path().exists());
         assert!(paths.state_path().exists());
         assert!(paths.log_path().exists());
         assert!(paths.role_path(Role::Director).exists());
         assert!(paths.role_path(Role::Developer).exists());
+        assert_eq!(
+            paths.state_path(),
+            tempdir.path().join(".codex/tt/state.json")
+        );
+        assert_eq!(
+            paths.log_path(),
+            tempdir.path().join(".codex/tt/log.ndjson")
+        );
 
         let state = load_state(&paths).expect("load state");
         assert_eq!(state, TtState::default());
@@ -343,6 +434,25 @@ mod tests {
         let contents = fs::read_to_string(paths.log_path()).expect("read log");
         assert!(contents.contains("\"event\":\"thread-created\""));
         assert!(contents.contains("\"role\":\"director\""));
+    }
+
+    #[test]
+    fn migrates_legacy_runtime_artifacts_into_codex_home() {
+        let tempdir = tempfile::tempdir().expect("tempdir");
+        let paths = ProjectPaths::new(tempdir.path().to_path_buf());
+        fs::create_dir_all(paths.tt_dir()).expect("create tt dir");
+        fs::write(paths.tt_dir().join(STATE_FILE), b"{\"runtime_running\":false,\"runtime_pid\":null,\"runtime_websocket_url\":null,\"runtime_auth_token\":null,\"last_runtime_started_at\":null,\"auto_loop\":false,\"operator_pause\":false,\"default_view\":\"director\",\"active_dispatch_id\":null,\"pending_director_evaluation\":false,\"pending_developer_dispatch\":false,\"director_thread_id\":null,\"developer_thread_id\":null}").expect("write legacy state");
+        fs::write(paths.tt_dir().join(LOG_FILE), b"legacy-log\n").expect("write legacy log");
+
+        ensure_project_artifacts(&paths).expect("create artifacts");
+
+        assert!(!paths.tt_dir().join(STATE_FILE).exists());
+        assert!(!paths.tt_dir().join(LOG_FILE).exists());
+        assert!(paths.state_path().exists());
+        assert_eq!(
+            fs::read_to_string(paths.log_path()).expect("read migrated log"),
+            "legacy-log\n"
+        );
     }
 
     #[test]

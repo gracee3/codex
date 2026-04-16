@@ -233,6 +233,12 @@ fn skill_roots_from_layer_stack_inner(
                     scope: SkillScope::Repo,
                 });
             }
+            ConfigLayerSource::Tt { .. } => {
+                roots.push(SkillRoot {
+                    path: config_folder.as_path().join(SKILLS_DIR_NAME),
+                    scope: SkillScope::Repo,
+                });
+            }
             ConfigLayerSource::User { .. } => {
                 // Deprecated user skills location (`$CODEX_HOME/skills`), kept for backward
                 // compatibility.

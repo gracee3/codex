@@ -87,6 +87,9 @@ fn collect_layer_mtimes(stack: &ConfigLayerStack) -> Vec<LayerMtime> {
         .filter_map(|layer| {
             let path = match &layer.name {
                 ConfigLayerSource::System { file } => Some(file.as_path().to_path_buf()),
+                ConfigLayerSource::Tt { folder } => {
+                    Some(folder.as_path().join(CONFIG_TOML_FILE))
+                }
                 ConfigLayerSource::User { file } => Some(file.as_path().to_path_buf()),
                 ConfigLayerSource::Project { dot_codex_folder } => Some(
                     dot_codex_folder
@@ -257,7 +260,8 @@ fn upsert_network_domain(
 fn is_user_controlled_layer(layer: &ConfigLayerSource) -> bool {
     matches!(
         layer,
-        ConfigLayerSource::User { .. }
+        ConfigLayerSource::Tt { .. }
+            | ConfigLayerSource::User { .. }
             | ConfigLayerSource::Project { .. }
             | ConfigLayerSource::SessionFlags
     )

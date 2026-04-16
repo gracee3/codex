@@ -665,6 +665,12 @@ fn override_message(layer: &ConfigLayerSource) -> String {
         ConfigLayerSource::System { file } => {
             format!("Overridden by managed config (system): {}", file.display())
         }
+        ConfigLayerSource::Tt { folder } => {
+            format!(
+                "Overridden by TT repo defaults: {}/config.toml",
+                folder.display()
+            )
+        }
         ConfigLayerSource::Project { dot_codex_folder } => format!(
             "Overridden by project config: {}/{CONFIG_TOML_FILE}",
             dot_codex_folder.display(),

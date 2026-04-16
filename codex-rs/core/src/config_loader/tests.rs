@@ -59,6 +59,36 @@ async fn make_config_for_test(
     .await
 }
 
+struct TempEnvVar {
+    key: &'static str,
+    prev: Option<std::ffi::OsString>,
+}
+
+impl TempEnvVar {
+    fn set(key: &'static str, value: &Path) -> Self {
+        let prev = std::env::var_os(key);
+        // SAFETY: tests mutate process environment in a scoped guard before any background work
+        // observes these variables, then restore the previous value on drop.
+        unsafe {
+            std::env::set_var(key, value);
+        }
+        Self { key, prev }
+    }
+}
+
+impl Drop for TempEnvVar {
+    fn drop(&mut self) {
+        // SAFETY: restore the prior test-scoped environment value.
+        unsafe {
+            if let Some(prev) = self.prev.as_ref() {
+                std::env::set_var(self.key, prev);
+            } else {
+                std::env::remove_var(self.key);
+            }
+        }
+    }
+}
+
 #[tokio::test]
 async fn cli_overrides_resolve_relative_paths_against_cwd() -> std::io::Result<()> {
     let codex_home = tempdir().expect("tempdir");
@@ -289,6 +319,49 @@ async fn returns_empty_when_all_layers_missing() {
             "expected empty table when configs missing"
         );
     }
+}
+
+#[tokio::test]
+async fn loads_tt_layer_for_matching_repo_activation() {
+    let repo = tempdir().expect("tempdir");
+    let codex_home = repo.path().join(".codex");
+    let tt_home = repo.path().join(".tt");
+    std::fs::create_dir_all(&codex_home).expect("create codex home");
+    std::fs::create_dir_all(&tt_home).expect("create tt home");
+    std::fs::write(tt_home.join(CONFIG_TOML_FILE), "model = \"tt-default\"")
+        .expect("write tt config");
+
+    let _tt_home = TempEnvVar::set("TT_HOME", &tt_home);
+    let _tt_repo_root = TempEnvVar::set("TT_REPO_ROOT", repo.path());
+
+    let cwd = AbsolutePathBuf::try_from(repo.path()).expect("cwd");
+    let layers = load_config_layers_state(
+        &codex_home,
+        Some(cwd),
+        &[] as &[(String, TomlValue)],
+        LoaderOverrides::without_managed_config_for_tests(),
+        CloudRequirementsLoader::default(),
+    )
+    .await
+    .expect("load layers");
+
+    assert!(
+        layers
+            .get_layers(
+                super::ConfigLayerStackOrdering::LowestPrecedenceFirst,
+                /*include_disabled*/ false,
+            )
+            .iter()
+            .any(|layer| matches!(layer.name, super::ConfigLayerSource::Tt { .. })),
+        "expected TT repo defaults layer to be present"
+    );
+    assert_eq!(
+        layers
+            .effective_config()
+            .get("model")
+            .and_then(TomlValue::as_str),
+        Some("tt-default")
+    );
 }
 
 #[cfg(target_os = "macos")]

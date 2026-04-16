@@ -213,6 +213,7 @@ fn render_non_file_layer_details(layer: &ConfigLayerEntry) -> Vec<Line<'static>>
             render_mdm_layer_details(layer)
         }
         ConfigLayerSource::System { .. }
+        | ConfigLayerSource::Tt { .. }
         | ConfigLayerSource::User { .. }
         | ConfigLayerSource::Project { .. }
         | ConfigLayerSource::LegacyManagedConfigTomlFromFile { .. } => Vec::new(),
@@ -320,6 +321,9 @@ fn format_config_layer_source(source: &ConfigLayerSource) -> String {
         }
         ConfigLayerSource::System { file } => {
             format!("system ({})", file.as_path().display())
+        }
+        ConfigLayerSource::Tt { folder } => {
+            format!("tt ({}/config.toml)", folder.as_path().display())
         }
         ConfigLayerSource::User { file } => {
             format!("user ({})", file.as_path().display())

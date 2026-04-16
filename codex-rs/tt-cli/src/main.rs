@@ -13,6 +13,7 @@ use codex_git_utils::get_git_repo_root;
 use codex_tt_core::ProjectPaths;
 use codex_tt_core::Role;
 use codex_tt_core::TtState;
+use codex_tt_core::activate_tt_env;
 use codex_tt_core::append_log;
 use codex_tt_core::default_log_event;
 use codex_tt_core::ensure_project_artifacts;
@@ -199,6 +200,7 @@ async fn run(arg0_paths: Arg0DispatchPaths) -> Result<()> {
         }
         command => {
             let project_paths = project_paths_for_current_dir()?;
+            activate_tt_env(&project_paths);
             match command {
                 Command::Init => {
                     ensure_project_artifacts(&project_paths)?;

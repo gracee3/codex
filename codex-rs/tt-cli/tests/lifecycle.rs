@@ -49,6 +49,8 @@ fn start_status_stop_lifecycle_updates_runtime_state() {
         String::from_utf8_lossy(&init_output.stdout),
         String::from_utf8_lossy(&init_output.stderr)
     );
+    assert!(repo_root.join(".tt/activate").exists());
+    assert!(repo_root.join(".codex/tt/state.json").exists());
 
     let start_output = run_tt(&tt_bin, repo_root, &["start"]);
     assert!(
@@ -73,7 +75,8 @@ fn start_status_stop_lifecycle_updates_runtime_state() {
     assert!(status_stdout.contains("director_thread_id: "));
     assert!(status_stdout.contains("developer_thread_id: "));
 
-    let state_text = fs::read_to_string(repo_root.join(".tt/state.json")).expect("read tt state");
+    let state_text =
+        fs::read_to_string(repo_root.join(".codex/tt/state.json")).expect("read tt state");
     let state_json: serde_json::Value = serde_json::from_str(&state_text).expect("parse tt state");
     assert_eq!(state_json["runtime_running"], serde_json::Value::Bool(true));
     assert_eq!(state_json["auto_loop"], serde_json::Value::Bool(false));
