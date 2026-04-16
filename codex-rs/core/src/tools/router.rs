@@ -134,11 +134,12 @@ impl ToolRouter {
             .map(|config| config.spec.clone())
     }
 
-    pub fn tool_supports_parallel(&self, tool_name: &str) -> bool {
+    pub fn tool_supports_parallel(&self, tool_name: &ToolName) -> bool {
+        let display_name = tool_name.display();
         self.specs
             .iter()
             .filter(|config| config.supports_parallel_tool_calls)
-            .any(|config| config.name() == tool_name)
+            .any(|config| config.name() == display_name)
     }
 
     #[instrument(level = "trace", skip_all, err)]

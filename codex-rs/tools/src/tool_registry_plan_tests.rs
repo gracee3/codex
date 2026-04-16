@@ -1087,6 +1087,52 @@ fn test_build_specs_mcp_tools_converted() {
 }
 
 #[test]
+fn test_build_specs_mcp_tools_register_namespaced_handlers_when_available() {
+    let model_info = model_info();
+    let mut features = Features::with_defaults();
+    features.enable(Feature::UnifiedExec);
+    let available_models = Vec::new();
+    let tools_config = ToolsConfig::new(&ToolsConfigParams {
+        model_info: &model_info,
+        available_models: &available_models,
+        features: &features,
+        image_generation_tool_auth_allowed: true,
+        web_search_mode: Some(WebSearchMode::Live),
+        session_source: SessionSource::Cli,
+        sandbox_policy: &SandboxPolicy::DangerFullAccess,
+        windows_sandbox_level: WindowsSandboxLevel::Disabled,
+    });
+
+    let (_, handlers) = build_specs_with_optional_tool_namespaces(
+        &tools_config,
+        Some(HashMap::from([(
+            "mcp__rmcp__echo".to_string(),
+            mcp_tool("echo", "Echo", serde_json::json!({"type": "object"})),
+        )])),
+        /*parallel_mcp_tools*/ None,
+        Some(HashMap::from([(
+            "mcp__rmcp__echo".to_string(),
+            ToolNamespace {
+                name: "mcp__rmcp__".to_string(),
+                description: None,
+            },
+        )])),
+        /*app_tools*/ None,
+        /*discoverable_tools*/ None,
+        &[],
+    );
+
+    assert!(handlers.contains(&ToolHandlerSpec {
+        name: "mcp__rmcp__:echo".to_string(),
+        kind: ToolHandlerKind::Mcp,
+    }));
+    assert!(handlers.contains(&ToolHandlerSpec {
+        name: "mcp__rmcp__echo".to_string(),
+        kind: ToolHandlerKind::Mcp,
+    }));
+}
+
+#[test]
 fn test_build_specs_mcp_tools_sorted_by_name() {
     let model_info = model_info();
     let mut features = Features::with_defaults();
@@ -1745,6 +1791,7 @@ fn strip_descriptions_tool(spec: &mut ToolSpec) {
         ToolSpec::Freeform(FreeformTool { .. })
         | ToolSpec::LocalShell {}
         | ToolSpec::ImageGeneration { .. }
+        | ToolSpec::Namespace(_)
         | ToolSpec::WebSearch { .. } => {}
     }
 }

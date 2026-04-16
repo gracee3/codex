@@ -359,6 +359,7 @@ pub fn build_tool_registry_plan(
 
     if let Some(mcp_tools) = params.mcp_tools {
         let parallel_mcp_tools = params.parallel_mcp_tools;
+        let tool_namespaces = params.tool_namespaces;
         let mut entries: Vec<(String, &McpTool)> = mcp_tools
             .iter()
             .map(|(name, tool)| (name.clone(), tool))
@@ -373,6 +374,16 @@ pub fn build_tool_registry_plan(
                         ToolSpec::Function(converted_tool),
                         parallel_mcp_tools.is_some_and(|tools| tools.contains(&name)),
                     );
+                    if let Some(namespace) = tool_namespaces
+                        .and_then(|tool_namespaces| tool_namespaces.get(&name))
+                        .map(|tool_namespace| tool_namespace.name.as_str())
+                        && let Some(stripped_name) = name.strip_prefix(namespace)
+                    {
+                        plan.register_handler(
+                            format!("{namespace}:{stripped_name}"),
+                            ToolHandlerKind::Mcp,
+                        );
+                    }
                     plan.register_handler(name, ToolHandlerKind::Mcp);
                 }
                 Err(error) => {
