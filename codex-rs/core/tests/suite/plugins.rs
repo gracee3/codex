@@ -301,11 +301,18 @@ async fn explicit_plugin_mentions_inject_plugin_guidance() -> Result<()> {
     assert!(
         request_tools
             .iter()
-            .any(|name| name == "mcp__codex_apps__google_calendar"),
+            .any(|name| name == "mcp__codex_apps__google_calendar_create_event"),
         "expected plugin app tools to become visible for this turn: {request_tools:?}"
     );
-    let echo_tool = request
-        .tool_by_name("mcp__sample__", "echo")
+    let tools = request_body["tools"]
+        .as_array()
+        .expect("request tools should be present");
+    let echo_tool = tools
+        .iter()
+        .find(|tool| {
+            tool.get("name").and_then(serde_json::Value::as_str) == Some("mcp__sample__echo")
+        })
+        .cloned()
         .expect("plugin MCP tool should be present");
     let echo_description = echo_tool
         .get("description")
@@ -315,8 +322,13 @@ async fn explicit_plugin_mentions_inject_plugin_guidance() -> Result<()> {
         echo_description.contains("This tool is part of plugin `sample`."),
         "expected plugin MCP provenance in tool description: {echo_description:?}"
     );
-    let calendar_tool = request
-        .tool_by_name("mcp__codex_apps__google_calendar", "_create_event")
+    let calendar_tool = tools
+        .iter()
+        .find(|tool| {
+            tool.get("name").and_then(serde_json::Value::as_str)
+                == Some("mcp__codex_apps__google_calendar_create_event")
+        })
+        .cloned()
         .expect("plugin app tool should be present");
     let calendar_description = calendar_tool
         .get("description")
