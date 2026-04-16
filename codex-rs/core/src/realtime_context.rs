@@ -2,8 +2,15 @@ use crate::codex::Session;
 use crate::compact::content_items_to_text;
 use crate::event_mapping::is_contextual_user_message_content;
 use chrono::Utc;
+use codex_git_utils::GitSha;
 use codex_git_utils::resolve_root_git_project_for_trust;
 use codex_protocol::models::ResponseItem;
+use codex_protocol::protocol::AskForApproval;
+use codex_protocol::protocol::GitInfo;
+use codex_protocol::protocol::SandboxPolicy;
+use codex_protocol::protocol::SessionSource;
+use codex_state::SortKey;
+use codex_state::ThreadMetadata;
 use codex_thread_store::ListThreadsParams;
 use codex_thread_store::StoredThread;
 use codex_thread_store::ThreadSortKey;
@@ -120,6 +127,30 @@ pub(crate) async fn build_realtime_startup_context(
 }
 
 async fn load_recent_threads(sess: &Session) -> Vec<StoredThread> {
+    if let Some(state_db) = sess.services.state_db.as_ref() {
+        match state_db
+            .list_threads(
+                MAX_RECENT_THREADS,
+                /*anchor*/ None,
+                SortKey::UpdatedAt,
+                &[],
+                /*model_providers*/ None,
+                /*archived_only*/ false,
+                /*search_term*/ None,
+            )
+            .await
+        {
+            Ok(page) => {
+                return page
+                    .items
+                    .into_iter()
+                    .map(stored_thread_from_metadata)
+                    .collect();
+            }
+            Err(err) => warn!("failed to load realtime startup threads from state db: {err}"),
+        }
+    }
+
     match sess
         .services
         .thread_store
@@ -140,6 +171,67 @@ async fn load_recent_threads(sess: &Session) -> Vec<StoredThread> {
             Vec::new()
         }
     }
+}
+
+fn stored_thread_from_metadata(metadata: ThreadMetadata) -> StoredThread {
+    let source = serde_json::from_value(serde_json::Value::String(metadata.source))
+        .unwrap_or(SessionSource::Unknown);
+    let approval_mode = serde_json::from_value(serde_json::Value::String(metadata.approval_mode))
+        .unwrap_or(AskForApproval::OnRequest);
+    let sandbox_policy = serde_json::from_value(serde_json::Value::String(metadata.sandbox_policy))
+        .unwrap_or_else(|_| SandboxPolicy::new_read_only_policy());
+    let git_info = git_info_from_parts(
+        metadata.git_sha.clone(),
+        metadata.git_branch.clone(),
+        metadata.git_origin_url.clone(),
+    );
+    let preview = metadata
+        .first_user_message
+        .clone()
+        .unwrap_or_else(|| metadata.title.clone());
+    let name = (!metadata.title.is_empty()).then_some(metadata.title.clone());
+
+    StoredThread {
+        thread_id: metadata.id,
+        rollout_path: Some(metadata.rollout_path),
+        forked_from_id: None,
+        preview,
+        name,
+        model_provider: metadata.model_provider,
+        model: metadata.model,
+        reasoning_effort: metadata.reasoning_effort,
+        created_at: metadata.created_at,
+        updated_at: metadata.updated_at,
+        archived_at: metadata.archived_at,
+        cwd: metadata.cwd,
+        cli_version: metadata.cli_version,
+        source,
+        agent_nickname: metadata.agent_nickname,
+        agent_role: metadata.agent_role,
+        agent_path: metadata.agent_path,
+        git_info,
+        approval_mode,
+        sandbox_policy,
+        token_usage: None,
+        first_user_message: metadata.first_user_message,
+        history: None,
+    }
+}
+
+fn git_info_from_parts(
+    git_sha: Option<String>,
+    git_branch: Option<String>,
+    git_origin_url: Option<String>,
+) -> Option<GitInfo> {
+    if git_sha.is_none() && git_branch.is_none() && git_origin_url.is_none() {
+        return None;
+    }
+
+    Some(GitInfo {
+        commit_hash: git_sha.as_deref().map(GitSha::new),
+        branch: git_branch,
+        repository_url: git_origin_url,
+    })
 }
 
 fn build_recent_work_section(cwd: &Path, recent_threads: &[StoredThread]) -> Option<String> {
