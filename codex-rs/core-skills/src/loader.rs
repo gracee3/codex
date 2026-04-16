@@ -267,8 +267,9 @@ fn skill_roots_from_layer_stack_inner(
             }
             ConfigLayerSource::Tt { .. } => {
                 roots.push(SkillRoot {
-                    path: config_folder.as_path().join(SKILLS_DIR_NAME),
+                    path: config_folder.join(SKILLS_DIR_NAME),
                     scope: SkillScope::Repo,
+                    file_system: Arc::clone(&LOCAL_FS),
                 });
             }
             ConfigLayerSource::User { .. } => {

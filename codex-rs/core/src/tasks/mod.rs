@@ -259,7 +259,12 @@ impl Session {
         let turn_state = {
             let mut active = self.active_turn.lock().await;
             let turn = active.get_or_insert_with(ActiveTurn::default);
-            debug_assert!(turn.tasks.is_empty());
+            if !turn.tasks.is_empty() {
+                trace!(
+                    "starting new task while {} prior task(s) are still draining",
+                    turn.tasks.len()
+                );
+            }
             Arc::clone(&turn.turn_state)
         };
         {
@@ -275,7 +280,6 @@ impl Session {
 
         let mut active = self.active_turn.lock().await;
         let turn = active.get_or_insert_with(ActiveTurn::default);
-        debug_assert!(turn.tasks.is_empty());
         let done_clone = Arc::clone(&done);
         let session_ctx = Arc::new(SessionTaskContext::new(Arc::clone(self)));
         let ctx = Arc::clone(&turn_context);

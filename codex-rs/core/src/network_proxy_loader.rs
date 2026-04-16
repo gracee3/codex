@@ -86,20 +86,15 @@ fn collect_layer_mtimes(stack: &ConfigLayerStack) -> Vec<LayerMtime> {
         .iter()
         .filter_map(|layer| {
             let path = match &layer.name {
-                ConfigLayerSource::System { file } => Some(file.as_path().to_path_buf()),
+                ConfigLayerSource::System { file } => Some(file.clone()),
                 ConfigLayerSource::Tt { folder } => {
-                    Some(folder.as_path().join(CONFIG_TOML_FILE))
+                    Some(AbsolutePathBuf::join(folder, CONFIG_TOML_FILE))
                 }
-                ConfigLayerSource::User { file } => Some(file.as_path().to_path_buf()),
-                ConfigLayerSource::Project { dot_codex_folder } => Some(
-                    dot_codex_folder
-                        .join(CONFIG_TOML_FILE)
-                        .as_path()
-                        .to_path_buf(),
-                ),
-                ConfigLayerSource::LegacyManagedConfigTomlFromFile { file } => {
-                    Some(file.as_path().to_path_buf())
+                ConfigLayerSource::User { file } => Some(file.clone()),
+                ConfigLayerSource::Project { dot_codex_folder } => {
+                    Some(AbsolutePathBuf::join(dot_codex_folder, CONFIG_TOML_FILE))
                 }
+                ConfigLayerSource::LegacyManagedConfigTomlFromFile { file } => Some(file.clone()),
                 _ => None,
             };
             path.map(LayerMtime::new)
