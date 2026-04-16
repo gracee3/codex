@@ -10,6 +10,7 @@ use codex_mcp::ToolInfo;
 use codex_protocol::dynamic_tools::DynamicToolSpec;
 use codex_tools::DiscoverableTool;
 use codex_tools::ToolHandlerKind;
+use codex_tools::ToolName;
 use codex_tools::ToolNamespace;
 use codex_tools::ToolRegistryPlanAppTool;
 use codex_tools::ToolRegistryPlanParams;
@@ -152,7 +153,14 @@ pub(crate) fn build_specs_with_discoverable_tools(
                 builder.register_handler(handler.name, Arc::new(ListDirHandler));
             }
             ToolHandlerKind::Mcp => {
-                builder.register_handler(handler.name, mcp_handler.clone());
+                if let Some((namespace, name)) = handler.name.split_once(':') {
+                    builder.register_handler(
+                        ToolName::namespaced(namespace, name),
+                        mcp_handler.clone(),
+                    );
+                } else {
+                    builder.register_handler(handler.name, mcp_handler.clone());
+                }
             }
             ToolHandlerKind::McpResource => {
                 builder.register_handler(handler.name, mcp_resource_handler.clone());

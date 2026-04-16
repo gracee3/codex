@@ -3,7 +3,6 @@ use crate::shell::Shell;
 use crate::shell::ShellType;
 use crate::test_support::construct_model_info_offline;
 use crate::tools::ToolRouter;
-use crate::tools::registry::tool_handler_key;
 use crate::tools::router::ToolRouterParams;
 use codex_app_server_protocol::AppInfo;
 use codex_features::Feature;
@@ -881,7 +880,7 @@ fn search_tool_registers_namespaced_app_tool_aliases() {
     )
     .build();
 
-    let alias = codex_tools::ToolName::plain("mcp__codex_apps__calendar:_create_event");
+    let alias = codex_tools::ToolName::namespaced("mcp__codex_apps__calendar", "_create_event");
 
     assert!(registry.has_handler(&codex_tools::ToolName::plain(TOOL_SEARCH_TOOL_NAME)));
     assert!(registry.has_handler(&alias));

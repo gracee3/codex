@@ -155,12 +155,8 @@ impl ToolRouter {
                 ..
             } => {
                 if let Some((server, tool)) = session.parse_mcp_tool_name(&name, &namespace).await {
-                    let registered_name = ToolName::plain(match namespace.as_ref() {
-                        Some(namespace) => format!("{namespace}{name}"),
-                        None => name.clone(),
-                    });
                     Ok(Some(ToolCall {
-                        tool_name: registered_name,
+                        tool_name: ToolName::new(namespace, name),
                         call_id,
                         payload: ToolPayload::Mcp {
                             server,
