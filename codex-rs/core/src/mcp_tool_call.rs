@@ -1471,7 +1471,10 @@ fn project_mcp_tool_approval_config_folder(config: &Config, server: &str) -> Opt
         .layers_high_to_low()
         .into_iter()
         .find_map(|layer| {
-            if !matches!(layer.name, ConfigLayerSource::Project { .. }) {
+            if !matches!(
+                layer.name,
+                ConfigLayerSource::Project { .. } | ConfigLayerSource::Tt { .. }
+            ) {
                 return None;
             }
 

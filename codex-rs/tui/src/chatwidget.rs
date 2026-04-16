@@ -299,7 +299,6 @@ use crate::app_event_sender::AppEventSender;
 use crate::bottom_pane::ApprovalRequest;
 use crate::bottom_pane::BottomPane;
 use crate::bottom_pane::BottomPaneParams;
-use crate::bottom_pane::CancellationEvent;
 use crate::bottom_pane::CollaborationModeIndicator;
 use crate::bottom_pane::ColumnWidthMode;
 use crate::bottom_pane::DOUBLE_PRESS_QUIT_SHORTCUT_ENABLED;
@@ -10184,20 +10183,13 @@ impl ChatWidget {
 
     /// Handles a Ctrl+C press at the chat-widget layer.
     ///
-    /// By default, the first press arms a time-bounded quit shortcut and shows a footer hint via
-    /// the bottom pane. If cancellable work is active, Ctrl+C also submits `Op::Interrupt` after
-    /// the shortcut is armed.
+    /// Ctrl+C exits the TUI immediately without interrupting the active app-server turn. The
+    /// bottom pane still gets first crack at dismissing local UI state, but the shortcut always
+    /// resolves to an immediate UI exit afterward.
     ///
-    /// Active realtime conversations take precedence over bottom-pane Ctrl+C handling so the
-    /// first press always stops live voice, even when the composer contains the recording meter.
-    ///
-    /// In project-shared-server mode, Ctrl+C bypasses the double-press shortcut and exits the UI
-    /// immediately so in-flight work can continue on the shared app-server.
-    ///
-    /// Otherwise, if the same quit shortcut is pressed again before expiry, this requests a
-    /// shutdown-first quit.
+    /// Active realtime conversations still take precedence so the first press can stop live voice
+    /// input cleanly before the UI exits.
     fn on_ctrl_c(&mut self) {
-        let key = key_hint::ctrl(KeyCode::Char('c'));
         if self.realtime_conversation.is_live() {
             self.bottom_pane.clear_quit_shortcut_hint();
             self.quit_shortcut_expires_at = None;
@@ -10205,46 +10197,11 @@ impl ChatWidget {
             self.stop_realtime_conversation_from_ui();
             return;
         }
-        let modal_or_popup_active = !self.bottom_pane.no_modal_or_popup_active();
-        if self.bottom_pane.on_ctrl_c() == CancellationEvent::Handled {
-            if DOUBLE_PRESS_QUIT_SHORTCUT_ENABLED {
-                if modal_or_popup_active {
-                    self.quit_shortcut_expires_at = None;
-                    self.quit_shortcut_key = None;
-                    self.bottom_pane.clear_quit_shortcut_hint();
-                } else {
-                    self.arm_quit_shortcut(key);
-                }
-            }
-            return;
-        }
-
-        if self.quit_shortcut_uses_immediate_exit {
-            self.request_quit_from_shortcut_without_confirmation();
-            return;
-        }
-
-        if !DOUBLE_PRESS_QUIT_SHORTCUT_ENABLED {
-            if self.is_cancellable_work_active() {
-                self.submit_op(AppCommand::interrupt());
-            } else {
-                self.request_quit_from_shortcut_without_confirmation();
-            }
-            return;
-        }
-
-        if self.quit_shortcut_active_for(key) {
-            self.quit_shortcut_expires_at = None;
-            self.quit_shortcut_key = None;
-            self.request_quit_from_shortcut_without_confirmation();
-            return;
-        }
-
-        self.arm_quit_shortcut(key);
-
-        if self.is_cancellable_work_active() {
-            self.submit_op(AppCommand::interrupt());
-        }
+        let _ = self.bottom_pane.on_ctrl_c();
+        self.bottom_pane.clear_quit_shortcut_hint();
+        self.quit_shortcut_expires_at = None;
+        self.quit_shortcut_key = None;
+        self.request_immediate_exit();
     }
 
     /// Handles a Ctrl+D press at the chat-widget layer.
@@ -10307,11 +10264,6 @@ impl ChatWidget {
             .or_else(|| Some(Instant::now()));
         self.quit_shortcut_key = Some(key);
         self.bottom_pane.show_quit_shortcut_hint(key);
-    }
-
-    // Review mode counts as cancellable work so Ctrl+C interrupts instead of quitting.
-    fn is_cancellable_work_active(&self) -> bool {
-        self.bottom_pane.is_task_running() || self.is_review_mode
     }
 
     fn is_plan_streaming_in_tui(&self) -> bool {

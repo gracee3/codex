@@ -518,10 +518,8 @@ async fn streaming_final_answer_keeps_task_running_state() {
     assert_matches!(op_rx.try_recv(), Err(TryRecvError::Empty));
 
     chat.handle_key_event(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL));
-    match op_rx.try_recv() {
-        Ok(Op::Interrupt) => {}
-        other => panic!("expected Op::Interrupt, got {other:?}"),
-    }
+    assert_matches!(rx.try_recv(), Ok(AppEvent::Exit(ExitMode::Immediate)));
+    assert_matches!(op_rx.try_recv(), Err(TryRecvError::Empty));
     assert!(!chat.bottom_pane.quit_shortcut_hint_visible());
 }
 

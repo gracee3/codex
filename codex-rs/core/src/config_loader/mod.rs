@@ -22,7 +22,6 @@ use dunce::canonicalize as normalize_path;
 use serde::Deserialize;
 use std::io;
 use std::path::Path;
-#[cfg(windows)]
 use std::path::PathBuf;
 use toml::Value as TomlValue;
 
@@ -103,6 +102,7 @@ pub(crate) async fn first_layer_config_error_from_entries(
 /// - admin:    managed preferences (*)
 /// - system    `/etc/codex/config.toml` (Unix) or
 ///   `%ProgramData%\OpenAI\Codex\config.toml` (Windows)
+/// - tt        `$TT_HOME/config.toml` when TT activation exports a repo defaults folder
 /// - user      `${CODEX_HOME}/config.toml`
 /// - cwd       `${PWD}/config.toml` (loaded but disabled when the directory is untrusted)
 /// - tree      parent directories up to root looking for `./.codex/config.toml` (loaded but disabled when untrusted)
@@ -183,6 +183,12 @@ pub async fn load_config_layers_state(
         })
         .await?;
     layers.push(system_layer);
+
+    if let Some(tt_layer) =
+        load_tt_layer(codex_home, cwd.as_ref().map(AbsolutePathBuf::as_path)).await?
+    {
+        layers.push(tt_layer);
+    }
 
     // Add a layer for $CODEX_HOME/config.toml if it exists. Note if the file
     // exists, but is malformed, then this error should be propagated to the
@@ -354,6 +360,53 @@ async fn load_config_toml_for_required_layer(
     }?;
 
     Ok(create_entry(toml_value))
+}
+
+async fn load_tt_layer(
+    codex_home: &Path,
+    cwd: Option<&Path>,
+) -> io::Result<Option<ConfigLayerEntry>> {
+    let tt_home = match std::env::var_os("TT_HOME") {
+        Some(tt_home) => PathBuf::from(tt_home),
+        None => return Ok(None),
+    };
+    let Some(tt_repo_root) = std::env::var_os("TT_REPO_ROOT").map(PathBuf::from) else {
+        return Ok(None);
+    };
+
+    if !path_is_within(codex_home, &tt_repo_root)
+        && !cwd.is_some_and(|cwd| path_is_within(cwd, &tt_repo_root))
+    {
+        return Ok(None);
+    }
+
+    let tt_home_metadata = tokio::fs::metadata(&tt_home).await;
+    if !matches!(tt_home_metadata, Ok(metadata) if metadata.is_dir()) {
+        return Ok(None);
+    }
+
+    let folder = AbsolutePathBuf::from_absolute_path(&tt_home)?;
+    let config_file = folder.join(CONFIG_TOML_FILE);
+    let entry = load_config_toml_for_required_layer(&config_file, |config_toml| {
+        ConfigLayerEntry::new(
+            ConfigLayerSource::Tt {
+                folder: folder.clone(),
+            },
+            config_toml,
+        )
+    })
+    .await?;
+    Ok(Some(entry))
+}
+
+fn path_is_within(path: &Path, root: &Path) -> bool {
+    let Ok(path) = normalize_path(path) else {
+        return false;
+    };
+    let Ok(root) = normalize_path(root) else {
+        return false;
+    };
+    path == root || path.starts_with(&root)
 }
 
 /// If available, apply requirements from the platform system

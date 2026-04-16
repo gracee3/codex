@@ -41,6 +41,7 @@ use crate::config_rules::resolve_disabled_skill_paths;
 use crate::config_rules::skill_config_rules_from_stack;
 use crate::loader::SkillRoot;
 use crate::loader::load_skills_from_roots;
+use codex_app_server_protocol::ConfigLayerSource;
 use codex_app_server_protocol::ConfigValueWriteParams;
 use codex_app_server_protocol::MergeStrategy;
 use codex_config::types::McpServerConfig;
@@ -1196,6 +1197,16 @@ impl PluginsManager {
             config,
             self.codex_home.as_path(),
         ));
+        for layer in config.config_layer_stack.get_layers(
+            codex_config::ConfigLayerStackOrdering::LowestPrecedenceFirst,
+            /*include_disabled*/ false,
+        ) {
+            if let ConfigLayerSource::Tt { .. } = &layer.name
+                && let Some(folder) = layer.config_folder()
+            {
+                roots.push(folder);
+            }
+        }
         let curated_repo_root = curated_plugins_repo_path(self.codex_home.as_path());
         if curated_repo_root.is_dir()
             && let Ok(curated_repo_root) = AbsolutePathBuf::try_from(curated_repo_root)

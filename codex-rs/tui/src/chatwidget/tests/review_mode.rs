@@ -960,12 +960,12 @@ async fn replaced_turn_clears_pending_steers_but_keeps_queued_drafts() {
 }
 
 #[tokio::test]
-async fn ctrl_c_shutdown_works_with_caps_lock() {
+async fn ctrl_c_closes_immediately_with_caps_lock() {
     let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
 
     chat.handle_key_event(KeyEvent::new(KeyCode::Char('C'), KeyModifiers::CONTROL));
 
-    assert_matches!(rx.try_recv(), Ok(AppEvent::Exit(ExitMode::ShutdownFirst)));
+    assert_matches!(rx.try_recv(), Ok(AppEvent::Exit(ExitMode::Immediate)));
 }
 
 #[tokio::test]

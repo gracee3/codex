@@ -6634,6 +6634,27 @@
             "type": "object"
           },
           {
+            "description": "Repo-scoped TT defaults layer from `$TT_HOME`.",
+            "properties": {
+              "folder": {
+                "$ref": "#/definitions/v2/AbsolutePathBuf"
+              },
+              "type": {
+                "enum": [
+                  "tt"
+                ],
+                "title": "TtConfigLayerSourceType",
+                "type": "string"
+              }
+            },
+            "required": [
+              "folder",
+              "type"
+            ],
+            "title": "TtConfigLayerSource",
+            "type": "object"
+          },
+          {
             "description": "Session-layer overrides supplied via `-c`/`--config`.",
             "properties": {
               "type": {
