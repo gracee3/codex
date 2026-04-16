@@ -1,3 +1,5 @@
+use crate::memories::extensions::EXTENSION_RESOURCE_RETENTION_DAYS;
+use crate::memories::extensions::RemovedExtensionResource;
 use crate::memories::memory_root;
 use crate::memories::phase_one;
 use crate::memories::storage::rollout_summary_file_stem_from_parts;
@@ -43,9 +45,11 @@ fn parse_embedded_template(source: &'static str, template_name: &str) -> Templat
 pub(super) fn build_consolidation_prompt(
     memory_root: &Path,
     selection: &Phase2InputSelection,
+    removed_extension_resources: &[RemovedExtensionResource],
 ) -> String {
     let memory_root = memory_root.display().to_string();
-    let phase2_input_selection = render_phase2_input_selection(selection);
+    let phase2_input_selection =
+        render_phase2_input_selection(selection, removed_extension_resources);
     CONSOLIDATION_PROMPT_TEMPLATE
         .render([
             ("memory_root", memory_root.as_str()),
@@ -59,7 +63,10 @@ pub(super) fn build_consolidation_prompt(
     })
 }
 
-fn render_phase2_input_selection(selection: &Phase2InputSelection) -> String {
+fn render_phase2_input_selection(
+    selection: &Phase2InputSelection,
+    removed_extension_resources: &[RemovedExtensionResource],
+) -> String {
     let retained = selection.retained_thread_ids.len();
     let added = selection.selected.len().saturating_sub(retained);
     let selected = if selection.selected.is_empty() {
@@ -88,11 +95,41 @@ fn render_phase2_input_selection(selection: &Phase2InputSelection) -> String {
             .join("\n")
     };
 
-    format!(
+    let mut rendered = format!(
         "- selected inputs this run: {}\n- newly added since the last successful Phase 2 run: {added}\n- retained from the last successful Phase 2 run: {retained}\n- removed from the last successful Phase 2 run: {}\n\nCurrent selected Phase 1 inputs:\n{selected}\n\nRemoved from the last successful Phase 2 selection:\n{removed}\n",
         selection.selected.len(),
         selection.removed.len(),
-    )
+    );
+    let rendered_extension_resources =
+        render_removed_extension_resources(removed_extension_resources);
+    if !rendered_extension_resources.is_empty() {
+        rendered.push('\n');
+        rendered.push_str(&rendered_extension_resources);
+        rendered.push('\n');
+    }
+    rendered
+}
+
+fn render_removed_extension_resources(
+    removed_extension_resources: &[RemovedExtensionResource],
+) -> String {
+    if removed_extension_resources.is_empty() {
+        return String::new();
+    }
+
+    let mut rendered = format!(
+        "Memory extension resources removed by retention pruning:\n- retention window: {} days",
+        EXTENSION_RESOURCE_RETENTION_DAYS
+    );
+    let mut current_extension = None;
+    for resource in removed_extension_resources {
+        if current_extension.as_ref() != Some(&resource.extension) {
+            rendered.push_str(&format!("\n- extension: {}", resource.extension));
+            current_extension = Some(resource.extension.clone());
+        }
+        rendered.push_str(&format!("\n  - {}", resource.resource_path));
+    }
+    rendered
 }
 
 fn render_selected_input_line(item: &Stage1Output, retained: bool) -> String {

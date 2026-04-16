@@ -1,4 +1,5 @@
 use super::*;
+use crate::memories::extensions::RemovedExtensionResource;
 use codex_models_manager::model_info::model_info_from_slug;
 use pretty_assertions::assert_eq;
 use tempfile::tempdir;
@@ -55,12 +56,32 @@ fn build_stage_one_input_message_uses_default_limit_when_model_context_window_mi
 
 #[test]
 fn build_consolidation_prompt_renders_embedded_template() {
-    let prompt =
-        build_consolidation_prompt(Path::new("/tmp/memories"), &Phase2InputSelection::default());
+    let prompt = build_consolidation_prompt(
+        Path::new("/tmp/memories"),
+        &Phase2InputSelection::default(),
+        &[],
+    );
 
     assert!(prompt.contains("Folder structure (under /tmp/memories/):"));
     assert!(prompt.contains("**Diff since last consolidation:**"));
     assert!(prompt.contains("- selected inputs this run: 0"));
+}
+
+#[test]
+fn build_consolidation_prompt_includes_removed_extension_resources() {
+    let prompt = build_consolidation_prompt(
+        Path::new("/tmp/memories"),
+        &Phase2InputSelection::default(),
+        &[RemovedExtensionResource {
+            extension: "telepathy".to_string(),
+            resource_path: "resources/2026-04-08T12-00-00-abcd-10min-old.md".to_string(),
+        }],
+    );
+
+    assert!(prompt.contains("Memory extension resources removed by retention pruning:"));
+    assert!(prompt.contains("- retention window: 7 days"));
+    assert!(prompt.contains("- extension: telepathy"));
+    assert!(prompt.contains("  - resources/2026-04-08T12-00-00-abcd-10min-old.md"));
 }
 
 #[tokio::test]
