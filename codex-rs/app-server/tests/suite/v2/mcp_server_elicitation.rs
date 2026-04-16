@@ -6,6 +6,7 @@ use app_test_support::ChatGptAuthFixture;
 use app_test_support::McpProcess;
 use app_test_support::to_response;
 use app_test_support::write_chatgpt_auth;
+use app_test_support::write_models_cache;
 use axum::Json;
 use axum::Router;
 use axum::extract::State;
@@ -67,8 +68,8 @@ const DEFAULT_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs
 const CONNECTOR_ID: &str = "calendar";
 const CONNECTOR_NAME: &str = "Calendar";
 const TOOL_NAMESPACE: &str = "mcp__codex_apps__calendar";
-const CALLABLE_TOOL_NAME: &str = "_confirm_action";
 const TOOL_NAME: &str = "calendar_confirm_action";
+const CALLABLE_TOOL_NAME: &str = "_confirm_action";
 const TOOL_CALL_ID: &str = "call-calendar-confirm";
 const ELICITATION_MESSAGE: &str = "Allow this request?";
 
@@ -115,6 +116,7 @@ async fn mcp_server_elicitation_round_trip() -> Result<()> {
             .chatgpt_account_id("account-123"),
         AuthCredentialsStoreMode::File,
     )?;
+    write_models_cache(codex_home.path())?;
 
     let mut mcp = McpProcess::new(codex_home.path()).await?;
     timeout(DEFAULT_READ_TIMEOUT, mcp.initialize()).await??;
@@ -450,7 +452,7 @@ async fn list_directory_connectors(
                 "app_metadata": null,
                 "labels": null,
                 "install_url": null,
-                "is_accessible": false,
+                "is_accessible": true,
                 "is_enabled": true
             }],
             "next_token": null

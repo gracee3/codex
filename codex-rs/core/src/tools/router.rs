@@ -16,6 +16,7 @@ use codex_protocol::models::SearchToolCallParams;
 use codex_protocol::models::ShellToolCallParams;
 use codex_tools::ConfiguredToolSpec;
 use codex_tools::DiscoverableTool;
+use codex_tools::ToolName;
 use codex_tools::ToolNamespace;
 use codex_tools::ToolSpec;
 use codex_tools::ToolsConfig;
@@ -28,8 +29,7 @@ pub use crate::tools::context::ToolCallSource;
 
 #[derive(Clone, Debug)]
 pub struct ToolCall {
-    pub tool_name: String,
-    pub tool_namespace: Option<String>,
+    pub tool_name: ToolName,
     pub call_id: String,
     pub payload: ToolPayload,
 }
@@ -65,7 +65,7 @@ pub(crate) fn map_mcp_tool_infos(mcp_tools: &HashMap<String, ToolInfo>) -> McpTo
                 (
                     name.clone(),
                     ToolNamespace {
-                        name: tool.tool_namespace.clone(),
+                        name: tool.callable_namespace.clone(),
                         description: tool.server_instructions.clone(),
                     },
                 )
@@ -145,9 +145,12 @@ impl ToolRouter {
                 ..
             } => {
                 if let Some((server, tool)) = session.parse_mcp_tool_name(&name, &namespace).await {
+                    let registered_name = ToolName::plain(match namespace.as_ref() {
+                        Some(namespace) => format!("{namespace}{name}"),
+                        None => name.clone(),
+                    });
                     Ok(Some(ToolCall {
-                        tool_name: name,
-                        tool_namespace: namespace,
+                        tool_name: registered_name,
                         call_id,
                         payload: ToolPayload::Mcp {
                             server,
@@ -157,8 +160,7 @@ impl ToolRouter {
                     }))
                 } else {
                     Ok(Some(ToolCall {
-                        tool_name: name,
-                        tool_namespace: namespace,
+                        tool_name: ToolName::new(namespace, name),
                         call_id,
                         payload: ToolPayload::Function { arguments },
                     }))
@@ -177,8 +179,7 @@ impl ToolRouter {
                         ))
                     })?;
                 Ok(Some(ToolCall {
-                    tool_name: "tool_search".to_string(),
-                    tool_namespace: None,
+                    tool_name: ToolName::plain("tool_search"),
                     call_id,
                     payload: ToolPayload::ToolSearch { arguments },
                 }))
@@ -190,8 +191,7 @@ impl ToolRouter {
                 call_id,
                 ..
             } => Ok(Some(ToolCall {
-                tool_name: name,
-                tool_namespace: None,
+                tool_name: ToolName::plain(name),
                 call_id,
                 payload: ToolPayload::Custom { input },
             })),
@@ -217,8 +217,7 @@ impl ToolRouter {
                             justification: None,
                         };
                         Ok(Some(ToolCall {
-                            tool_name: "local_shell".to_string(),
-                            tool_namespace: None,
+                            tool_name: ToolName::plain("local_shell"),
                             call_id,
                             payload: ToolPayload::LocalShell { params },
                         }))
@@ -240,7 +239,6 @@ impl ToolRouter {
     ) -> Result<AnyToolResult, FunctionCallError> {
         let ToolCall {
             tool_name,
-            tool_namespace,
             call_id,
             payload,
         } = call;
@@ -251,7 +249,6 @@ impl ToolRouter {
             tracker,
             call_id,
             tool_name,
-            tool_namespace,
             payload,
         };
 
