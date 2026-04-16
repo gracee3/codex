@@ -245,14 +245,15 @@ impl MessageProcessor {
             .plugins_manager()
             .maybe_start_plugin_startup_tasks_for_config(&config, auth_manager.clone());
         let config_api = ConfigApi::new(
-            config.codex_home.clone(),
+            config.codex_home.to_path_buf(),
             cli_overrides,
             runtime_feature_enablement,
             loader_overrides,
             cloud_requirements,
             thread_manager,
         );
-        let external_agent_config_api = ExternalAgentConfigApi::new(config.codex_home.clone());
+        let external_agent_config_api =
+            ExternalAgentConfigApi::new(config.codex_home.to_path_buf());
         let fs_api = FsApi::default();
         let fs_watch_manager = FsWatchManager::new(outgoing.clone());
 

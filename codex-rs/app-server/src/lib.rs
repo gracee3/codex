@@ -402,7 +402,7 @@ pub async fn run_main_with_transport(
             cloud_requirements_loader(
                 auth_manager,
                 config.chatgpt_base_url,
-                config.codex_home.clone(),
+                config.codex_home.to_path_buf(),
             )
         }
         Err(err) => {
@@ -763,7 +763,7 @@ pub async fn run_main_with_transport(
                                                 connection_id,
                                                 request,
                                                 transport,
-                                                &mut connection_state.session,
+                                                Arc::make_mut(&mut connection_state.session),
                                             )
                                             .await;
                                         if let Ok(mut opted_out_notification_methods) = connection_state

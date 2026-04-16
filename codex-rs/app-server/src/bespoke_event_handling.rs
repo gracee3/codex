@@ -82,7 +82,8 @@ use codex_app_server_protocol::ThreadRealtimeItemAddedNotification;
 use codex_app_server_protocol::ThreadRealtimeOutputAudioDeltaNotification;
 use codex_app_server_protocol::ThreadRealtimeSdpNotification;
 use codex_app_server_protocol::ThreadRealtimeStartedNotification;
-use codex_app_server_protocol::ThreadRealtimeTranscriptUpdatedNotification;
+use codex_app_server_protocol::ThreadRealtimeTranscriptDeltaNotification;
+use codex_app_server_protocol::ThreadRealtimeTranscriptDoneNotification;
 use codex_app_server_protocol::ThreadRollbackResponse;
 use codex_app_server_protocol::ThreadTokenUsage;
 use codex_app_server_protocol::ThreadTokenUsageUpdatedNotification;
@@ -140,7 +141,6 @@ use codex_sandboxing::policy_transforms::intersect_permission_profiles;
 use codex_shell_command::parse_command::shlex_join;
 use std::collections::HashMap;
 use std::path::Path;
-use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::sync::oneshot;
@@ -157,7 +157,7 @@ enum CommandExecutionApprovalPresentation {
 #[derive(Debug, PartialEq)]
 struct CommandExecutionCompletionItem {
     command: String,
-    cwd: PathBuf,
+    cwd: codex_utils_absolute_path::AbsolutePathBuf,
     command_actions: Vec<V2ParsedCommand>,
 }
 
@@ -388,26 +388,50 @@ pub(crate) async fn apply_bespoke_event_handling(
                             .await;
                     }
                     RealtimeEvent::InputTranscriptDelta(event) => {
-                        let notification = ThreadRealtimeTranscriptUpdatedNotification {
+                        let notification = ThreadRealtimeTranscriptDeltaNotification {
                             thread_id: conversation_id.to_string(),
                             role: "user".to_string(),
-                            text: event.delta,
+                            delta: event.delta,
                         };
                         outgoing
                             .send_server_notification(
-                                ServerNotification::ThreadRealtimeTranscriptUpdated(notification),
+                                ServerNotification::ThreadRealtimeTranscriptDelta(notification),
+                            )
+                            .await;
+                    }
+                    RealtimeEvent::InputTranscriptDone(event) => {
+                        let notification = ThreadRealtimeTranscriptDoneNotification {
+                            thread_id: conversation_id.to_string(),
+                            role: "user".to_string(),
+                            text: event.text,
+                        };
+                        outgoing
+                            .send_server_notification(
+                                ServerNotification::ThreadRealtimeTranscriptDone(notification),
                             )
                             .await;
                     }
                     RealtimeEvent::OutputTranscriptDelta(event) => {
-                        let notification = ThreadRealtimeTranscriptUpdatedNotification {
+                        let notification = ThreadRealtimeTranscriptDeltaNotification {
                             thread_id: conversation_id.to_string(),
                             role: "assistant".to_string(),
-                            text: event.delta,
+                            delta: event.delta,
                         };
                         outgoing
                             .send_server_notification(
-                                ServerNotification::ThreadRealtimeTranscriptUpdated(notification),
+                                ServerNotification::ThreadRealtimeTranscriptDelta(notification),
+                            )
+                            .await;
+                    }
+                    RealtimeEvent::OutputTranscriptDone(event) => {
+                        let notification = ThreadRealtimeTranscriptDoneNotification {
+                            thread_id: conversation_id.to_string(),
+                            role: "assistant".to_string(),
+                            text: event.text,
+                        };
+                        outgoing
+                            .send_server_notification(
+                                ServerNotification::ThreadRealtimeTranscriptDone(notification),
                             )
                             .await;
                     }
@@ -436,6 +460,7 @@ pub(crate) async fn apply_bespoke_event_handling(
                             ))
                             .await;
                     }
+                    RealtimeEvent::ResponseCreated(_) | RealtimeEvent::ResponseDone(_) => {}
                     RealtimeEvent::ConversationItemAdded(item) => {
                         let notification = ThreadRealtimeItemAddedNotification {
                             thread_id: conversation_id.to_string(),
@@ -597,7 +622,7 @@ pub(crate) async fn apply_bespoke_event_handling(
                         call_id: call_id.clone(),
                         approval_id,
                         command,
-                        cwd,
+                        cwd: cwd.to_path_buf(),
                         reason,
                         parsed_cmd,
                     };
@@ -619,7 +644,7 @@ pub(crate) async fn apply_bespoke_event_handling(
                     let command_actions = parsed_cmd
                         .iter()
                         .cloned()
-                        .map(V2ParsedCommand::from)
+                        .map(|parsed| V2ParsedCommand::from_core_with_cwd(parsed, &cwd))
                         .collect::<Vec<_>>();
                     let presentation = if let Some(network_approval_context) =
                         network_approval_context.map(V2NetworkApprovalContext::from)
@@ -1411,7 +1436,7 @@ pub(crate) async fn apply_bespoke_event_handling(
         EventMsg::ViewImageToolCall(view_image_event) => {
             let item = ThreadItem::ImageView {
                 id: view_image_event.call_id.clone(),
-                path: view_image_event.path.to_string_lossy().into_owned(),
+                path: view_image_event.path,
             };
             let started = ItemStartedNotification {
                 thread_id: conversation_id.to_string(),
@@ -1588,7 +1613,9 @@ pub(crate) async fn apply_bespoke_event_handling(
             let command_actions = exec_command_begin_event
                 .parsed_cmd
                 .into_iter()
-                .map(V2ParsedCommand::from)
+                .map(|parsed| {
+                    V2ParsedCommand::from_core_with_cwd(parsed, &exec_command_begin_event.cwd)
+                })
                 .collect::<Vec<_>>();
             let command = shlex_join(&exec_command_begin_event.command);
             let cwd = exec_command_begin_event.cwd;
@@ -1955,7 +1982,7 @@ async fn start_command_execution_item(
     turn_id: String,
     item_id: String,
     command: String,
-    cwd: PathBuf,
+    cwd: codex_utils_absolute_path::AbsolutePathBuf,
     command_actions: Vec<V2ParsedCommand>,
     source: CommandExecutionSource,
     outgoing: &ThreadScopedOutgoingMessageSender,
@@ -1998,7 +2025,7 @@ async fn complete_command_execution_item(
     turn_id: String,
     item_id: String,
     command: String,
-    cwd: PathBuf,
+    cwd: codex_utils_absolute_path::AbsolutePathBuf,
     process_id: Option<String>,
     source: CommandExecutionSource,
     command_actions: Vec<V2ParsedCommand>,
@@ -2968,7 +2995,7 @@ mod tests {
     fn command_execution_completion_item(command: &str) -> CommandExecutionCompletionItem {
         CommandExecutionCompletionItem {
             command: command.to_string(),
-            cwd: PathBuf::from("/tmp"),
+            cwd: AbsolutePathBuf::try_from(PathBuf::from("/tmp")).expect("absolute path"),
             command_actions: vec![V2ParsedCommand::Unknown {
                 command: command.to_string(),
             }],
@@ -2992,15 +3019,18 @@ mod tests {
                 Some(codex_protocol::protocol::GuardianUserAuthorization::Low),
                 Some("too risky".to_string()),
             ),
+            GuardianAssessmentStatus::TimedOut => (None, None, Some("timed out".to_string())),
             GuardianAssessmentStatus::Aborted => (None, None, None),
         };
         GuardianAssessmentEvent {
             id: id.to_string(),
+            target_item_id: Some(id.to_string()),
             turn_id: turn_id.to_string(),
             status,
             risk_level,
             user_authorization,
             rationale,
+            decision_source: None,
             action: serde_json::from_value(json!({
                 "type": "command",
                 "source": "shell",
@@ -3049,18 +3079,20 @@ mod tests {
         let action = codex_protocol::protocol::GuardianAssessmentAction::Command {
             source: codex_protocol::protocol::GuardianCommandSource::Shell,
             command: "rm -rf /tmp/example.sqlite".to_string(),
-            cwd: "/tmp".into(),
+            cwd: AbsolutePathBuf::try_from(PathBuf::from("/tmp")).expect("absolute path"),
         };
         let notification = guardian_auto_approval_review_notification(
             &conversation_id,
             "turn-from-event",
             &GuardianAssessmentEvent {
                 id: "item-1".to_string(),
+                target_item_id: Some("item-1".to_string()),
                 turn_id: String::new(),
                 status: codex_protocol::protocol::GuardianAssessmentStatus::InProgress,
                 risk_level: None,
                 user_authorization: None,
                 rationale: None,
+                decision_source: None,
                 action: action.clone(),
             },
         );
@@ -3069,7 +3101,7 @@ mod tests {
             ServerNotification::ItemGuardianApprovalReviewStarted(payload) => {
                 assert_eq!(payload.thread_id, conversation_id.to_string());
                 assert_eq!(payload.turn_id, "turn-from-event");
-                assert_eq!(payload.target_item_id, "item-1");
+                assert_eq!(payload.target_item_id, Some("item-1".to_string()));
                 assert_eq!(
                     payload.review.status,
                     GuardianApprovalReviewStatus::InProgress
@@ -3089,18 +3121,20 @@ mod tests {
         let action = codex_protocol::protocol::GuardianAssessmentAction::Command {
             source: codex_protocol::protocol::GuardianCommandSource::Shell,
             command: "rm -rf /tmp/example.sqlite".to_string(),
-            cwd: "/tmp".into(),
+            cwd: AbsolutePathBuf::try_from(PathBuf::from("/tmp")).expect("absolute path"),
         };
         let notification = guardian_auto_approval_review_notification(
             &conversation_id,
             "turn-from-event",
             &GuardianAssessmentEvent {
                 id: "item-2".to_string(),
+                target_item_id: Some("item-2".to_string()),
                 turn_id: "turn-from-assessment".to_string(),
                 status: codex_protocol::protocol::GuardianAssessmentStatus::Denied,
                 risk_level: Some(codex_protocol::protocol::GuardianRiskLevel::High),
                 user_authorization: Some(codex_protocol::protocol::GuardianUserAuthorization::Low),
                 rationale: Some("too risky".to_string()),
+                decision_source: None,
                 action: action.clone(),
             },
         );
@@ -3109,7 +3143,7 @@ mod tests {
             ServerNotification::ItemGuardianApprovalReviewCompleted(payload) => {
                 assert_eq!(payload.thread_id, conversation_id.to_string());
                 assert_eq!(payload.turn_id, "turn-from-assessment");
-                assert_eq!(payload.target_item_id, "item-2");
+                assert_eq!(payload.target_item_id, Some("item-2".to_string()));
                 assert_eq!(payload.review.status, GuardianApprovalReviewStatus::Denied);
                 assert_eq!(
                     payload.review.risk_level,
@@ -3140,11 +3174,13 @@ mod tests {
             "turn-from-event",
             &GuardianAssessmentEvent {
                 id: "item-3".to_string(),
+                target_item_id: Some("item-3".to_string()),
                 turn_id: "turn-from-assessment".to_string(),
                 status: codex_protocol::protocol::GuardianAssessmentStatus::Aborted,
                 risk_level: None,
                 user_authorization: None,
                 rationale: None,
+                decision_source: None,
                 action: action.clone(),
             },
         );
@@ -3153,7 +3189,7 @@ mod tests {
             ServerNotification::ItemGuardianApprovalReviewCompleted(payload) => {
                 assert_eq!(payload.thread_id, conversation_id.to_string());
                 assert_eq!(payload.turn_id, "turn-from-assessment");
-                assert_eq!(payload.target_item_id, "item-3");
+                assert_eq!(payload.target_item_id, Some("item-3".to_string()));
                 assert_eq!(payload.review.status, GuardianApprovalReviewStatus::Aborted);
                 assert_eq!(payload.review.risk_level, None);
                 assert_eq!(payload.review.user_authorization, None);
@@ -3316,7 +3352,7 @@ mod tests {
             codex_core::test_support::thread_manager_with_models_provider_and_home(
                 CodexAuth::create_dummy_chatgpt_auth_for_testing(),
                 config.model_provider.clone(),
-                config.codex_home.clone(),
+                config.codex_home.clone().to_path_buf(),
                 Arc::new(codex_exec_server::EnvironmentManager::new(
                     /*exec_server_url*/ None,
                 )),
@@ -3370,7 +3406,10 @@ mod tests {
             OutgoingMessage::AppServerNotification(
                 ServerNotification::ItemGuardianApprovalReviewStarted(payload),
             ) => {
-                assert_eq!(payload.target_item_id, "cmd-guardian-approved");
+                assert_eq!(
+                    payload.target_item_id,
+                    Some("cmd-guardian-approved".to_string())
+                );
                 assert_eq!(
                     payload.review.status,
                     GuardianApprovalReviewStatus::InProgress
@@ -3391,7 +3430,10 @@ mod tests {
             OutgoingMessage::AppServerNotification(
                 ServerNotification::ItemGuardianApprovalReviewCompleted(payload),
             ) => {
-                assert_eq!(payload.target_item_id, "cmd-guardian-approved");
+                assert_eq!(
+                    payload.target_item_id,
+                    Some("cmd-guardian-approved".to_string())
+                );
                 assert_eq!(
                     payload.review.status,
                     GuardianApprovalReviewStatus::Approved
@@ -3428,7 +3470,10 @@ mod tests {
             OutgoingMessage::AppServerNotification(
                 ServerNotification::ItemGuardianApprovalReviewStarted(payload),
             ) => {
-                assert_eq!(payload.target_item_id, "cmd-guardian-denied");
+                assert_eq!(
+                    payload.target_item_id,
+                    Some("cmd-guardian-denied".to_string())
+                );
                 assert_eq!(
                     payload.review.status,
                     GuardianApprovalReviewStatus::InProgress
@@ -3449,7 +3494,10 @@ mod tests {
             OutgoingMessage::AppServerNotification(
                 ServerNotification::ItemGuardianApprovalReviewCompleted(payload),
             ) => {
-                assert_eq!(payload.target_item_id, "cmd-guardian-denied");
+                assert_eq!(
+                    payload.target_item_id,
+                    Some("cmd-guardian-denied".to_string())
+                );
                 assert_eq!(payload.review.status, GuardianApprovalReviewStatus::Denied);
             }
             other => bail!("unexpected message: {other:?}"),

@@ -697,12 +697,22 @@ mod tests {
     use codex_app_server_protocol::TurnStatus;
     use codex_core::config::ConfigBuilder;
     use pretty_assertions::assert_eq;
+    use tempfile::TempDir;
 
     async fn build_test_config() -> Config {
-        match ConfigBuilder::default().build().await {
+        let codex_home = TempDir::new().expect("temp codex home");
+        let codex_home_path = codex_home.path().to_path_buf();
+        std::mem::forget(codex_home);
+        match ConfigBuilder::default()
+            .codex_home(codex_home_path.clone())
+            .build()
+            .await
+        {
             Ok(config) => config,
-            Err(_) => Config::load_default_with_cli_overrides(Vec::new())
-                .expect("default config should load"),
+            Err(_) => {
+                Config::load_default_with_cli_overrides_for_codex_home(codex_home_path, Vec::new())
+                    .expect("isolated test config should load")
+            }
         }
     }
 

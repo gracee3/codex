@@ -800,8 +800,8 @@ mod tests {
             updated_at: 0,
             status: ThreadStatus::NotLoaded,
             path: None,
-            cwd: PathBuf::from("/tmp"),
-            workspace: None,
+            cwd: codex_utils_absolute_path::AbsolutePathBuf::try_from(PathBuf::from("/tmp"))
+                .expect("absolute test cwd"),
             cli_version: "test".to_string(),
             agent_nickname: None,
             agent_role: None,

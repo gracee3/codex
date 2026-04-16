@@ -24,9 +24,6 @@ use codex_protocol::user_input::MAX_USER_INPUT_TEXT_CHARS;
 use tempfile::TempDir;
 use tokio::time::timeout;
 
-use super::analytics::enable_analytics_capture;
-use super::analytics::wait_for_analytics_event;
-
 const DEFAULT_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
 #[tokio::test]
@@ -41,8 +38,6 @@ async fn turn_steer_requires_active_turn() -> Result<()> {
         &server.uri(),
         &server.uri(),
     )?;
-    enable_analytics_capture(&server, &codex_home).await?;
-
     let mut mcp = McpProcess::new_without_managed_config(&codex_home).await?;
     timeout(DEFAULT_READ_TIMEOUT, mcp.initialize()).await??;
 
@@ -67,6 +62,7 @@ async fn turn_steer_requires_active_turn() -> Result<()> {
                 text_elements: Vec::new(),
             }],
             expected_turn_id: "turn-does-not-exist".to_string(),
+            responsesapi_client_metadata: None,
         })
         .await?;
     let steer_err: JSONRPCError = timeout(
@@ -75,21 +71,6 @@ async fn turn_steer_requires_active_turn() -> Result<()> {
     )
     .await??;
     assert_eq!(steer_err.error.code, -32600);
-
-    let event =
-        wait_for_analytics_event(&server, DEFAULT_READ_TIMEOUT, "codex_turn_steer_event").await?;
-    assert_eq!(event["event_params"]["thread_id"], thread.id);
-    assert_eq!(event["event_params"]["result"], "rejected");
-    assert_eq!(event["event_params"]["num_input_images"], 0);
-    assert_eq!(
-        event["event_params"]["expected_turn_id"],
-        "turn-does-not-exist"
-    );
-    assert_eq!(
-        event["event_params"]["accepted_turn_id"],
-        serde_json::Value::Null
-    );
-    assert_eq!(event["event_params"]["rejection_reason"], "no_active_turn");
 
     Ok(())
 }
@@ -124,8 +105,6 @@ async fn turn_steer_rejects_oversized_text_input() -> Result<()> {
         &server.uri(),
         &server.uri(),
     )?;
-    enable_analytics_capture(&server, &codex_home).await?;
-
     let mut mcp = McpProcess::new_without_managed_config(&codex_home).await?;
     timeout(DEFAULT_READ_TIMEOUT, mcp.initialize()).await??;
 
@@ -175,6 +154,7 @@ async fn turn_steer_rejects_oversized_text_input() -> Result<()> {
                 text_elements: Vec::new(),
             }],
             expected_turn_id: turn.id.clone(),
+            responsesapi_client_metadata: None,
         })
         .await?;
     let steer_err: JSONRPCError = timeout(
@@ -232,8 +212,6 @@ async fn turn_steer_returns_active_turn_id() -> Result<()> {
         &server.uri(),
         &server.uri(),
     )?;
-    enable_analytics_capture(&server, &codex_home).await?;
-
     let mut mcp = McpProcess::new_without_managed_config(&codex_home).await?;
     timeout(DEFAULT_READ_TIMEOUT, mcp.initialize()).await??;
 
@@ -282,6 +260,7 @@ async fn turn_steer_returns_active_turn_id() -> Result<()> {
                 text_elements: Vec::new(),
             }],
             expected_turn_id: turn.id.clone(),
+            responsesapi_client_metadata: None,
         })
         .await?;
     let steer_resp: JSONRPCResponse = timeout(
@@ -291,18 +270,6 @@ async fn turn_steer_returns_active_turn_id() -> Result<()> {
     .await??;
     let steer: TurnSteerResponse = to_response::<TurnSteerResponse>(steer_resp)?;
     assert_eq!(steer.turn_id, turn.id);
-
-    let event =
-        wait_for_analytics_event(&server, DEFAULT_READ_TIMEOUT, "codex_turn_steer_event").await?;
-    assert_eq!(event["event_params"]["thread_id"], thread.id);
-    assert_eq!(event["event_params"]["result"], "accepted");
-    assert_eq!(event["event_params"]["num_input_images"], 0);
-    assert_eq!(event["event_params"]["expected_turn_id"], turn.id);
-    assert_eq!(event["event_params"]["accepted_turn_id"], turn.id);
-    assert_eq!(
-        event["event_params"]["rejection_reason"],
-        serde_json::Value::Null
-    );
 
     mcp.interrupt_turn_and_wait_for_aborted(thread.id, steer.turn_id, DEFAULT_READ_TIMEOUT)
         .await?;

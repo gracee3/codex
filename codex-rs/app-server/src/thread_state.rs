@@ -307,7 +307,6 @@ impl ThreadStateManager {
         true
     }
 
-    #[cfg(test)]
     pub(crate) async fn has_subscribers(&self, thread_id: ThreadId) -> bool {
         self.state
             .lock()

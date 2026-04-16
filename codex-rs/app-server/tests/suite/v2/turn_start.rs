@@ -1394,6 +1394,7 @@ async fn turn_start_updates_sandbox_and_cwd_between_turns_v2() -> Result<()> {
             personality: None,
             output_schema: None,
             collaboration_mode: None,
+            responsesapi_client_metadata: None,
         })
         .await?;
     timeout(
@@ -1427,6 +1428,7 @@ async fn turn_start_updates_sandbox_and_cwd_between_turns_v2() -> Result<()> {
             personality: None,
             output_schema: None,
             collaboration_mode: None,
+            responsesapi_client_metadata: None,
         })
         .await?;
     timeout(
@@ -1461,7 +1463,7 @@ async fn turn_start_updates_sandbox_and_cwd_between_turns_v2() -> Result<()> {
     else {
         unreachable!("loop ensures we break on command execution items");
     };
-    assert_eq!(cwd, second_cwd);
+    assert_eq!(cwd.to_path_buf(), second_cwd);
     let expected_command = format_with_current_shell_display("echo second turn");
     assert_eq!(command, expected_command);
     assert_eq!(status, CommandExecutionStatus::InProgress);
