@@ -5,8 +5,9 @@ This repository supports a Linux x86_64 Cargo workflow only.
 The supported local workflow is:
 
 - build or install `tt`
+- create a TT workspace with `tt clone`
 - start the detached TT runtime
-- attach to Director with `tt open`
+- attach to the supervisor view with `tt open`
 
 ### System requirements
 
@@ -50,10 +51,11 @@ just install
 
 ### TT runtime workflow
 
-From the repository you want TT to manage:
+Create and use a TT workspace:
 
 ```bash
-tt init
+tt clone <repo-url>
+cd <workspace>/primary
 tt start
 tt open
 ```
@@ -61,8 +63,10 @@ tt open
 Useful follow-up commands:
 
 ```bash
+tt worker add feature-a
+tt worker list
+tt worker attach feature-a
 tt status
-tt attach developer
 tt auto on
 tt auto off
 tt pause

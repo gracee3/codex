@@ -1,22 +1,25 @@
 mod runtime;
 
+use std::path::Path;
 use std::path::PathBuf;
+use std::process::Command;
 
 use anyhow::Context;
 use anyhow::Result;
+use clap::Args;
 use clap::Parser;
 use clap::Subcommand;
-use clap::ValueEnum;
 use codex_arg0::Arg0DispatchPaths;
 use codex_arg0::arg0_dispatch_or_else;
-use codex_git_utils::get_git_repo_root;
-use codex_tt_core::ProjectPaths;
-use codex_tt_core::Role;
+use codex_tt_core::DefaultView;
 use codex_tt_core::TtState;
+use codex_tt_core::WorkerKind;
+use codex_tt_core::WorkerRecord;
+use codex_tt_core::WorkspacePaths;
 use codex_tt_core::activate_tt_env;
 use codex_tt_core::append_log;
 use codex_tt_core::default_log_event;
-use codex_tt_core::ensure_project_artifacts;
+use codex_tt_core::ensure_workspace_artifacts;
 use codex_tt_core::load_state;
 use codex_tt_core::save_state;
 use codex_tui::AppExitInfo;
@@ -24,6 +27,7 @@ use codex_tui::Cli as TuiCli;
 use codex_tui::ExitReason;
 use codex_utils_cli::CliConfigOverrides;
 
+use crate::runtime::ensure_runtime_worker_thread;
 use crate::runtime::reconcile_runtime_state;
 use crate::runtime::run_daemon;
 use crate::runtime::start_daemon;
@@ -33,68 +37,75 @@ use crate::runtime::stop_daemon;
 #[command(name = "tt", version, about = "TT orchestration CLI")]
 struct Cli {
     #[command(subcommand)]
-    command: Command,
+    command: CommandKind,
 }
 
 #[derive(Debug, Subcommand)]
-enum Command {
-    Init,
+enum CommandKind {
+    Clone {
+        repo_url: String,
+        dir: Option<PathBuf>,
+    },
     Start,
     Stop,
     Open,
     Status,
-    Attach {
-        role: RoleArg,
-    },
     Auto {
-        state: ToggleArg,
+        #[arg(value_parser = ["on", "off"])]
+        state: String,
     },
     Pause,
+    Worker {
+        #[command(subcommand)]
+        command: WorkerCommand,
+    },
     #[command(hide = true)]
     Daemon {
         #[arg(long)]
-        repo_root: PathBuf,
+        workspace_root: PathBuf,
     },
 }
 
-#[derive(Debug, Clone, Copy, ValueEnum)]
-enum RoleArg {
-    Director,
-    Developer,
+#[derive(Debug, Subcommand)]
+enum WorkerCommand {
+    Add(WorkerAddArgs),
+    List,
+    Attach { name: String },
 }
 
-impl From<RoleArg> for Role {
-    fn from(value: RoleArg) -> Self {
-        match value {
-            RoleArg::Director => Role::Director,
-            RoleArg::Developer => Role::Developer,
-        }
-    }
+#[derive(Debug, Args)]
+struct WorkerAddArgs {
+    name: String,
 }
 
-#[derive(Debug, Clone, Copy, ValueEnum)]
-enum ToggleArg {
-    On,
-    Off,
-}
-
-fn project_paths_for_current_dir() -> Result<ProjectPaths> {
+fn workspace_paths_for_current_dir() -> Result<WorkspacePaths> {
     let cwd = std::env::current_dir().context("resolve current directory")?;
-    let repo_root = get_git_repo_root(&cwd).unwrap_or(cwd);
-    Ok(ProjectPaths::new(repo_root))
+    WorkspacePaths::discover_from(&cwd)
+        .with_context(|| format!("no TT workspace found from {}", cwd.display()))
 }
 
-fn role_thread_id(state: &TtState, role: Role) -> Option<&str> {
-    match role {
-        Role::Director => state.director_thread_id.as_deref(),
-        Role::Developer => state.developer_thread_id.as_deref(),
-    }
-}
+fn status_output(paths: &WorkspacePaths, state: &TtState) -> String {
+    let worker_lines = if state.workers.is_empty() {
+        "workers: <none>\n".to_string()
+    } else {
+        let mut output = String::from("workers:\n");
+        for worker in &state.workers {
+            let thread_id = worker.thread_id.as_deref().unwrap_or("<missing>");
+            output.push_str(&format!(
+                "  - {} [{}] cwd={} thread_id={}\n",
+                worker.name,
+                worker.kind.as_str(),
+                worker.cwd.display(),
+                thread_id
+            ));
+        }
+        output
+    };
 
-fn status_output(paths: &ProjectPaths, state: &TtState) -> String {
     format!(
-        "repo: {}\nview: {}\nruntime_running: {}\nruntime_pid: {}\nruntime_websocket_url: {}\nauto_loop: {}\noperator_pause: {}\ndirector_thread_id: {}\ndeveloper_thread_id: {}\nactive_dispatch_id: {}\npending_director_evaluation: {}\npending_developer_dispatch: {}\n",
-        paths.repo_root().display(),
+        "workspace: {}\nprimary: {}\nview: {}\nruntime_running: {}\nruntime_pid: {}\nruntime_websocket_url: {}\nauto_loop: {}\noperator_pause: {}\nsupervisor_thread_id: {}\nactive_dispatch_id: {}\npending_director_evaluation: {}\npending_developer_dispatch: {}\n{}",
+        paths.workspace_root().display(),
+        paths.primary_checkout().display(),
         state.default_view,
         state.runtime_running,
         state
@@ -104,23 +115,47 @@ fn status_output(paths: &ProjectPaths, state: &TtState) -> String {
         state.runtime_websocket_url.as_deref().unwrap_or("<none>"),
         state.auto_loop,
         state.operator_pause,
-        state.director_thread_id.as_deref().unwrap_or("<missing>"),
-        state.developer_thread_id.as_deref().unwrap_or("<missing>"),
+        state.supervisor_thread_id.as_deref().unwrap_or("<missing>"),
         state.active_dispatch_id.as_deref().unwrap_or("<none>"),
         state.pending_director_evaluation,
-        state.pending_developer_dispatch
+        state.pending_developer_dispatch,
+        worker_lines
     )
+}
+
+fn default_view_target(state: &TtState) -> Result<(&str, &Path)> {
+    match &state.default_view {
+        DefaultView::Supervisor => Ok((
+            state
+                .supervisor_thread_id
+                .as_deref()
+                .context("missing supervisor thread id in TT state")?,
+            Path::new("."),
+        )),
+        DefaultView::Worker { name } => {
+            let worker = state
+                .workers
+                .iter()
+                .find(|worker| worker.name == *name)
+                .with_context(|| format!("missing TT worker `{name}` in state"))?;
+            Ok((
+                worker
+                    .thread_id
+                    .as_deref()
+                    .with_context(|| format!("missing TT worker `{name}` thread id"))?,
+                worker.cwd.as_path(),
+            ))
+        }
+    }
 }
 
 async fn run_tt_tui(
     arg0_paths: Arg0DispatchPaths,
-    project_paths: &ProjectPaths,
-    role: Role,
-    state: &mut TtState,
+    workspace_paths: &WorkspacePaths,
+    resume_thread_id: String,
+    cwd: PathBuf,
 ) -> Result<()> {
-    let thread_id = role_thread_id(state, role)
-        .with_context(|| format!("missing {} thread id in TT state", role.as_str()))?
-        .to_string();
+    let state = load_state(workspace_paths)?;
     let websocket_url = state
         .runtime_websocket_url
         .clone()
@@ -131,7 +166,7 @@ async fn run_tt_tui(
         images: Vec::new(),
         resume_picker: false,
         resume_last: false,
-        resume_session_id: Some(thread_id.clone()),
+        resume_session_id: Some(resume_thread_id.clone()),
         resume_show_all: false,
         resume_include_non_interactive: false,
         fork_picker: false,
@@ -146,21 +181,20 @@ async fn run_tt_tui(
         approval_policy: None,
         full_auto: false,
         dangerously_bypass_approvals_and_sandbox: false,
-        cwd: Some(project_paths.repo_root().to_path_buf()),
+        cwd: Some(cwd),
         web_search: false,
         add_dir: Vec::new(),
         no_alt_screen: false,
         config_overrides: CliConfigOverrides::default(),
     };
 
-    state.default_view = role;
-    save_state(project_paths, state)?;
     append_log(
-        project_paths,
+        workspace_paths,
         default_log_event(
             "attached",
-            Some(role),
-            Some(thread_id),
+            None,
+            None,
+            Some(resume_thread_id),
             Some("operator attached via tt".to_string()),
         ),
     )?;
@@ -183,8 +217,8 @@ fn handle_tui_exit(exit_info: AppExitInfo) -> Result<()> {
     }
 }
 
-async fn require_running_state(project_paths: &ProjectPaths) -> Result<TtState> {
-    let state = reconcile_runtime_state(project_paths).await?;
+async fn require_running_state(workspace_paths: &WorkspacePaths) -> Result<TtState> {
+    let state = reconcile_runtime_state(workspace_paths).await?;
     if state.runtime_running {
         Ok(state)
     } else {
@@ -192,65 +226,276 @@ async fn require_running_state(project_paths: &ProjectPaths) -> Result<TtState> 
     }
 }
 
+fn infer_workspace_dir(repo_url: &str) -> Result<PathBuf> {
+    let last_segment = repo_url
+        .rsplit(['/', ':'])
+        .next()
+        .filter(|segment| !segment.is_empty())
+        .context("unable to infer workspace name from repo URL")?;
+    let workspace_name = last_segment
+        .strip_suffix(".git")
+        .unwrap_or(last_segment)
+        .trim();
+    if workspace_name.is_empty() {
+        anyhow::bail!("repo URL does not produce a usable workspace name");
+    }
+    Ok(PathBuf::from(workspace_name))
+}
+
+fn run_git(current_dir: &Path, args: &[&str]) -> Result<()> {
+    let output = Command::new("git")
+        .args(args)
+        .current_dir(current_dir)
+        .output()
+        .with_context(|| format!("run git {}", args.join(" ")))?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        anyhow::bail!(
+            "git {} failed:\nstdout:\n{}\nstderr:\n{}",
+            args.join(" "),
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+}
+
+fn validate_worker_name(name: &str) -> Result<()> {
+    if name.is_empty() {
+        anyhow::bail!("worker name must not be empty");
+    }
+    if !name
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_')
+    {
+        anyhow::bail!("worker name must use only ASCII letters, numbers, `-`, or `_`");
+    }
+    Ok(())
+}
+
+async fn clone_workspace(repo_url: String, dir: Option<PathBuf>) -> Result<()> {
+    let cwd = std::env::current_dir().context("resolve current directory")?;
+    let workspace_dir = match dir {
+        Some(dir) => dir,
+        None => infer_workspace_dir(&repo_url)?,
+    };
+    let workspace_root = if workspace_dir.is_absolute() {
+        workspace_dir
+    } else {
+        cwd.join(workspace_dir)
+    };
+    if workspace_root.exists() {
+        anyhow::bail!(
+            "workspace destination already exists: {}",
+            workspace_root.display()
+        );
+    }
+
+    std::fs::create_dir_all(&workspace_root)
+        .with_context(|| format!("create workspace root {}", workspace_root.display()))?;
+    let workspace_paths = WorkspacePaths::new(workspace_root.clone());
+    std::fs::create_dir_all(workspace_paths.worktrees_dir()).with_context(|| {
+        format!(
+            "create workspace worktrees dir {}",
+            workspace_paths.worktrees_dir().display()
+        )
+    })?;
+    run_git(
+        &workspace_root,
+        &[
+            "clone",
+            repo_url.as_str(),
+            workspace_paths
+                .primary_checkout()
+                .to_string_lossy()
+                .as_ref(),
+        ],
+    )?;
+    ensure_workspace_artifacts(&workspace_paths)?;
+    activate_tt_env(&workspace_paths);
+    append_log(
+        &workspace_paths,
+        default_log_event(
+            "workspace-cloned",
+            None,
+            None,
+            None,
+            Some(format!(
+                "repo_url={} primary={}",
+                repo_url,
+                workspace_paths.primary_checkout().display()
+            )),
+        ),
+    )?;
+    println!(
+        "cloned TT workspace at {}",
+        workspace_paths.workspace_root().display()
+    );
+    Ok(())
+}
+
+async fn add_worker(
+    arg0_paths: &Arg0DispatchPaths,
+    workspace_paths: &WorkspacePaths,
+    name: String,
+) -> Result<()> {
+    validate_worker_name(&name)?;
+    ensure_workspace_artifacts(workspace_paths)?;
+    let mut state = load_state(workspace_paths)?;
+    if state.workers.iter().any(|worker| worker.name == name) {
+        anyhow::bail!("worker `{name}` already exists");
+    }
+
+    let worker_path = workspace_paths.worker_checkout(&name);
+    if worker_path.exists() {
+        anyhow::bail!(
+            "worker checkout path already exists: {}",
+            worker_path.display()
+        );
+    }
+
+    run_git(
+        &workspace_paths.primary_checkout(),
+        &[
+            "worktree",
+            "add",
+            "--detach",
+            worker_path.to_string_lossy().as_ref(),
+            "HEAD",
+        ],
+    )?;
+
+    state.workers.push(WorkerRecord {
+        name: name.clone(),
+        kind: WorkerKind::Worker,
+        cwd: worker_path.clone(),
+        thread_id: None,
+        instruction_path: None,
+    });
+    save_state(workspace_paths, &state)?;
+
+    if state.runtime_running {
+        let mut state =
+            ensure_runtime_worker_thread(workspace_paths, arg0_paths, name.clone()).await?;
+        state.default_view = DefaultView::Worker { name: name.clone() };
+        save_state(workspace_paths, &state)?;
+    }
+
+    append_log(
+        workspace_paths,
+        default_log_event(
+            "worker-added",
+            None,
+            Some(name.clone()),
+            None,
+            Some(format!("cwd={}", worker_path.display())),
+        ),
+    )?;
+    println!("added worker `{name}` at {}", worker_path.display());
+    Ok(())
+}
+
+fn list_workers(state: &TtState) {
+    if state.workers.is_empty() {
+        println!("no workers registered");
+        return;
+    }
+
+    for worker in &state.workers {
+        println!(
+            "{}\t{}\t{}\t{}",
+            worker.name,
+            worker.kind.as_str(),
+            worker.cwd.display(),
+            worker.thread_id.as_deref().unwrap_or("<missing>")
+        );
+    }
+}
+
+async fn attach_worker(
+    arg0_paths: Arg0DispatchPaths,
+    workspace_paths: &WorkspacePaths,
+    name: String,
+) -> Result<()> {
+    let mut state = require_running_state(workspace_paths).await?;
+    if state
+        .workers
+        .iter()
+        .find(|worker| worker.name == name)
+        .and_then(|worker| worker.thread_id.as_ref())
+        .is_none()
+    {
+        state = ensure_runtime_worker_thread(workspace_paths, &arg0_paths, name.clone()).await?;
+    }
+    let worker = state
+        .workers
+        .iter()
+        .find(|worker| worker.name == name)
+        .with_context(|| format!("unknown worker `{name}`"))?;
+    let thread_id = worker
+        .thread_id
+        .clone()
+        .with_context(|| format!("missing worker `{name}` thread id"))?;
+    state.default_view = DefaultView::Worker { name };
+    save_state(workspace_paths, &state)?;
+    run_tt_tui(arg0_paths, workspace_paths, thread_id, worker.cwd.clone()).await
+}
+
 async fn run(arg0_paths: Arg0DispatchPaths) -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
-        Command::Daemon { repo_root } => {
-            run_daemon(repo_root, arg0_paths).await?;
+        CommandKind::Clone { repo_url, dir } => clone_workspace(repo_url, dir).await?,
+        CommandKind::Daemon { workspace_root } => {
+            run_daemon(workspace_root, arg0_paths).await?;
         }
         command => {
-            let project_paths = project_paths_for_current_dir()?;
-            activate_tt_env(&project_paths);
+            let workspace_paths = workspace_paths_for_current_dir()?;
+            activate_tt_env(&workspace_paths);
             match command {
-                Command::Init => {
-                    ensure_project_artifacts(&project_paths)?;
-                    append_log(
-                        &project_paths,
-                        default_log_event(
-                            "init",
-                            None,
-                            None,
-                            Some("TT project initialized".to_string()),
-                        ),
-                    )?;
-                    println!("initialized TT in {}", project_paths.tt_dir().display());
+                CommandKind::Start => {
+                    let state = start_daemon(&workspace_paths, &arg0_paths).await?;
+                    println!("{}", status_output(&workspace_paths, &state));
                 }
-                Command::Start => {
-                    let state = start_daemon(&project_paths, &arg0_paths).await?;
-                    println!("{}", status_output(&project_paths, &state));
+                CommandKind::Stop => {
+                    let state = stop_daemon(&workspace_paths).await?;
+                    println!("{}", status_output(&workspace_paths, &state));
                 }
-                Command::Stop => {
-                    let state = stop_daemon(&project_paths).await?;
-                    println!("{}", status_output(&project_paths, &state));
+                CommandKind::Open => {
+                    let mut state = require_running_state(&workspace_paths).await?;
+                    let (thread_id, cwd) = default_view_target(&state)?;
+                    let resume_thread_id = thread_id.to_string();
+                    let cwd = if cwd == Path::new(".") {
+                        workspace_paths.workspace_root().to_path_buf()
+                    } else {
+                        cwd.to_path_buf()
+                    };
+                    if matches!(state.default_view, DefaultView::Supervisor) {
+                        state.default_view = DefaultView::Supervisor;
+                        save_state(&workspace_paths, &state)?;
+                    }
+                    run_tt_tui(arg0_paths, &workspace_paths, resume_thread_id, cwd).await?;
                 }
-                Command::Open => {
-                    let mut state = require_running_state(&project_paths).await?;
-                    run_tt_tui(arg0_paths, &project_paths, Role::Director, &mut state).await?;
-                }
-                Command::Status => {
-                    if !project_paths.state_path().exists() {
+                CommandKind::Status => {
+                    if !workspace_paths.state_path().exists() {
                         println!(
-                            "repo: {}\nstate: uninitialized",
-                            project_paths.repo_root().display()
+                            "workspace: {}\nstate: uninitialized",
+                            workspace_paths.workspace_root().display()
                         );
                     } else {
-                        let state = reconcile_runtime_state(&project_paths).await?;
-                        print!("{}", status_output(&project_paths, &state));
+                        let state = reconcile_runtime_state(&workspace_paths).await?;
+                        print!("{}", status_output(&workspace_paths, &state));
                     }
                 }
-                Command::Attach { role } => {
-                    let mut state = require_running_state(&project_paths).await?;
-                    run_tt_tui(arg0_paths, &project_paths, role.into(), &mut state).await?;
-                }
-                Command::Auto { state: toggle } => {
-                    ensure_project_artifacts(&project_paths)?;
-                    let mut state = load_state(&project_paths)?;
-                    state.auto_loop = matches!(toggle, ToggleArg::On);
-                    save_state(&project_paths, &state)?;
+                CommandKind::Auto { state: toggle } => {
+                    ensure_workspace_artifacts(&workspace_paths)?;
+                    let mut state = load_state(&workspace_paths)?;
+                    state.auto_loop = toggle == "on";
+                    save_state(&workspace_paths, &state)?;
                     append_log(
-                        &project_paths,
+                        &workspace_paths,
                         default_log_event(
                             "auto-loop-changed",
+                            None,
                             None,
                             None,
                             Some(format!("auto_loop={}", state.auto_loop)),
@@ -258,15 +503,16 @@ async fn run(arg0_paths: Arg0DispatchPaths) -> Result<()> {
                     )?;
                     println!("auto_loop={}", state.auto_loop);
                 }
-                Command::Pause => {
-                    ensure_project_artifacts(&project_paths)?;
-                    let mut state = load_state(&project_paths)?;
+                CommandKind::Pause => {
+                    ensure_workspace_artifacts(&workspace_paths)?;
+                    let mut state = load_state(&workspace_paths)?;
                     state.operator_pause = !state.operator_pause;
-                    save_state(&project_paths, &state)?;
+                    save_state(&workspace_paths, &state)?;
                     append_log(
-                        &project_paths,
+                        &workspace_paths,
                         default_log_event(
                             "operator-pause-changed",
+                            None,
                             None,
                             None,
                             Some(format!("operator_pause={}", state.operator_pause)),
@@ -274,7 +520,19 @@ async fn run(arg0_paths: Arg0DispatchPaths) -> Result<()> {
                     )?;
                     println!("operator_pause={}", state.operator_pause);
                 }
-                Command::Daemon { .. } => unreachable!(),
+                CommandKind::Worker { command } => match command {
+                    WorkerCommand::Add(args) => {
+                        add_worker(&arg0_paths, &workspace_paths, args.name).await?;
+                    }
+                    WorkerCommand::List => {
+                        let state = load_state(&workspace_paths)?;
+                        list_workers(&state);
+                    }
+                    WorkerCommand::Attach { name } => {
+                        attach_worker(arg0_paths, &workspace_paths, name).await?;
+                    }
+                },
+                CommandKind::Clone { .. } | CommandKind::Daemon { .. } => unreachable!(),
             }
         }
     }

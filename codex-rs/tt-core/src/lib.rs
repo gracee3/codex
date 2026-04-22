@@ -20,12 +20,16 @@ const LOG_FILE: &str = "log.ndjson";
 const ACTIVATE_FILE: &str = "activate";
 const DAEMON_LOG_FILE: &str = "daemon.log";
 const ROLES_DIR: &str = "roles";
+const SUPERVISOR_ROLE_FILE: &str = "supervisor.md";
 const DIRECTOR_ROLE_FILE: &str = "director.md";
 const DEVELOPER_ROLE_FILE: &str = "developer.md";
+const PRIMARY_DIR: &str = "primary";
+const WORKTREES_DIR: &str = "worktrees";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Role {
+    Supervisor,
     Director,
     Developer,
 }
@@ -33,6 +37,7 @@ pub enum Role {
 impl Role {
     pub fn as_str(self) -> &'static str {
         match self {
+            Self::Supervisor => "supervisor",
             Self::Director => "director",
             Self::Developer => "developer",
         }
@@ -46,9 +51,60 @@ impl fmt::Display for Role {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DefaultView {
+    Supervisor,
+    Worker { name: String },
+}
+
+impl fmt::Display for DefaultView {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Supervisor => f.write_str("supervisor"),
+            Self::Worker { name } => write!(f, "worker:{name}"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkerKind {
+    Director,
+    Developer,
+    Worker,
+}
+
+impl WorkerKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Director => "director",
+            Self::Developer => "developer",
+            Self::Worker => "worker",
+        }
+    }
+
+    pub fn preset_role(self) -> Option<Role> {
+        match self {
+            Self::Director => Some(Role::Director),
+            Self::Developer => Some(Role::Developer),
+            Self::Worker => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkerRecord {
+    pub name: String,
+    pub kind: WorkerKind,
+    pub cwd: PathBuf,
+    pub thread_id: Option<String>,
+    pub instruction_path: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TtState {
-    pub director_thread_id: Option<String>,
-    pub developer_thread_id: Option<String>,
+    pub supervisor_thread_id: Option<String>,
+    pub workers: Vec<WorkerRecord>,
     pub runtime_running: bool,
     pub runtime_pid: Option<u32>,
     pub runtime_websocket_url: Option<String>,
@@ -56,7 +112,7 @@ pub struct TtState {
     pub last_runtime_started_at: Option<DateTime<Utc>>,
     pub auto_loop: bool,
     pub operator_pause: bool,
-    pub default_view: Role,
+    pub default_view: DefaultView,
     pub active_dispatch_id: Option<String>,
     pub pending_director_evaluation: bool,
     pub pending_developer_dispatch: bool,
@@ -65,8 +121,8 @@ pub struct TtState {
 impl Default for TtState {
     fn default() -> Self {
         Self {
-            director_thread_id: None,
-            developer_thread_id: None,
+            supervisor_thread_id: None,
+            workers: Vec::new(),
             runtime_running: false,
             runtime_pid: None,
             runtime_websocket_url: None,
@@ -74,7 +130,7 @@ impl Default for TtState {
             last_runtime_started_at: None,
             auto_loop: false,
             operator_pause: false,
-            default_view: Role::Director,
+            default_view: DefaultView::Supervisor,
             active_dispatch_id: None,
             pending_director_evaluation: false,
             pending_developer_dispatch: false,
@@ -113,35 +169,49 @@ pub struct LogEvent {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub role: Option<Role>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub worker_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
 }
 
 #[derive(Debug, Clone)]
-pub struct ProjectPaths {
-    repo_root: PathBuf,
+pub struct WorkspacePaths {
+    workspace_root: PathBuf,
 }
 
-impl ProjectPaths {
-    pub fn new(repo_root: PathBuf) -> Self {
-        Self { repo_root }
+impl WorkspacePaths {
+    pub fn new(workspace_root: PathBuf) -> Self {
+        Self { workspace_root }
     }
 
-    pub fn repo_root(&self) -> &Path {
-        &self.repo_root
+    pub fn workspace_root(&self) -> &Path {
+        &self.workspace_root
     }
 
     pub fn tt_dir(&self) -> PathBuf {
-        self.repo_root.join(TT_DIR)
+        self.workspace_root.join(TT_DIR)
     }
 
     pub fn codex_home(&self) -> PathBuf {
-        self.repo_root.join(CODEX_DIR)
+        self.workspace_root.join(CODEX_DIR)
     }
 
     pub fn runtime_dir(&self) -> PathBuf {
         self.codex_home().join(TT_RUNTIME_DIR)
+    }
+
+    pub fn primary_checkout(&self) -> PathBuf {
+        self.workspace_root.join(PRIMARY_DIR)
+    }
+
+    pub fn worktrees_dir(&self) -> PathBuf {
+        self.workspace_root.join(WORKTREES_DIR)
+    }
+
+    pub fn worker_checkout(&self, name: &str) -> PathBuf {
+        self.worktrees_dir().join(name)
     }
 
     pub fn roles_dir(&self) -> PathBuf {
@@ -174,37 +244,67 @@ impl ProjectPaths {
 
     pub fn role_path(&self, role: Role) -> PathBuf {
         self.roles_dir().join(match role {
+            Role::Supervisor => SUPERVISOR_ROLE_FILE,
             Role::Director => DIRECTOR_ROLE_FILE,
             Role::Developer => DEVELOPER_ROLE_FILE,
         })
     }
-}
 
-pub fn activate_tt_env(paths: &ProjectPaths) {
-    let codex_home = paths.codex_home();
-    let tt_home = paths.tt_dir();
-    let repo_root = paths.repo_root().to_path_buf();
+    pub fn is_workspace_root(path: &Path) -> bool {
+        path.join(TT_DIR).is_dir()
+            && path.join(CODEX_DIR).is_dir()
+            && path.join(PRIMARY_DIR).is_dir()
+            && path.join(WORKTREES_DIR).is_dir()
+    }
 
-    // SAFETY: TT sets these process-scoped variables before spawning worker threads so all child
-    // Codex processes resolve the same repo-local home and checked-in defaults layer.
-    unsafe {
-        std::env::set_var("CODEX_HOME", &codex_home);
-        std::env::set_var("TT_HOME", &tt_home);
-        std::env::set_var("TT_REPO_ROOT", &repo_root);
+    pub fn discover_from(start: &Path) -> Option<Self> {
+        start.ancestors().find_map(|ancestor| {
+            Self::is_workspace_root(ancestor).then(|| Self::new(ancestor.to_path_buf()))
+        })
     }
 }
 
-pub fn ensure_project_artifacts(paths: &ProjectPaths) -> Result<()> {
+pub fn activate_tt_env(paths: &WorkspacePaths) {
+    let codex_home = paths.codex_home();
+    let tt_home = paths.tt_dir();
+    let workspace_root = paths.workspace_root().to_path_buf();
+
+    // SAFETY: TT sets these process-scoped variables before spawning worker threads so all child
+    // Codex processes resolve the same workspace-local home and checked-in defaults layer.
+    unsafe {
+        std::env::set_var("CODEX_HOME", &codex_home);
+        std::env::set_var("TT_HOME", &tt_home);
+        std::env::set_var("TT_REPO_ROOT", &workspace_root);
+    }
+}
+
+pub fn ensure_workspace_artifacts(paths: &WorkspacePaths) -> Result<()> {
+    fs::create_dir_all(paths.tt_dir())
+        .with_context(|| format!("create TT dir {}", paths.tt_dir().display()))?;
     fs::create_dir_all(paths.roles_dir())
         .with_context(|| format!("create TT roles dir {}", paths.roles_dir().display()))?;
+    fs::create_dir_all(paths.codex_home())
+        .with_context(|| format!("create CODEX_HOME {}", paths.codex_home().display()))?;
     fs::create_dir_all(paths.runtime_dir())
         .with_context(|| format!("create TT runtime dir {}", paths.runtime_dir().display()))?;
+    fs::create_dir_all(paths.primary_checkout()).with_context(|| {
+        format!(
+            "create primary checkout dir {}",
+            paths.primary_checkout().display()
+        )
+    })?;
+    fs::create_dir_all(paths.worktrees_dir())
+        .with_context(|| format!("create worktrees dir {}", paths.worktrees_dir().display()))?;
 
     migrate_legacy_runtime_artifacts(paths)?;
 
     write_if_missing(&paths.plan_path(), default_plan_markdown())?;
     write_if_missing(&paths.roster_path(), default_roster_markdown())?;
     write_if_missing(&paths.activate_path(), default_activate_script())?;
+    write_if_missing(
+        &paths.role_path(Role::Supervisor),
+        default_supervisor_role_markdown(),
+    )?;
     write_if_missing(
         &paths.role_path(Role::Director),
         default_director_role_markdown(),
@@ -215,7 +315,11 @@ pub fn ensure_project_artifacts(paths: &ProjectPaths) -> Result<()> {
     )?;
 
     if !paths.state_path().exists() {
-        save_state(paths, &TtState::default())?;
+        save_state(paths, &default_workspace_state(paths))?;
+    } else {
+        let mut state = load_state(paths)?;
+        seed_missing_default_workers(paths, &mut state);
+        save_state(paths, &state)?;
     }
     if !paths.log_path().exists() {
         fs::write(paths.log_path(), b"")
@@ -225,20 +329,20 @@ pub fn ensure_project_artifacts(paths: &ProjectPaths) -> Result<()> {
     Ok(())
 }
 
-pub fn load_state(paths: &ProjectPaths) -> Result<TtState> {
+pub fn load_state(paths: &WorkspacePaths) -> Result<TtState> {
     let bytes = fs::read(paths.state_path())
         .with_context(|| format!("read TT state {}", paths.state_path().display()))?;
     serde_json::from_slice(&bytes)
         .with_context(|| format!("parse TT state {}", paths.state_path().display()))
 }
 
-pub fn save_state(paths: &ProjectPaths, state: &TtState) -> Result<()> {
+pub fn save_state(paths: &WorkspacePaths, state: &TtState) -> Result<()> {
     let json = serde_json::to_vec_pretty(state).context("serialize TT state")?;
     fs::write(paths.state_path(), json)
         .with_context(|| format!("write TT state {}", paths.state_path().display()))
 }
 
-pub fn append_log(paths: &ProjectPaths, event: LogEvent) -> Result<()> {
+pub fn append_log(paths: &WorkspacePaths, event: LogEvent) -> Result<()> {
     let line = serde_json::to_string(&event).context("serialize TT log event")?;
     let mut existing = fs::OpenOptions::new()
         .create(true)
@@ -252,6 +356,7 @@ pub fn append_log(paths: &ProjectPaths, event: LogEvent) -> Result<()> {
 pub fn default_log_event(
     event: impl Into<String>,
     role: Option<Role>,
+    worker_name: Option<String>,
     thread_id: Option<String>,
     detail: Option<String>,
 ) -> LogEvent {
@@ -259,6 +364,7 @@ pub fn default_log_event(
         ts: Utc::now(),
         event: event.into(),
         role,
+        worker_name,
         thread_id,
         detail,
     }
@@ -290,6 +396,53 @@ pub fn parse_result_envelope(text: &str) -> Result<ResultEnvelope> {
         open_questions: required_field(&body, "Open-Questions")?,
         recommended_next_step: required_field(&body, "Recommended-Next-Step")?,
     })
+}
+
+pub fn default_worker_records(paths: &WorkspacePaths) -> Vec<WorkerRecord> {
+    vec![
+        WorkerRecord {
+            name: "director".to_string(),
+            kind: WorkerKind::Director,
+            cwd: paths.primary_checkout(),
+            thread_id: None,
+            instruction_path: Some(paths.role_path(Role::Director)),
+        },
+        WorkerRecord {
+            name: "developer".to_string(),
+            kind: WorkerKind::Developer,
+            cwd: paths.primary_checkout(),
+            thread_id: None,
+            instruction_path: Some(paths.role_path(Role::Developer)),
+        },
+    ]
+}
+
+fn default_workspace_state(paths: &WorkspacePaths) -> TtState {
+    TtState {
+        workers: default_worker_records(paths),
+        ..TtState::default()
+    }
+}
+
+fn seed_missing_default_workers(paths: &WorkspacePaths, state: &mut TtState) {
+    if state.workers.is_empty() {
+        state.workers = default_worker_records(paths);
+        return;
+    }
+
+    for default_worker in default_worker_records(paths) {
+        if let Some(existing) = state
+            .workers
+            .iter_mut()
+            .find(|worker| worker.name == default_worker.name)
+        {
+            if existing.instruction_path.is_none() {
+                existing.instruction_path = default_worker.instruction_path;
+            }
+            continue;
+        }
+        state.workers.push(default_worker);
+    }
 }
 
 fn extract_envelope_body(text: &str, start_marker: &str, end_marker: &str) -> Result<String> {
@@ -324,7 +477,7 @@ fn write_if_missing(path: &Path, contents: &str) -> Result<()> {
     fs::write(path, contents).with_context(|| format!("write {}", path.display()))
 }
 
-fn migrate_legacy_runtime_artifacts(paths: &ProjectPaths) -> Result<()> {
+fn migrate_legacy_runtime_artifacts(paths: &WorkspacePaths) -> Result<()> {
     for (legacy_path, runtime_path) in [
         (paths.tt_dir().join(STATE_FILE), paths.state_path()),
         (paths.tt_dir().join(LOG_FILE), paths.log_path()),
@@ -348,11 +501,11 @@ fn migrate_legacy_runtime_artifacts(paths: &ProjectPaths) -> Result<()> {
 }
 
 fn default_plan_markdown() -> &'static str {
-    "# TT Plan\n\n## Current Objective\n- Establish the current objective.\n\n## Milestone\n- Record the active milestone.\n\n## Active Todos\n- Add current todos here.\n\n## Constraints\n- Capture repo, product, or runtime constraints here.\n\n## Open Questions\n- Record decisions that still need operator input.\n\n## Recent Decisions\n- Append resolved decisions as they happen.\n\n## Next Likely Dispatches\n- Note the next likely Director to Developer handoffs.\n"
+    "# TT Plan\n\n## Current Objective\n- Establish the current objective.\n\n## Milestone\n- Record the active milestone.\n\n## Active Todos\n- Add current todos here.\n\n## Constraints\n- Capture workspace, product, or runtime constraints here.\n\n## Open Questions\n- Record decisions that still need operator input.\n\n## Recent Decisions\n- Append resolved decisions as they happen.\n\n## Next Likely Dispatches\n- Note the next likely Director to Developer handoffs.\n"
 }
 
 fn default_roster_markdown() -> &'static str {
-    "# TT Roster\n\n## Director\n- Own orchestration, prioritization, evaluation, and operator interaction.\n- Emit structured dispatches only.\n- Do not simulate implementation work.\n\n## Developer\n- Own scoped execution only.\n- Emit structured results only.\n- Do not self-dispatch or silently expand scope.\n"
+    "# TT Workspace Roster\n\n## Supervisor\n- Own operator interaction and workspace-level coordination.\n- Inspect worker history and decide where to steer work next.\n\n## Director\n- Own orchestration, prioritization, evaluation, and operator interaction.\n- Emit structured dispatches only.\n- Do not simulate implementation work.\n\n## Developer\n- Own scoped execution only.\n- Emit structured results only.\n- Do not self-dispatch or silently expand scope.\n\n## Additional Workers\n- Live under `worktrees/` and are managed through `tt worker` commands.\n"
 }
 
 fn default_activate_script() -> &'static str {
@@ -363,16 +516,20 @@ else
   _tt_activate_source="$0"
 fi
 _tt_activate_dir="$(cd "$(dirname "${_tt_activate_source}")" && pwd -P)"
-_tt_repo_root="$(cd "${_tt_activate_dir}/.." && pwd -P)"
+_tt_workspace_root="$(cd "${_tt_activate_dir}/.." && pwd -P)"
 
-export TT_REPO_ROOT="${_tt_repo_root}"
-export TT_HOME="${_tt_repo_root}/.tt"
-export CODEX_HOME="${_tt_repo_root}/.codex"
+export TT_REPO_ROOT="${_tt_workspace_root}"
+export TT_HOME="${_tt_workspace_root}/.tt"
+export CODEX_HOME="${_tt_workspace_root}/.codex"
 
 unset _tt_activate_source
 unset _tt_activate_dir
-unset _tt_repo_root
+unset _tt_workspace_root
 "#
+}
+
+fn default_supervisor_role_markdown() -> &'static str {
+    "You are the TT Supervisor.\n\nResponsibilities:\n- Coordinate work across the TT workspace.\n- Read worker history and operator guidance.\n- Decide which worker should receive the next prompt.\n\nRules:\n- Do not impersonate worker execution.\n- Prefer explicit worker routing over broad instructions.\n- Treat the TT workspace as the shared control plane.\n"
 }
 
 fn default_director_role_markdown() -> &'static str {
@@ -390,15 +547,18 @@ mod tests {
     #[test]
     fn creates_default_artifacts_and_state() {
         let tempdir = tempfile::tempdir().expect("tempdir");
-        let paths = ProjectPaths::new(tempdir.path().to_path_buf());
+        let paths = WorkspacePaths::new(tempdir.path().to_path_buf());
 
-        ensure_project_artifacts(&paths).expect("create artifacts");
+        ensure_workspace_artifacts(&paths).expect("create artifacts");
 
         assert!(paths.plan_path().exists());
         assert!(paths.roster_path().exists());
         assert!(paths.activate_path().exists());
+        assert!(paths.primary_checkout().exists());
+        assert!(paths.worktrees_dir().exists());
         assert!(paths.state_path().exists());
         assert!(paths.log_path().exists());
+        assert!(paths.role_path(Role::Supervisor).exists());
         assert!(paths.role_path(Role::Director).exists());
         assert!(paths.role_path(Role::Developer).exists());
         assert_eq!(
@@ -411,20 +571,38 @@ mod tests {
         );
 
         let state = load_state(&paths).expect("load state");
-        assert_eq!(state, TtState::default());
+        assert_eq!(state.supervisor_thread_id, None);
+        assert_eq!(state.default_view, DefaultView::Supervisor);
+        assert_eq!(state.workers.len(), 2);
+        assert_eq!(state.workers[0].name, "director");
+        assert_eq!(state.workers[0].cwd, paths.primary_checkout());
+        assert_eq!(state.workers[1].name, "developer");
+    }
+
+    #[test]
+    fn discovers_workspace_root_from_nested_path() {
+        let tempdir = tempfile::tempdir().expect("tempdir");
+        let paths = WorkspacePaths::new(tempdir.path().to_path_buf());
+        ensure_workspace_artifacts(&paths).expect("create artifacts");
+        let nested = paths.primary_checkout().join("src/module");
+        fs::create_dir_all(&nested).expect("create nested dir");
+
+        let discovered = WorkspacePaths::discover_from(&nested).expect("discover workspace");
+        assert_eq!(discovered.workspace_root(), paths.workspace_root());
     }
 
     #[test]
     fn appends_jsonl_log_events() {
         let tempdir = tempfile::tempdir().expect("tempdir");
-        let paths = ProjectPaths::new(tempdir.path().to_path_buf());
-        ensure_project_artifacts(&paths).expect("create artifacts");
+        let paths = WorkspacePaths::new(tempdir.path().to_path_buf());
+        ensure_workspace_artifacts(&paths).expect("create artifacts");
 
         append_log(
             &paths,
             default_log_event(
                 "thread-created",
-                Some(Role::Director),
+                Some(Role::Supervisor),
+                Some("director".to_string()),
                 Some("thr_123".to_string()),
                 None,
             ),
@@ -433,18 +611,19 @@ mod tests {
 
         let contents = fs::read_to_string(paths.log_path()).expect("read log");
         assert!(contents.contains("\"event\":\"thread-created\""));
-        assert!(contents.contains("\"role\":\"director\""));
+        assert!(contents.contains("\"role\":\"supervisor\""));
+        assert!(contents.contains("\"worker_name\":\"director\""));
     }
 
     #[test]
     fn migrates_legacy_runtime_artifacts_into_codex_home() {
         let tempdir = tempfile::tempdir().expect("tempdir");
-        let paths = ProjectPaths::new(tempdir.path().to_path_buf());
+        let paths = WorkspacePaths::new(tempdir.path().to_path_buf());
         fs::create_dir_all(paths.tt_dir()).expect("create tt dir");
-        fs::write(paths.tt_dir().join(STATE_FILE), b"{\"runtime_running\":false,\"runtime_pid\":null,\"runtime_websocket_url\":null,\"runtime_auth_token\":null,\"last_runtime_started_at\":null,\"auto_loop\":false,\"operator_pause\":false,\"default_view\":\"director\",\"active_dispatch_id\":null,\"pending_director_evaluation\":false,\"pending_developer_dispatch\":false,\"director_thread_id\":null,\"developer_thread_id\":null}").expect("write legacy state");
+        fs::write(paths.tt_dir().join(STATE_FILE), br#"{"supervisor_thread_id":null,"workers":[],"runtime_running":false,"runtime_pid":null,"runtime_websocket_url":null,"runtime_auth_token":null,"last_runtime_started_at":null,"auto_loop":false,"operator_pause":false,"default_view":"supervisor","active_dispatch_id":null,"pending_director_evaluation":false,"pending_developer_dispatch":false}"#).expect("write legacy state");
         fs::write(paths.tt_dir().join(LOG_FILE), b"legacy-log\n").expect("write legacy log");
 
-        ensure_project_artifacts(&paths).expect("create artifacts");
+        ensure_workspace_artifacts(&paths).expect("create artifacts");
 
         assert!(!paths.tt_dir().join(STATE_FILE).exists());
         assert!(!paths.tt_dir().join(LOG_FILE).exists());
@@ -509,7 +688,8 @@ Recommended-Next-Step: send to director
                 dispatch_id: "dsp_123".to_string(),
                 status: "done".to_string(),
                 summary: "implemented runtime".to_string(),
-                work_completed: "added daemon".to_string(),
+                work_completed: "implemented runtime"
+                    .replace("implemented runtime", "added daemon"),
                 artifacts: "tt-cli".to_string(),
                 open_questions: "none".to_string(),
                 recommended_next_step: "send to director".to_string(),

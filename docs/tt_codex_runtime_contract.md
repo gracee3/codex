@@ -2,18 +2,12 @@
 
 ## Purpose
 
-This document defines the runtime boundary for the TT product mode implemented
-inside this Codex fork.
+This document defines the runtime boundary for the TT workspace mode
+implemented inside this Codex fork.
 
-TT is no longer treated as an external orchestrator that discovers an arbitrary
-Codex installation. In this fork, `tt` is a first-class binary built from the
-same workspace as `codex` and `codex-app-server`.
-
-The current contract is:
-
-- `tt` owns orchestration, detached runtime lifecycle, and `.tt/` state
-- `codex-app-server` remains the execution transport and thread/turn engine
-- `codex` remains the generic interactive product
+TT is a first-class binary built from the same workspace as `codex` and
+`codex-app-server`. TT owns the workspace control plane and uses
+`codex-app-server` as the shared thread and turn transport.
 
 ## Ownership
 
@@ -23,88 +17,99 @@ Codex owns:
 - thread and turn lifecycle
 - app-server websocket transport
 - sandbox behavior
-- `.codex` user and project state
+- workspace-local `.codex` state
 
 TT owns:
 
+- workspace creation and layout
 - detached runtime lifecycle
-- `.tt` project state
-- Director and Developer session binding
-- structured dispatch/result routing
+- workspace-local `.tt` state
+- supervisor and worker session binding
+- structured Director/Developer dispatch and result routing
 - auto-loop and pause semantics
-- operator attach/detach workflow
+- operator attach and detach workflow
 
-## Binaries
+## Workspace Model
 
-The fork now builds and installs:
+TT operates on an explicit workspace root:
 
-- `codex`
-- `codex-app-server`
-- `tt`
+```text
+<workspace>/
+  .tt/
+  .codex/
+  primary/
+  worktrees/
+```
 
-There is no separate `tt-daemon` or `tt-tui` binary in v1. The detached TT
-runtime is implemented as a hidden daemon mode inside `tt`, and TUI attachment
-reuses the existing Codex TUI in remote mode.
+The current command entrypoint is:
 
-## TT Runtime Model
+- `tt clone <repo-url> [dir]`
 
-TT uses a detached runtime with two long-lived role sessions:
-
-- Director
-- Developer
+This creates the workspace, clones the repo into `primary/`, and scaffolds TT
+artifacts under `.tt/` and `.codex/`.
 
 The detached runtime:
 
-- starts `codex-app-server` on loopback websocket
-- creates or resumes the TT Director and Developer threads
-- owns turn routing between those threads
-- persists runtime/orchestration state in `.tt/state.json`
-- appends operational events to `.tt/log.ndjson`
+- starts one shared `codex-app-server` on loopback websocket
+- creates or resumes the TT supervisor thread
+- creates or resumes registered worker threads
+- persists runtime/orchestration state in `.codex/tt/state.json`
+- appends operational events to `.codex/tt/log.ndjson`
 
-Current TT project artifacts:
+Current workspace artifacts:
 
-- `<repo>/.tt/plan.md`
-- `<repo>/.tt/roster.md`
-- `<repo>/.tt/state.json`
-- `<repo>/.tt/log.ndjson`
-- `<repo>/.tt/roles/director.md`
-- `<repo>/.tt/roles/developer.md`
+- `<workspace>/.tt/plan.md`
+- `<workspace>/.tt/roster.md`
+- `<workspace>/.tt/roles/supervisor.md`
+- `<workspace>/.tt/roles/director.md`
+- `<workspace>/.tt/roles/developer.md`
+- `<workspace>/.tt/activate`
+- `<workspace>/.codex/tt/state.json`
+- `<workspace>/.codex/tt/log.ndjson`
+- `<workspace>/.codex/tt/daemon.log`
 
 ## Public Command Surface
 
 Current TT commands:
 
-- `tt init`
+- `tt clone <repo-url> [dir]`
 - `tt start`
 - `tt stop`
 - `tt open`
 - `tt status`
-- `tt attach director`
-- `tt attach developer`
-- `tt auto on`
-- `tt auto off`
+- `tt worker add <name>`
+- `tt worker list`
+- `tt worker attach <name>`
+- `tt auto on|off`
 - `tt pause`
 
 Command semantics:
 
+- `tt clone`
+  - creates a new TT workspace and clones the repo into `primary/`
 - `tt start`
   - starts the detached TT runtime if it is not already running
 - `tt stop`
   - stops the detached runtime and clears runtime-running metadata
 - `tt open`
   - attach-only
-  - attaches the operator to Director
+  - attaches the operator to the current default view
+  - defaults to the supervisor view
   - fails if the detached runtime is not running
-- `tt attach director|developer`
-  - attaches to the requested role via the daemon-owned websocket app-server
+- `tt worker add <name>`
+  - creates a new git worktree under `worktrees/<name>` and registers it as a
+    TT worker
+- `tt worker attach <name>`
+  - attaches to the requested worker via the daemon-owned websocket app-server
 - `tt auto on|off`
-  - toggles loop continuation
+  - toggles loop continuation for the Director/Developer preset
 - `tt pause`
   - toggles operator pause without killing the runtime
 
 ## Routing Contract
 
-TT mediates all Director/Developer communication.
+TT currently keeps the Director/Developer loop as a preset implemented on top of
+the generic worker registry.
 
 Director output must contain a plain-text dispatch envelope:
 
@@ -143,8 +148,13 @@ the corresponding thread after `turn/completed`.
 
 The TT runtime currently persists at least:
 
-- `director_thread_id`
-- `developer_thread_id`
+- `supervisor_thread_id`
+- `workers[]`
+  - `name`
+  - `kind`
+  - `cwd`
+  - `thread_id`
+  - `instruction_path`
 - `runtime_running`
 - `runtime_pid`
 - `runtime_websocket_url`
@@ -166,13 +176,7 @@ The current detached runtime is local-only and loopback-only.
 Known constraints:
 
 - `tt open` requires a running runtime; it does not start one implicitly
+- worker checkouts must live inside the workspace
 - TUI attachment is implemented through the existing Codex TUI remote websocket
   path
 - malformed or missing dispatch/result envelopes block TT auto-advancement
-- TT runtime metadata currently lives directly in `.tt/state.json`
-
-## Recommended Next Work
-
-1. Add integration tests for daemon lifecycle and remote TUI attach
-2. Add manual and CI smoke coverage for `tt start/status/stop`
-3. Improve loop-blocked diagnostics and operator recovery flows
