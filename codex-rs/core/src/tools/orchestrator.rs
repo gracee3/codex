@@ -114,9 +114,7 @@ impl ToolOrchestrator {
         let otel = turn_ctx.session_telemetry.clone();
         let otel_tn = &tool_ctx.tool_name;
         let otel_ci = &tool_ctx.call_id;
-        let otel_user = ToolDecisionSource::User;
-        let otel_automated_reviewer = ToolDecisionSource::AutomatedReviewer;
-        let otel_cfg = ToolDecisionSource::Config;
+        let _otel_cfg = ToolDecisionSource::Config;
 
         // 1) Approval
         let mut already_approved = false;
@@ -144,14 +142,16 @@ impl ToolOrchestrator {
                     retry_reason: reason,
                     network_approval_context: None,
                 };
-                let decision = tool.start_approval_async(req, approval_ctx).await;
-                let otel_source = if routes_approval_to_guardian(turn_ctx) {
-                    otel_automated_reviewer.clone()
-                } else {
-                    otel_user.clone()
-                };
-
-                otel.tool_decision(otel_tn, otel_ci, &decision, otel_source);
+                let decision = Self::request_approval(
+                    tool,
+                    req,
+                    &tool_ctx.call_id,
+                    approval_ctx,
+                    tool_ctx,
+                    routes_approval_to_guardian(turn_ctx),
+                    &otel,
+                )
+                .await?;
 
                 match decision {
                     ReviewDecision::Denied | ReviewDecision::Abort | ReviewDecision::TimedOut => {
@@ -294,13 +294,16 @@ impl ToolOrchestrator {
                         network_approval_context: network_approval_context.clone(),
                     };
 
-                    let decision = tool.start_approval_async(req, approval_ctx).await;
-                    let otel_source = if routes_approval_to_guardian(turn_ctx) {
-                        otel_automated_reviewer
-                    } else {
-                        otel_user
-                    };
-                    otel.tool_decision(otel_tn, otel_ci, &decision, otel_source);
+                    let decision = Self::request_approval(
+                        tool,
+                        req,
+                        &tool_ctx.call_id,
+                        approval_ctx,
+                        tool_ctx,
+                        routes_approval_to_guardian(turn_ctx),
+                        &otel,
+                    )
+                    .await?;
 
                     match decision {
                         ReviewDecision::Denied

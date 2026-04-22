@@ -311,6 +311,8 @@ impl Session {
         per_turn_config.service_tier = session_configuration.service_tier;
         per_turn_config.personality = session_configuration.personality;
         per_turn_config.approvals_reviewer = session_configuration.approvals_reviewer;
+        per_turn_config.permissions.approval_policy = session_configuration.approval_policy.clone();
+        per_turn_config.permissions.sandbox_policy = session_configuration.sandbox_policy.clone();
         let resolved_web_search_mode = resolve_web_search_mode_for_turn(
             &per_turn_config.web_search_mode,
             session_configuration.sandbox_policy.get(),
@@ -394,9 +396,8 @@ impl Session {
         let per_turn_config = Arc::new(per_turn_config);
         let turn_metadata_state = Arc::new(TurnMetadataState::new(
             conversation_id.to_string(),
-            &session_source,
             sub_id.clone(),
-            cwd.clone(),
+            cwd.to_path_buf(),
             session_configuration.sandbox_policy.get(),
             session_configuration.windows_sandbox_level,
         ));
@@ -537,13 +538,7 @@ impl Session {
                 &per_turn_config.to_models_manager_config(),
             )
             .await;
-        let plugin_outcome = self
-            .services
-            .plugins_manager
-            .plugins_for_config(&per_turn_config)
-            .await;
-        let effective_skill_roots = plugin_outcome.effective_skill_roots();
-        let skills_input = skills_load_input_from_config(&per_turn_config, effective_skill_roots);
+        let skills_input = skills_load_input_from_config(&per_turn_config);
         let fs = self
             .services
             .environment
