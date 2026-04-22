@@ -5,9 +5,8 @@ use crate::guardian::routes_approval_to_guardian;
 use crate::hook_runtime::run_permission_request_hooks;
 use crate::network_policy_decision::denied_network_policy_message;
 use crate::session::session::Session;
-use crate::tools::sandboxing::PermissionRequestPayload;
 use crate::tools::sandboxing::ToolError;
-use codex_hooks::PermissionRequestDecision;
+use crate::tools::sandboxing::PermissionRequestPayload;
 use codex_network_proxy::BlockedRequest;
 use codex_network_proxy::BlockedRequestObserver;
 use codex_network_proxy::NetworkDecision;
@@ -24,6 +23,7 @@ use codex_protocol::protocol::EventMsg;
 use codex_protocol::protocol::ReviewDecision;
 use codex_protocol::protocol::SandboxPolicy;
 use codex_protocol::protocol::WarningEvent;
+use codex_hooks::PermissionRequestDecision;
 use indexmap::IndexMap;
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -334,6 +334,7 @@ impl NetworkApprovalService {
         }
 
         let target = Self::format_network_target(key.protocol, request.host.as_str(), key.port);
+        let approval_command = vec!["network-access".to_string(), target.clone()];
         let policy_denial_message =
             format!("Network access to \"{target}\" was blocked by policy.");
         let prompt_reason = format!("{} is not in the allowed_domains", request.host);
@@ -392,13 +393,43 @@ impl NetworkApprovalService {
             )
             .await
         } else {
+            let permission_request = PermissionRequestPayload {
+                tool_name: "Bash".to_string(),
+                command: owner_call
+                    .as_ref()
+                    .map(|call| call.command.clone())
+                    .unwrap_or_else(|| approval_command.join(" ")),
+                description: Some(approval_command.join(" ")),
+            };
+            match run_permission_request_hooks(
+                &session,
+                &turn_context,
+                &guardian_approval_id,
+                permission_request,
+            )
+            .await
+            {
+                Some(PermissionRequestDecision::Allow) => ReviewDecision::Approved,
+                Some(PermissionRequestDecision::Deny { message }) => {
+                    if let Some(owner_call) = owner_call.as_ref() {
+                        self.record_call_outcome(
+                            &owner_call.registration_id,
+                            NetworkApprovalOutcome::DeniedByPolicy(message),
+                        )
+                        .await;
+                    }
+                    pending.set_decision(PendingApprovalDecision::Deny).await;
+                    self.pending_host_approvals.lock().await.remove(&key);
+                    return NetworkDecision::deny(REASON_NOT_ALLOWED);
+                }
+                None => {
             let available_decisions = None;
             session
                 .request_command_approval(
                     turn_context.as_ref(),
-                    guardian_approval_id,
+                    guardian_approval_id.clone(),
                     /*approval_id*/ None,
-                    prompt_command,
+                    approval_command,
                     turn_context.cwd.clone(),
                     Some(prompt_reason),
                     Some(network_approval_context.clone()),
@@ -407,6 +438,8 @@ impl NetworkApprovalService {
                     available_decisions,
                 )
                 .await
+                }
+            }
         };
 
         let mut cache_session_deny = false;
