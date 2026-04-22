@@ -53,6 +53,7 @@ The detached runtime:
 - starts one shared `codex-app-server` on loopback websocket
 - creates or resumes the TT supervisor thread
 - creates or resumes registered worker threads
+- lets the supervisor thread inspect and steer workers through TT-specific tools
 - persists runtime/orchestration state in `.codex/tt/state.json`
 - appends operational events to `.codex/tt/log.ndjson`
 
@@ -79,6 +80,10 @@ Current TT commands:
 - `tt status`
 - `tt worker add <name>`
 - `tt worker list`
+- `tt worker read <name> [--turns <n> | --all]`
+- `tt worker send <name> --message "<text>"`
+- `tt worker adopt <name> --thread-id <id>`
+- `tt worker remove <name>`
 - `tt worker attach <name>`
 - `tt auto on|off`
 - `tt pause`
@@ -99,12 +104,59 @@ Command semantics:
 - `tt worker add <name>`
   - creates a new git worktree under `worktrees/<name>` and registers it as a
     TT worker
+- `tt worker list`
+  - shows worker name, kind, cwd, thread id, and live runtime status when the
+    runtime is reachable
+- `tt worker read <name> [--turns <n> | --all]`
+  - requires a running runtime
+  - prints worker metadata first, then a human-readable transcript
+  - defaults to the last 10 turns
+  - renders non-message thread items as compact summaries instead of raw JSON
+- `tt worker send <name> --message "<text>"`
+  - requires a running runtime
+  - creates the worker thread on demand when needed
+  - starts a new turn when the worker is idle
+  - steers the active turn when the worker already has an in-progress steerable
+    turn
+  - fails cleanly when the active turn exists but is not steerable
+- `tt worker adopt <name> --thread-id <id>`
+  - requires a running runtime
+  - validates the supplied thread id through `thread/read`
+  - only allows adoption when the thread cwd is inside the current workspace
+  - registers the worker as a generic `worker` with no instruction path
+- `tt worker remove <name>`
+  - unregisters the worker from TT state only
+  - does not delete the worktree or archive the underlying thread
+  - rejects preset worker removal for `director` and `developer`
 - `tt worker attach <name>`
   - attaches to the requested worker via the daemon-owned websocket app-server
 - `tt auto on|off`
   - toggles loop continuation for the Director/Developer preset
 - `tt pause`
   - toggles operator pause without killing the runtime
+
+## Supervisor Tool Surface
+
+The supervisor thread exposes TT-only dynamic tools:
+
+- `tt_worker_list`
+- `tt_worker_read`
+- `tt_worker_send`
+- `tt_worker_remove`
+
+These tools are available only inside the supervisor thread. Other workers keep
+their normal Codex tool surface and do not receive TT control-plane tools.
+
+The tool behavior mirrors the CLI behavior:
+
+- `tt_worker_list` returns structured worker summaries
+- `tt_worker_read` returns worker metadata and transcript output
+- `tt_worker_send` starts or steers a worker turn, depending on live thread
+  state
+- `tt_worker_remove` unregisters a generic worker without deleting the thread
+
+Interactive server requests that are not one of these supervisor TT tools are
+still rejected by the daemon.
 
 ## Routing Contract
 
@@ -168,6 +220,9 @@ The TT runtime currently persists at least:
 - `pending_developer_dispatch`
 
 This is the inspectable control plane for TT.
+
+Registered workers, including adopted workers, are stored in `workers[]` and
+are resumed on the next `tt start` when their thread ids remain valid.
 
 ## Current Limitations
 

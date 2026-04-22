@@ -1,4 +1,6 @@
 mod runtime;
+mod supervisor_tools;
+mod worker_control;
 
 use std::path::Path;
 use std::path::PathBuf;
@@ -28,10 +30,20 @@ use codex_tui::ExitReason;
 use codex_utils_cli::CliConfigOverrides;
 
 use crate::runtime::ensure_runtime_worker_thread;
+use crate::runtime::open_running_runtime;
 use crate::runtime::reconcile_runtime_state;
 use crate::runtime::run_daemon;
 use crate::runtime::start_daemon;
 use crate::runtime::stop_daemon;
+use crate::worker_control::WorkerReadWindow;
+use crate::worker_control::adopt_worker;
+use crate::worker_control::format_worker_list_for_cli;
+use crate::worker_control::format_worker_read_for_cli;
+use crate::worker_control::list_worker_summaries;
+use crate::worker_control::read_worker_history;
+use crate::worker_control::remove_worker;
+use crate::worker_control::send_worker_prompt;
+use crate::worker_control::validate_worker_name;
 
 #[derive(Debug, Parser)]
 #[command(name = "tt", version, about = "TT orchestration CLI")]
@@ -71,11 +83,38 @@ enum WorkerCommand {
     Add(WorkerAddArgs),
     List,
     Attach { name: String },
+    Read(WorkerReadArgs),
+    Send(WorkerSendArgs),
+    Adopt(WorkerAdoptArgs),
+    Remove { name: String },
 }
 
 #[derive(Debug, Args)]
 struct WorkerAddArgs {
     name: String,
+}
+
+#[derive(Debug, Args)]
+struct WorkerReadArgs {
+    name: String,
+    #[arg(long, conflicts_with = "all")]
+    turns: Option<usize>,
+    #[arg(long)]
+    all: bool,
+}
+
+#[derive(Debug, Args)]
+struct WorkerSendArgs {
+    name: String,
+    #[arg(long)]
+    message: String,
+}
+
+#[derive(Debug, Args)]
+struct WorkerAdoptArgs {
+    name: String,
+    #[arg(long = "thread-id")]
+    thread_id: String,
 }
 
 fn workspace_paths_for_current_dir() -> Result<WorkspacePaths> {
@@ -260,19 +299,6 @@ fn run_git(current_dir: &Path, args: &[&str]) -> Result<()> {
     }
 }
 
-fn validate_worker_name(name: &str) -> Result<()> {
-    if name.is_empty() {
-        anyhow::bail!("worker name must not be empty");
-    }
-    if !name
-        .chars()
-        .all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_')
-    {
-        anyhow::bail!("worker name must use only ASCII letters, numbers, `-`, or `_`");
-    }
-    Ok(())
-}
-
 async fn clone_workspace(repo_url: String, dir: Option<PathBuf>) -> Result<()> {
     let cwd = std::env::current_dir().context("resolve current directory")?;
     let workspace_dir = match dir {
@@ -395,21 +421,21 @@ async fn add_worker(
     Ok(())
 }
 
-fn list_workers(state: &TtState) {
-    if state.workers.is_empty() {
-        println!("no workers registered");
-        return;
-    }
-
-    for worker in &state.workers {
-        println!(
-            "{}\t{}\t{}\t{}",
-            worker.name,
-            worker.kind.as_str(),
-            worker.cwd.display(),
-            worker.thread_id.as_deref().unwrap_or("<missing>")
-        );
-    }
+async fn list_workers(
+    arg0_paths: &Arg0DispatchPaths,
+    workspace_paths: &WorkspacePaths,
+) -> Result<()> {
+    let state = reconcile_runtime_state(workspace_paths).await?;
+    let output = if state.runtime_running {
+        let (mut runtime, state) = open_running_runtime(workspace_paths, arg0_paths).await?;
+        let summaries = list_worker_summaries(Some(&mut runtime), &state).await?;
+        format_worker_list_for_cli(&summaries)
+    } else {
+        let summaries = list_worker_summaries(None, &state).await?;
+        format_worker_list_for_cli(&summaries)
+    };
+    print!("{output}");
+    Ok(())
 }
 
 async fn attach_worker(
@@ -439,6 +465,70 @@ async fn attach_worker(
     state.default_view = DefaultView::Worker { name };
     save_state(workspace_paths, &state)?;
     run_tt_tui(arg0_paths, workspace_paths, thread_id, worker.cwd.clone()).await
+}
+
+async fn read_worker(
+    arg0_paths: &Arg0DispatchPaths,
+    workspace_paths: &WorkspacePaths,
+    args: WorkerReadArgs,
+) -> Result<()> {
+    let window = match (args.all, args.turns) {
+        (true, Some(_)) => anyhow::bail!("`--all` and `--turns` cannot both be set"),
+        (true, None) => WorkerReadWindow::All,
+        (false, Some(turns)) => WorkerReadWindow::Recent(turns),
+        (false, None) => WorkerReadWindow::default(),
+    };
+    let (mut runtime, mut state) = open_running_runtime(workspace_paths, arg0_paths).await?;
+    let result = read_worker_history(&mut runtime, &mut state, &args.name, window).await?;
+    print!("{}", format_worker_read_for_cli(&result));
+    Ok(())
+}
+
+async fn send_worker(
+    arg0_paths: &Arg0DispatchPaths,
+    workspace_paths: &WorkspacePaths,
+    args: WorkerSendArgs,
+) -> Result<()> {
+    let (mut runtime, mut state) = open_running_runtime(workspace_paths, arg0_paths).await?;
+    let result = send_worker_prompt(&mut runtime, &mut state, &args.name, args.message).await?;
+    println!(
+        "mode: {}\nturn_id: {}",
+        result.mode.as_str(),
+        result.turn_id
+    );
+    Ok(())
+}
+
+async fn adopt_worker_command(
+    arg0_paths: &Arg0DispatchPaths,
+    workspace_paths: &WorkspacePaths,
+    args: WorkerAdoptArgs,
+) -> Result<()> {
+    let (mut runtime, mut state) = open_running_runtime(workspace_paths, arg0_paths).await?;
+    let summary = adopt_worker(
+        workspace_paths,
+        &mut runtime,
+        &mut state,
+        &args.name,
+        &args.thread_id,
+    )
+    .await?;
+    println!(
+        "adopted worker `{}` kind={} cwd={} thread_id={}",
+        summary.name,
+        summary.kind.as_str(),
+        summary.cwd,
+        summary.thread_id.as_deref().unwrap_or("<missing>")
+    );
+    Ok(())
+}
+
+fn remove_worker_command(workspace_paths: &WorkspacePaths, name: String) -> Result<()> {
+    ensure_workspace_artifacts(workspace_paths)?;
+    let mut state = load_state(workspace_paths)?;
+    remove_worker(workspace_paths, &mut state, &name)?;
+    println!("removed worker `{name}`");
+    Ok(())
 }
 
 async fn run(arg0_paths: Arg0DispatchPaths) -> Result<()> {
@@ -525,11 +615,22 @@ async fn run(arg0_paths: Arg0DispatchPaths) -> Result<()> {
                         add_worker(&arg0_paths, &workspace_paths, args.name).await?;
                     }
                     WorkerCommand::List => {
-                        let state = load_state(&workspace_paths)?;
-                        list_workers(&state);
+                        list_workers(&arg0_paths, &workspace_paths).await?;
                     }
                     WorkerCommand::Attach { name } => {
                         attach_worker(arg0_paths, &workspace_paths, name).await?;
+                    }
+                    WorkerCommand::Read(args) => {
+                        read_worker(&arg0_paths, &workspace_paths, args).await?;
+                    }
+                    WorkerCommand::Send(args) => {
+                        send_worker(&arg0_paths, &workspace_paths, args).await?;
+                    }
+                    WorkerCommand::Adopt(args) => {
+                        adopt_worker_command(&arg0_paths, &workspace_paths, args).await?;
+                    }
+                    WorkerCommand::Remove { name } => {
+                        remove_worker_command(&workspace_paths, name)?;
                     }
                 },
                 CommandKind::Clone { .. } | CommandKind::Daemon { .. } => unreachable!(),

@@ -65,6 +65,10 @@ Useful follow-up commands:
 ```bash
 tt worker add feature-a
 tt worker list
+tt worker read director
+tt worker send feature-a --message "pick up the next task"
+tt worker adopt imported --thread-id <thread-id>
+tt worker remove imported
 tt worker attach feature-a
 tt status
 tt auto on
@@ -74,6 +78,18 @@ tt stop
 ```
 
 ### Development workflow
+
+The supervisor MVP keeps one shared runtime per TT workspace. The supervisor
+thread can call TT-only worker control tools (`tt_worker_list`, `tt_worker_read`,
+`tt_worker_send`, `tt_worker_remove`), while other worker threads cannot.
+
+`tt worker send` is state-aware: it starts a new turn for an idle worker, and
+steers the active turn when the worker already has an in-progress steerable
+turn.
+
+`tt worker adopt` only accepts threads whose `cwd` is inside the current
+workspace. Adopted workers persist in TT state and continue to work after
+`tt stop` and `tt start`.
 
 After making Rust changes:
 

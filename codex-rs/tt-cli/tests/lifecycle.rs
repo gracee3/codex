@@ -31,9 +31,10 @@ fn git(cwd: &Path, args: &[&str]) {
 
 fn create_source_repo(root: &Path) -> PathBuf {
     let source_repo = root.join("source-repo");
-    fs::create_dir_all(&source_repo).expect("create source repo dir");
+    fs::create_dir_all(&source_repo).unwrap_or_else(|err| panic!("create source repo dir: {err}"));
     git(&source_repo, &["init", "-q"]);
-    fs::write(source_repo.join("README.md"), "# tt workspace test\n").expect("write readme");
+    fs::write(source_repo.join("README.md"), "# tt workspace test\n")
+        .unwrap_or_else(|err| panic!("write readme: {err}"));
     git(&source_repo, &["add", "README.md"]);
 
     let output = Command::new("git")
@@ -48,7 +49,7 @@ fn create_source_repo(root: &Path) -> PathBuf {
         ])
         .current_dir(&source_repo)
         .output()
-        .expect("commit source repo");
+        .unwrap_or_else(|err| panic!("commit source repo: {err}"));
     assert!(
         output.status.success(),
         "git commit failed:\nstdout:\n{}\nstderr:\n{}",
@@ -82,10 +83,11 @@ fn setup_workspace(tt_bin: &Path, root: &Path) -> PathBuf {
 
 #[test]
 fn start_status_stop_lifecycle_updates_runtime_state() {
-    let tempdir = tempfile::tempdir().expect("tempdir");
+    let tempdir = tempfile::tempdir().unwrap_or_else(|err| panic!("tempdir: {err}"));
     let root = tempdir.path();
-    let tt_bin = cargo_bin("tt").expect("resolve tt binary");
-    let app_server_bin = cargo_bin("codex-app-server").expect("resolve codex-app-server binary");
+    let tt_bin = cargo_bin("tt").unwrap_or_else(|err| panic!("resolve tt binary: {err}"));
+    let app_server_bin = cargo_bin("codex-app-server")
+        .unwrap_or_else(|err| panic!("resolve codex-app-server binary: {err}"));
 
     assert!(
         app_server_bin.exists(),
@@ -147,9 +149,10 @@ fn start_status_stop_lifecycle_updates_runtime_state() {
     assert!(status_stdout.contains("supervisor_thread_id: "));
     assert!(status_stdout.contains("feature-a [worker]"));
 
-    let state_text =
-        fs::read_to_string(workspace_root.join(".codex/tt/state.json")).expect("read tt state");
-    let state_json: serde_json::Value = serde_json::from_str(&state_text).expect("parse tt state");
+    let state_text = fs::read_to_string(workspace_root.join(".codex/tt/state.json"))
+        .unwrap_or_else(|err| panic!("read tt state: {err}"));
+    let state_json: serde_json::Value =
+        serde_json::from_str(&state_text).unwrap_or_else(|err| panic!("parse tt state: {err}"));
     assert_eq!(state_json["runtime_running"], serde_json::Value::Bool(true));
     assert_eq!(state_json["auto_loop"], serde_json::Value::Bool(false));
     assert!(state_json["supervisor_thread_id"].as_str().is_some());
@@ -180,9 +183,9 @@ fn start_status_stop_lifecycle_updates_runtime_state() {
 
 #[test]
 fn open_requires_running_runtime() {
-    let tempdir = tempfile::tempdir().expect("tempdir");
+    let tempdir = tempfile::tempdir().unwrap_or_else(|err| panic!("tempdir: {err}"));
     let root = tempdir.path();
-    let tt_bin = cargo_bin("tt").expect("resolve tt binary");
+    let tt_bin = cargo_bin("tt").unwrap_or_else(|err| panic!("resolve tt binary: {err}"));
     let workspace_root = setup_workspace(&tt_bin, root);
 
     let output = run_tt(&tt_bin, &workspace_root.join("primary"), &["open"]);

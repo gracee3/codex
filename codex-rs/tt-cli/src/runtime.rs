@@ -12,6 +12,7 @@ use codex_app_server_client::AppServerEvent;
 use codex_app_server_client::DEFAULT_IN_PROCESS_CHANNEL_CAPACITY;
 use codex_app_server_client::RemoteAppServerClient;
 use codex_app_server_client::RemoteAppServerConnectArgs;
+use codex_app_server_client::TypedRequestError;
 use codex_app_server_protocol::ApprovalsReviewer;
 use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::JSONRPCErrorError;
@@ -19,6 +20,8 @@ use codex_app_server_protocol::RequestId;
 use codex_app_server_protocol::ServerNotification;
 use codex_app_server_protocol::ThreadReadParams;
 use codex_app_server_protocol::ThreadReadResponse;
+use codex_app_server_protocol::ThreadResumeParams;
+use codex_app_server_protocol::ThreadResumeResponse;
 use codex_app_server_protocol::ThreadSetNameParams;
 use codex_app_server_protocol::ThreadSetNameResponse;
 use codex_app_server_protocol::ThreadStartParams;
@@ -27,6 +30,8 @@ use codex_app_server_protocol::TurnCompletedNotification;
 use codex_app_server_protocol::TurnStartParams;
 use codex_app_server_protocol::TurnStartResponse;
 use codex_app_server_protocol::TurnStatus;
+use codex_app_server_protocol::TurnSteerParams;
+use codex_app_server_protocol::TurnSteerResponse;
 use codex_app_server_protocol::UserInput;
 use codex_arg0::Arg0DispatchPaths;
 use codex_core::config::Config;
@@ -54,6 +59,8 @@ use tokio::process::Child;
 use tokio::process::Command;
 use tokio::time::Instant;
 use tokio::time::sleep;
+
+use crate::supervisor_tools;
 
 const LOOP_POLL_INTERVAL: Duration = Duration::from_secs(1);
 const START_TIMEOUT: Duration = Duration::from_secs(15);
@@ -85,7 +92,7 @@ pub(crate) struct TtRuntime {
 }
 
 impl TtRuntime {
-    async fn open_remote(
+    pub(crate) async fn open_remote(
         workspace_root: PathBuf,
         arg0_paths: Arg0DispatchPaths,
         websocket_url: String,
@@ -135,7 +142,7 @@ impl TtRuntime {
         existing_thread_id: Option<String>,
     ) -> Result<String> {
         if let Some(thread_id) = existing_thread_id
-            && self.thread_exists(&thread_id).await?
+            && self.resume_thread(&thread_id).await.is_ok()
         {
             return Ok(thread_id);
         }
@@ -150,6 +157,7 @@ impl TtRuntime {
                 "tt-supervisor",
                 "TT Supervisor",
                 Some(instructions),
+                Some(supervisor_tools::supervisor_dynamic_tools()),
             )
             .await
             .context("start supervisor thread")?;
@@ -169,7 +177,7 @@ impl TtRuntime {
         Ok(thread_id)
     }
 
-    async fn ensure_named_worker_session(
+    pub(crate) async fn ensure_named_worker_session(
         &mut self,
         state: &mut TtState,
         worker_name: String,
@@ -181,7 +189,7 @@ impl TtRuntime {
             .with_context(|| format!("missing worker `{worker_name}` in TT state"))?;
 
         if let Some(thread_id) = state.workers[worker_index].thread_id.as_deref()
-            && self.thread_exists(thread_id).await?
+            && self.resume_thread(thread_id).await.is_ok()
         {
             return Ok(thread_id.to_string());
         }
@@ -194,6 +202,7 @@ impl TtRuntime {
                 service_name_for_worker(&worker),
                 &thread_name_for_worker(&worker),
                 instructions,
+                None,
             )
             .await
             .with_context(|| format!("start worker `{}` thread", worker.name))?;
@@ -221,6 +230,7 @@ impl TtRuntime {
         service_name: &str,
         thread_name: &str,
         developer_instructions: Option<String>,
+        dynamic_tools: Option<Vec<codex_app_server_protocol::DynamicToolSpec>>,
     ) -> Result<ThreadStartResponse> {
         let config = load_config(
             self.workspace_paths.workspace_root().to_path_buf(),
@@ -247,7 +257,7 @@ impl TtRuntime {
                     personality: config.personality,
                     ephemeral: Some(false),
                     session_start_source: None,
-                    dynamic_tools: None,
+                    dynamic_tools,
                     mock_experimental_field: None,
                     experimental_raw_events: false,
                     persist_extended_history: true,
@@ -270,26 +280,55 @@ impl TtRuntime {
         Ok(response)
     }
 
-    async fn thread_exists(&mut self, thread_id: &str) -> Result<bool> {
-        let response = self
-            .client
-            .request_typed::<ThreadReadResponse>(ClientRequest::ThreadRead {
+    async fn resume_thread(&mut self, thread_id: &str) -> Result<ThreadResumeResponse> {
+        self.client
+            .request_typed(ClientRequest::ThreadResume {
+                request_id: self.request_ids.next(),
+                params: ThreadResumeParams {
+                    thread_id: thread_id.to_string(),
+                    history: None,
+                    path: None,
+                    model: None,
+                    model_provider: None,
+                    service_tier: None,
+                    cwd: None,
+                    approval_policy: None,
+                    approvals_reviewer: None,
+                    sandbox: None,
+                    config: None,
+                    base_instructions: None,
+                    developer_instructions: None,
+                    personality: None,
+                    persist_extended_history: true,
+                },
+            })
+            .await
+            .with_context(|| format!("resume TT thread {thread_id}"))
+    }
+
+    pub(crate) async fn read_thread(
+        &mut self,
+        thread_id: &str,
+        include_turns: bool,
+    ) -> Result<ThreadReadResponse> {
+        self.client
+            .request_typed(ClientRequest::ThreadRead {
                 request_id: self.request_ids.next(),
                 params: ThreadReadParams {
                     thread_id: thread_id.to_string(),
-                    include_turns: false,
+                    include_turns,
                 },
             })
-            .await;
-        match response {
-            Ok(_) => Ok(true),
-            Err(_) => Ok(false),
-        }
+            .await
+            .with_context(|| format!("read TT thread history for {thread_id}"))
     }
 
-    async fn send_turn(&mut self, thread_id: &str, text: String) -> Result<String> {
-        let response: TurnStartResponse = self
-            .client
+    pub(crate) async fn start_turn(
+        &mut self,
+        thread_id: &str,
+        text: String,
+    ) -> std::result::Result<TurnStartResponse, TypedRequestError> {
+        self.client
             .request_typed(ClientRequest::TurnStart {
                 request_id: self.request_ids.next(),
                 params: TurnStartParams {
@@ -302,22 +341,40 @@ impl TtRuntime {
                 },
             })
             .await
+    }
+
+    pub(crate) async fn steer_turn(
+        &mut self,
+        thread_id: &str,
+        expected_turn_id: &str,
+        text: String,
+    ) -> std::result::Result<TurnSteerResponse, TypedRequestError> {
+        self.client
+            .request_typed(ClientRequest::TurnSteer {
+                request_id: self.request_ids.next(),
+                params: TurnSteerParams {
+                    thread_id: thread_id.to_string(),
+                    input: vec![UserInput::Text {
+                        text,
+                        text_elements: Vec::new(),
+                    }],
+                    responsesapi_client_metadata: None,
+                    expected_turn_id: expected_turn_id.to_string(),
+                },
+            })
+            .await
+    }
+
+    async fn send_turn(&mut self, thread_id: &str, text: String) -> Result<String> {
+        let response = self
+            .start_turn(thread_id, text)
+            .await
             .with_context(|| format!("start turn for {thread_id}"))?;
         Ok(response.turn.id)
     }
 
     async fn latest_agent_message(&mut self, thread_id: &str) -> Result<Option<String>> {
-        let response: ThreadReadResponse = self
-            .client
-            .request_typed(ClientRequest::ThreadRead {
-                request_id: self.request_ids.next(),
-                params: ThreadReadParams {
-                    thread_id: thread_id.to_string(),
-                    include_turns: true,
-                },
-            })
-            .await
-            .with_context(|| format!("read TT thread history for {thread_id}"))?;
+        let response = self.read_thread(thread_id, true).await?;
         Ok(response.thread.turns.into_iter().rev().find_map(|turn| {
             turn.items.into_iter().rev().find_map(|item| match item {
                 codex_app_server_protocol::ThreadItem::AgentMessage { text, .. } => Some(text),
@@ -330,19 +387,64 @@ impl TtRuntime {
         self.client.next_event().await
     }
 
+    pub(crate) async fn resolve_server_request(
+        &self,
+        request_id: RequestId,
+        result: serde_json::Value,
+    ) -> Result<()> {
+        self.client
+            .resolve_server_request(request_id, result)
+            .await
+            .context("resolve TT server request")
+    }
+
     async fn reject_server_request(&self, request_id: RequestId) -> Result<()> {
+        self.reject_server_request_with_message(
+            request_id,
+            "tt daemon cannot satisfy interactive server requests".to_string(),
+        )
+        .await
+    }
+
+    pub(crate) async fn reject_server_request_with_message(
+        &self,
+        request_id: RequestId,
+        message: String,
+    ) -> Result<()> {
         self.client
             .reject_server_request(
                 request_id,
                 JSONRPCErrorError {
                     code: -32000,
                     data: None,
-                    message: "tt daemon cannot satisfy interactive server requests".to_string(),
+                    message,
                 },
             )
             .await
             .context("reject TT server request")
     }
+}
+
+pub(crate) async fn open_running_runtime(
+    workspace_paths: &WorkspacePaths,
+    arg0_paths: &Arg0DispatchPaths,
+) -> Result<(TtRuntime, TtState)> {
+    let state = reconcile_runtime_state(workspace_paths).await?;
+    if !state.runtime_running {
+        anyhow::bail!("TT runtime is not running; use `tt start` first");
+    }
+    let websocket_url = state
+        .runtime_websocket_url
+        .clone()
+        .context("missing TT runtime websocket url")?;
+    let runtime = TtRuntime::open_remote(
+        workspace_paths.workspace_root().to_path_buf(),
+        arg0_paths.clone(),
+        websocket_url,
+        state.runtime_auth_token.clone(),
+    )
+    .await?;
+    Ok((runtime, state))
 }
 
 pub(crate) async fn ensure_runtime_worker_thread(
@@ -551,6 +653,7 @@ pub(crate) async fn run_daemon(
     }
 
     let _ = app_server.child.start_kill();
+    state = refresh_operator_state(&runtime.workspace_paths, state)?;
     clear_runtime_fields(&mut state);
     save_state(&runtime.workspace_paths, &state)?;
     append_log(
@@ -586,7 +689,9 @@ async fn handle_app_server_event(
             handle_turn_completed(runtime, state, notification).await?;
         }
         AppServerEvent::ServerRequest(request) => {
-            runtime.reject_server_request(request.id().clone()).await?;
+            if !supervisor_tools::handle_server_request(runtime, state, request.clone()).await? {
+                runtime.reject_server_request(request.id().clone()).await?;
+            }
         }
         AppServerEvent::Disconnected { message } => {
             append_log(
