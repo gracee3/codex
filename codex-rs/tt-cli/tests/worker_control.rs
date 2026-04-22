@@ -25,8 +25,10 @@ use codex_app_server_protocol::TurnStartParams;
 use codex_app_server_protocol::TurnStartResponse;
 use codex_app_server_protocol::TurnStatus;
 use codex_app_server_protocol::UserInput;
+use codex_tt_core::WorkerBinding;
 use codex_tt_core::WorkspacePaths;
 use codex_tt_core::load_state;
+use codex_tt_core::save_state;
 use codex_utils_cargo_bin::cargo_bin;
 use pretty_assertions::assert_eq;
 use tempfile::tempdir;
@@ -122,6 +124,11 @@ fn load_tt_state(workspace_root: &Path) -> codex_tt_core::TtState {
     load_state(&paths).unwrap_or_else(|err| panic!("load tt state: {err}"))
 }
 
+fn save_tt_state(workspace_root: &Path, state: &codex_tt_core::TtState) {
+    let paths = WorkspacePaths::new(workspace_root.to_path_buf());
+    save_state(&paths, state).unwrap_or_else(|err| panic!("save tt state: {err}"));
+}
+
 async fn connect_runtime(workspace_root: &Path) -> RemoteAppServerClient {
     let state = load_tt_state(workspace_root);
     RemoteAppServerClient::connect(RemoteAppServerConnectArgs {
@@ -213,6 +220,15 @@ fn worker_thread_id(workspace_root: &Path, name: &str) -> String {
         .find(|worker| worker.name == name)
         .and_then(|worker| worker.thread_id)
         .unwrap_or_else(|| panic!("missing thread id for worker `{name}`"))
+}
+
+fn worker_binding(workspace_root: &Path, name: &str) -> WorkerBinding {
+    load_tt_state(workspace_root)
+        .workers
+        .into_iter()
+        .find(|worker| worker.name == name)
+        .map(|worker| worker.binding)
+        .unwrap_or_else(|| panic!("missing binding for worker `{name}`"))
 }
 
 fn assert_success(output: &std::process::Output, context: &str) {
@@ -449,18 +465,25 @@ async fn worker_adopt_rejects_outside_workspace_and_survives_restart() {
     );
     assert_failure_contains(&reject_outside, "cwd is outside this workspace");
 
-    let inside_thread: ThreadStartResponse = client
-        .request_typed(ClientRequest::ThreadStart {
-            request_id: request_id(&mut next_request_id),
-            params: ThreadStartParams {
-                cwd: Some(primary_checkout.display().to_string()),
-                ephemeral: Some(false),
-                persist_extended_history: true,
-                ..Default::default()
-            },
-        })
-        .await
-        .unwrap_or_else(|err| panic!("start inside thread: {err}"));
+    let add_output = run_tt(&tt_bin, &workspace_root, &["worker", "add", "feature-a"]);
+    assert_success(&add_output, "tt worker add");
+    let managed_thread_id = worker_thread_id(&workspace_root, "feature-a");
+    let managed_send = run_tt(
+        &tt_bin,
+        &workspace_root,
+        &[
+            "worker",
+            "send",
+            "feature-a",
+            "--message",
+            "seed managed thread",
+        ],
+    );
+    assert_success(&managed_send, "tt worker send feature-a");
+    let _ = wait_for_thread_idle(&client, &mut next_request_id, &managed_thread_id).await;
+
+    let remove_managed = run_tt(&tt_bin, &workspace_root, &["worker", "remove", "feature-a"]);
+    assert_success(&remove_managed, "tt worker remove feature-a");
     let adopt_output = run_tt(
         &tt_bin,
         &workspace_root,
@@ -469,10 +492,14 @@ async fn worker_adopt_rejects_outside_workspace_and_survives_restart() {
             "adopt",
             "adopted",
             "--thread-id",
-            inside_thread.thread.id.as_str(),
+            managed_thread_id.as_str(),
         ],
     );
     assert_success(&adopt_output, "tt worker adopt");
+    assert_eq!(
+        worker_binding(&workspace_root, "adopted"),
+        WorkerBinding::Adopted
+    );
 
     let duplicate_adopt = run_tt(
         &tt_bin,
@@ -482,7 +509,7 @@ async fn worker_adopt_rejects_outside_workspace_and_survives_restart() {
             "adopt",
             "adopted",
             "--thread-id",
-            inside_thread.thread.id.as_str(),
+            managed_thread_id.as_str(),
         ],
     );
     assert_failure_contains(&duplicate_adopt, "worker `adopted` already exists");
@@ -493,7 +520,7 @@ async fn worker_adopt_rejects_outside_workspace_and_survives_restart() {
         &["worker", "send", "adopted", "--message", "before restart"],
     );
     assert_success(&adopted_send, "tt worker send adopted");
-    let _ = wait_for_thread_idle(&client, &mut next_request_id, &inside_thread.thread.id).await;
+    let _ = wait_for_thread_idle(&client, &mut next_request_id, &managed_thread_id).await;
 
     let stop_output = run_tt(&tt_bin, &workspace_root, &["stop"]);
     assert_success(&stop_output, "tt stop");
@@ -507,6 +534,7 @@ async fn worker_adopt_rejects_outside_workspace_and_survives_restart() {
         .find(|worker| worker.name == "adopted")
         .and_then(|worker| worker.thread_id)
         .unwrap_or_else(|| panic!("adopted thread id after restart"));
+    assert_eq!(restarted_thread_id, managed_thread_id);
 
     let read_output = run_tt(
         &tt_bin,
@@ -533,6 +561,181 @@ async fn worker_adopt_rejects_outside_workspace_and_survives_restart() {
         &restarted_thread_id,
     )
     .await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn broken_adopted_binding_stays_bound_and_unavailable_after_restart() {
+    let tempdir = tempdir().unwrap_or_else(|err| panic!("tempdir: {err}"));
+    let root = tempdir.path();
+    let tt_bin = cargo_bin("tt").unwrap_or_else(|err| panic!("resolve tt binary: {err}"));
+    let workspace_root = setup_workspace(&tt_bin, root);
+    let primary_checkout = workspace_root.join("primary");
+
+    let server = create_mock_responses_server_repeating_assistant("adopted reply").await;
+    write_mock_config(&workspace_root, &server.uri());
+
+    let start_output = run_tt(&tt_bin, &primary_checkout, &["start"]);
+    assert_success(&start_output, "tt start");
+
+    let client = connect_runtime(&workspace_root).await;
+    let mut next_request_id = 1;
+    let add_output = run_tt(&tt_bin, &workspace_root, &["worker", "add", "feature-a"]);
+    assert_success(&add_output, "tt worker add");
+    let managed_thread_id = worker_thread_id(&workspace_root, "feature-a");
+    let managed_send = run_tt(
+        &tt_bin,
+        &workspace_root,
+        &[
+            "worker",
+            "send",
+            "feature-a",
+            "--message",
+            "seed managed thread",
+        ],
+    );
+    assert_success(&managed_send, "tt worker send feature-a");
+    let _ = wait_for_thread_idle(&client, &mut next_request_id, &managed_thread_id).await;
+
+    let remove_managed = run_tt(&tt_bin, &workspace_root, &["worker", "remove", "feature-a"]);
+    assert_success(&remove_managed, "tt worker remove feature-a");
+    let adopt_output = run_tt(
+        &tt_bin,
+        &workspace_root,
+        &[
+            "worker",
+            "adopt",
+            "adopted",
+            "--thread-id",
+            managed_thread_id.as_str(),
+        ],
+    );
+    assert_success(&adopt_output, "tt worker adopt");
+
+    let stop_output = run_tt(&tt_bin, &workspace_root, &["stop"]);
+    assert_success(&stop_output, "tt stop");
+
+    let broken_thread_id = "thr_broken_adopted_binding".to_string();
+    let mut state = load_tt_state(&workspace_root);
+    let adopted = state
+        .workers
+        .iter_mut()
+        .find(|worker| worker.name == "adopted")
+        .unwrap_or_else(|| panic!("adopted worker"));
+    adopted.thread_id = Some(broken_thread_id.clone());
+    adopted.binding = WorkerBinding::Adopted;
+    save_tt_state(&workspace_root, &state);
+
+    let restart_output = run_tt(&tt_bin, &workspace_root, &["start"]);
+    assert_success(&restart_output, "tt restart");
+
+    let restarted_state = load_tt_state(&workspace_root);
+    let adopted = restarted_state
+        .workers
+        .iter()
+        .find(|worker| worker.name == "adopted")
+        .unwrap_or_else(|| panic!("adopted worker after restart"));
+    assert_eq!(adopted.binding, WorkerBinding::Adopted);
+    assert_eq!(
+        adopted.thread_id.as_deref(),
+        Some(broken_thread_id.as_str())
+    );
+    let log_text = fs::read_to_string(workspace_root.join(".codex/tt/log.ndjson"))
+        .unwrap_or_else(|err| panic!("read tt log: {err}"));
+    assert!(log_text.contains("worker-resume-failed"));
+    assert!(log_text.contains(&broken_thread_id));
+
+    let worker_list = run_tt(&tt_bin, &workspace_root, &["worker", "list"]);
+    assert_success(&worker_list, "tt worker list");
+    let worker_list_stdout = String::from_utf8_lossy(&worker_list.stdout);
+    assert!(worker_list_stdout.contains("adopted\tworker\tunavailable"));
+
+    let read_output = run_tt(
+        &tt_bin,
+        &workspace_root,
+        &["worker", "read", "adopted", "--all"],
+    );
+    assert_failure_contains(&read_output, "worker `adopted` is bound to adopted thread");
+    assert_failure_contains(&read_output, "remove or re-adopt the worker");
+
+    let send_output = run_tt(
+        &tt_bin,
+        &workspace_root,
+        &["worker", "send", "adopted", "--message", "hello"],
+    );
+    assert_failure_contains(&send_output, "worker `adopted` is bound to adopted thread");
+    assert_failure_contains(&send_output, "remove or re-adopt the worker");
+
+    let remove_output = run_tt(&tt_bin, &workspace_root, &["worker", "remove", "adopted"]);
+    assert_success(&remove_output, "tt worker remove adopted");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn worker_read_send_and_adopt_require_running_runtime() {
+    let tempdir = tempdir().unwrap_or_else(|err| panic!("tempdir: {err}"));
+    let root = tempdir.path();
+    let tt_bin = cargo_bin("tt").unwrap_or_else(|err| panic!("resolve tt binary: {err}"));
+    let workspace_root = setup_workspace(&tt_bin, root);
+
+    let read_output = run_tt(&tt_bin, &workspace_root, &["worker", "read", "director"]);
+    assert_failure_contains(
+        &read_output,
+        "TT runtime is not running; use `tt start` first",
+    );
+
+    let send_output = run_tt(
+        &tt_bin,
+        &workspace_root,
+        &["worker", "send", "director", "--message", "hello"],
+    );
+    assert_failure_contains(
+        &send_output,
+        "TT runtime is not running; use `tt start` first",
+    );
+
+    let adopt_output = run_tt(
+        &tt_bin,
+        &workspace_root,
+        &["worker", "adopt", "imported", "--thread-id", "thr_missing"],
+    );
+    assert_failure_contains(
+        &adopt_output,
+        "TT runtime is not running; use `tt start` first",
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn worker_control_reports_unknown_workers_and_invalid_adoptions_clearly() {
+    let tempdir = tempdir().unwrap_or_else(|err| panic!("tempdir: {err}"));
+    let root = tempdir.path();
+    let tt_bin = cargo_bin("tt").unwrap_or_else(|err| panic!("resolve tt binary: {err}"));
+    let workspace_root = setup_workspace(&tt_bin, root);
+    let primary_checkout = workspace_root.join("primary");
+
+    let server = create_mock_responses_server_repeating_assistant("worker reply").await;
+    write_mock_config(&workspace_root, &server.uri());
+
+    let start_output = run_tt(&tt_bin, &primary_checkout, &["start"]);
+    assert_success(&start_output, "tt start");
+
+    let read_output = run_tt(&tt_bin, &workspace_root, &["worker", "read", "missing"]);
+    assert_failure_contains(&read_output, "unknown worker `missing`");
+
+    let send_output = run_tt(
+        &tt_bin,
+        &workspace_root,
+        &["worker", "send", "missing", "--message", "hello"],
+    );
+    assert_failure_contains(&send_output, "unknown worker `missing`");
+
+    let remove_output = run_tt(&tt_bin, &workspace_root, &["worker", "remove", "missing"]);
+    assert_failure_contains(&remove_output, "unknown worker `missing`");
+
+    let adopt_output = run_tt(
+        &tt_bin,
+        &workspace_root,
+        &["worker", "adopt", "imported", "--thread-id", "thr_missing"],
+    );
+    assert_failure_contains(&adopt_output, "validate thread `thr_missing`");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -901,4 +1104,93 @@ async fn supervisor_tools_are_handled_only_for_supervisor_threads() {
             }),
         "non-supervisor turn should not expose TT supervisor tools"
     );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn supervisor_tool_worker_failures_return_failed_results_without_mutating_state() {
+    let tempdir = tempdir().unwrap_or_else(|err| panic!("tempdir: {err}"));
+    let root = tempdir.path();
+    let tt_bin = cargo_bin("tt").unwrap_or_else(|err| panic!("resolve tt binary: {err}"));
+    let workspace_root = setup_workspace(&tt_bin, root);
+    let primary_checkout = workspace_root.join("primary");
+
+    let responses = vec![
+        core_test_support::responses::sse(vec![
+            core_test_support::responses::ev_response_created("resp-fail"),
+            core_test_support::responses::ev_function_call(
+                "call-remove-missing",
+                "tt_worker_remove",
+                r#"{"name":"missing"}"#,
+            ),
+            core_test_support::responses::ev_completed("resp-fail"),
+        ]),
+        create_final_assistant_message_sse_response("tool failure handled")
+            .unwrap_or_else(|err| panic!("response: {err}")),
+    ];
+    let server = create_mock_responses_server_sequence_unchecked(responses).await;
+    write_mock_config(&workspace_root, &server.uri());
+
+    let start_output = run_tt(&tt_bin, &primary_checkout, &["start"]);
+    assert_success(&start_output, "tt start");
+    let add_output = run_tt(&tt_bin, &workspace_root, &["worker", "add", "feature-a"]);
+    assert_success(&add_output, "tt worker add");
+
+    let client = connect_runtime(&workspace_root).await;
+    let mut next_request_id = 1;
+    let supervisor_thread_id = load_tt_state(&workspace_root)
+        .supervisor_thread_id
+        .unwrap_or_else(|| panic!("supervisor thread id"));
+
+    let _: TurnStartResponse = client
+        .request_typed(ClientRequest::TurnStart {
+            request_id: request_id(&mut next_request_id),
+            params: TurnStartParams {
+                thread_id: supervisor_thread_id.clone(),
+                input: vec![UserInput::Text {
+                    text: "remove missing worker".to_string(),
+                    text_elements: Vec::new(),
+                }],
+                ..Default::default()
+            },
+        })
+        .await
+        .unwrap_or_else(|err| panic!("start supervisor turn: {err}"));
+    let supervisor_history =
+        wait_for_thread_idle(&client, &mut next_request_id, &supervisor_thread_id).await;
+
+    let failed_tool_call = supervisor_history
+        .thread
+        .turns
+        .iter()
+        .flat_map(|turn| turn.items.iter())
+        .find_map(|item| match item {
+            codex_app_server_protocol::ThreadItem::DynamicToolCall {
+                tool,
+                success,
+                content_items,
+                ..
+            } if tool == "tt_worker_remove" => Some((success, content_items)),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("missing tt_worker_remove tool call"));
+    assert_eq!(failed_tool_call.0, &Some(false));
+    let tool_text = failed_tool_call
+        .1
+        .as_ref()
+        .unwrap_or_else(|| panic!("tool content items"))
+        .iter()
+        .filter_map(|item| match item {
+            codex_app_server_protocol::DynamicToolCallOutputContentItem::InputText { text } => {
+                Some(text.as_str())
+            }
+            codex_app_server_protocol::DynamicToolCallOutputContentItem::InputImage { .. } => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(tool_text.contains("unknown worker `missing`"));
+
+    let worker_list = run_tt(&tt_bin, &workspace_root, &["worker", "list"]);
+    assert_success(&worker_list, "tt worker list");
+    let worker_list_stdout = String::from_utf8_lossy(&worker_list.stdout);
+    assert!(worker_list_stdout.contains("feature-a\tworker"));
 }

@@ -42,6 +42,7 @@ use codex_tt_core::DispatchEnvelope;
 use codex_tt_core::ResultEnvelope;
 use codex_tt_core::Role;
 use codex_tt_core::TtState;
+use codex_tt_core::WorkerBinding;
 use codex_tt_core::WorkerKind;
 use codex_tt_core::WorkerRecord;
 use codex_tt_core::WorkspacePaths;
@@ -91,6 +92,11 @@ pub(crate) struct TtRuntime {
     request_ids: RequestIdSequencer,
 }
 
+pub(crate) enum WorkerSessionStatus {
+    Ready,
+    Unavailable { thread_id: String, detail: String },
+}
+
 impl TtRuntime {
     pub(crate) async fn open_remote(
         workspace_root: PathBuf,
@@ -132,7 +138,29 @@ impl TtRuntime {
             .map(|worker| worker.name.clone())
             .collect();
         for worker_name in worker_names {
-            self.ensure_named_worker_session(state, worker_name).await?;
+            match self
+                .ensure_named_worker_session(state, worker_name.clone())
+                .await?
+            {
+                WorkerSessionStatus::Ready => {}
+                WorkerSessionStatus::Unavailable { thread_id, detail } => {
+                    let worker = state
+                        .workers
+                        .iter()
+                        .find(|worker| worker.name == worker_name)
+                        .with_context(|| format!("unknown worker `{worker_name}`"))?;
+                    append_log(
+                        &self.workspace_paths,
+                        default_log_event(
+                            "worker-resume-failed",
+                            worker.kind.preset_role(),
+                            Some(worker.name.clone()),
+                            Some(thread_id),
+                            Some(detail),
+                        ),
+                    )?;
+                }
+            }
         }
         Ok(())
     }
@@ -181,20 +209,40 @@ impl TtRuntime {
         &mut self,
         state: &mut TtState,
         worker_name: String,
-    ) -> Result<String> {
+    ) -> Result<WorkerSessionStatus> {
         let worker_index = state
             .workers
             .iter()
             .position(|worker| worker.name == worker_name)
-            .with_context(|| format!("missing worker `{worker_name}` in TT state"))?;
+            .with_context(|| format!("unknown worker `{worker_name}`"))?;
+
+        let worker = state.workers[worker_index].clone();
+        if worker.binding == WorkerBinding::Adopted {
+            let Some(thread_id) = worker.thread_id.as_deref() else {
+                anyhow::bail!(
+                    "worker `{}` is bound to an adopted thread but has no stored thread id",
+                    worker.name
+                );
+            };
+
+            return match self.resume_thread(thread_id).await {
+                Ok(_) => Ok(WorkerSessionStatus::Ready),
+                Err(err) => Ok(WorkerSessionStatus::Unavailable {
+                    thread_id: thread_id.to_string(),
+                    detail: format!(
+                        "worker `{}` is bound to adopted thread `{thread_id}`, but TT could not resume that exact thread; remove or re-adopt the worker: {err:#}",
+                        worker.name
+                    ),
+                }),
+            };
+        }
 
         if let Some(thread_id) = state.workers[worker_index].thread_id.as_deref()
             && self.resume_thread(thread_id).await.is_ok()
         {
-            return Ok(thread_id.to_string());
+            return Ok(WorkerSessionStatus::Ready);
         }
 
-        let worker = state.workers[worker_index].clone();
         let instructions = read_optional_instructions(worker.instruction_path.as_deref())?;
         let response = self
             .start_thread(
@@ -216,12 +264,12 @@ impl TtRuntime {
                 "thread-created",
                 worker.kind.preset_role(),
                 Some(worker.name.clone()),
-                Some(thread_id.clone()),
+                Some(thread_id),
                 Some(format!("created {} session", worker.kind.as_str())),
             ),
         )?;
 
-        Ok(thread_id)
+        Ok(WorkerSessionStatus::Ready)
     }
 
     async fn start_thread(
@@ -467,9 +515,13 @@ pub(crate) async fn ensure_runtime_worker_thread(
         state.runtime_auth_token.clone(),
     )
     .await?;
-    runtime
+    match runtime
         .ensure_named_worker_session(&mut state, worker_name)
-        .await?;
+        .await?
+    {
+        WorkerSessionStatus::Ready => {}
+        WorkerSessionStatus::Unavailable { detail, .. } => anyhow::bail!(detail),
+    }
     save_state(workspace_paths, &state)?;
     Ok(state)
 }
@@ -514,7 +566,7 @@ pub(crate) async fn start_daemon(
         let all_workers_ready = state
             .workers
             .iter()
-            .all(|worker| worker.thread_id.is_some());
+            .all(|worker| worker.binding == WorkerBinding::Adopted || worker.thread_id.is_some());
         if state.runtime_running
             && state.runtime_websocket_url.is_some()
             && state.supervisor_thread_id.is_some()
@@ -586,17 +638,6 @@ pub(crate) async fn run_daemon(
     state.runtime_websocket_url = Some(app_server.websocket_url.clone());
     state.runtime_auth_token = None;
     state.last_runtime_started_at = Some(Utc::now());
-    save_state(&workspace_paths, &state)?;
-    append_log(
-        &workspace_paths,
-        default_log_event(
-            "runtime-started",
-            None,
-            None,
-            None,
-            Some(format!("runtime websocket={}", app_server.websocket_url)),
-        ),
-    )?;
 
     let mut runtime = TtRuntime::open_remote(
         workspace_root,
@@ -607,6 +648,16 @@ pub(crate) async fn run_daemon(
     .await?;
     runtime.ensure_sessions(&mut state).await?;
     save_state(&runtime.workspace_paths, &state)?;
+    append_log(
+        &workspace_paths,
+        default_log_event(
+            "runtime-started",
+            None,
+            None,
+            None,
+            Some(format!("runtime websocket={}", app_server.websocket_url)),
+        ),
+    )?;
 
     let signal = shutdown_signal();
     tokio::pin!(signal);

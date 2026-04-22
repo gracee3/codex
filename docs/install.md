@@ -88,8 +88,11 @@ steers the active turn when the worker already has an in-progress steerable
 turn.
 
 `tt worker adopt` only accepts threads whose `cwd` is inside the current
-workspace. Adopted workers persist in TT state and continue to work after
-`tt stop` and `tt start`.
+workspace. Adopted workers persist in TT state as strict thread bindings:
+`tt stop` and `tt start` will only resume the exact adopted `thread_id`, and
+TT will not silently replace it with a new thread. If that adopted thread can
+no longer be resumed, the runtime still starts, but the worker remains
+unavailable until it is fixed or removed.
 
 After making Rust changes:
 

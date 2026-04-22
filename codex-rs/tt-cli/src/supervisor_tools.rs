@@ -156,23 +156,49 @@ pub(crate) async fn handle_server_request(
 }
 
 fn tool_success(value: serde_json::Value) -> serde_json::Value {
-    serde_json::to_value(DynamicToolCallResponse {
-        content_items: vec![DynamicToolCallOutputContentItem::InputText {
+    dynamic_tool_response_json(
+        vec![DynamicToolCallOutputContentItem::InputText {
             text: serde_json::to_string_pretty(&value).unwrap_or_else(|_| value.to_string()),
         }],
-        success: true,
-    })
-    .unwrap_or_else(|err| panic!("serialize dynamic tool response: {err}"))
+        true,
+    )
 }
 
 fn tool_failure(message: impl Into<String>) -> serde_json::Value {
-    serde_json::to_value(DynamicToolCallResponse {
-        content_items: vec![DynamicToolCallOutputContentItem::InputText {
+    dynamic_tool_response_json(
+        vec![DynamicToolCallOutputContentItem::InputText {
             text: message.into(),
         }],
-        success: false,
-    })
-    .unwrap_or_else(|err| panic!("serialize dynamic tool response: {err}"))
+        false,
+    )
+}
+
+fn dynamic_tool_response_json(
+    content_items: Vec<DynamicToolCallOutputContentItem>,
+    success: bool,
+) -> serde_json::Value {
+    match serde_json::to_value(DynamicToolCallResponse {
+        content_items: content_items.clone(),
+        success,
+    }) {
+        Ok(value) => value,
+        Err(_) => serde_json::json!({
+            "contentItems": content_items
+                .into_iter()
+                .map(|item| match item {
+                    DynamicToolCallOutputContentItem::InputText { text } => serde_json::json!({
+                        "type": "inputText",
+                        "text": text,
+                    }),
+                    DynamicToolCallOutputContentItem::InputImage { image_url } => serde_json::json!({
+                        "type": "inputImage",
+                        "imageUrl": image_url,
+                    }),
+                })
+                .collect::<Vec<_>>(),
+            "success": success,
+        }),
+    }
 }
 
 fn required_string_arg(arguments: &serde_json::Value, key: &str) -> Result<String> {

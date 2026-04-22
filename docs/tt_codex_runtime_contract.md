@@ -107,11 +107,14 @@ Command semantics:
 - `tt worker list`
   - shows worker name, kind, cwd, thread id, and live runtime status when the
     runtime is reachable
+  - shows `unavailable` when a worker still has a bound thread id but TT cannot
+    inspect that live thread
 - `tt worker read <name> [--turns <n> | --all]`
   - requires a running runtime
   - prints worker metadata first, then a human-readable transcript
   - defaults to the last 10 turns
   - renders non-message thread items as compact summaries instead of raw JSON
+  - fails cleanly when an adopted worker is still bound to a stale thread id
 - `tt worker send <name> --message "<text>"`
   - requires a running runtime
   - creates the worker thread on demand when needed
@@ -119,11 +122,13 @@ Command semantics:
   - steers the active turn when the worker already has an in-progress steerable
     turn
   - fails cleanly when the active turn exists but is not steerable
+  - fails cleanly when an adopted worker is still bound to a stale thread id
 - `tt worker adopt <name> --thread-id <id>`
   - requires a running runtime
   - validates the supplied thread id through `thread/read`
   - only allows adoption when the thread cwd is inside the current workspace
   - registers the worker as a generic `worker` with no instruction path
+  - persists the worker as an adopted strict binding to that exact `thread_id`
 - `tt worker remove <name>`
   - unregisters the worker from TT state only
   - does not delete the worktree or archive the underlying thread
@@ -222,7 +227,12 @@ The TT runtime currently persists at least:
 This is the inspectable control plane for TT.
 
 Registered workers, including adopted workers, are stored in `workers[]` and
-are resumed on the next `tt start` when their thread ids remain valid.
+are resumed on the next `tt start`.
+
+Managed workers may be recreated by TT if their previous thread can no longer be
+resumed. Adopted workers are strict bindings: TT only resumes the exact stored
+`thread_id`, does not silently replace it, and surfaces stale adopted bindings
+as worker-level failures until the operator fixes or removes them.
 
 ## Current Limitations
 

@@ -12,6 +12,7 @@ use codex_app_server_protocol::TurnStatus;
 use codex_app_server_protocol::UserInput;
 use codex_tt_core::DefaultView;
 use codex_tt_core::TtState;
+use codex_tt_core::WorkerBinding;
 use codex_tt_core::WorkerKind;
 use codex_tt_core::WorkerRecord;
 use codex_tt_core::WorkspacePaths;
@@ -21,6 +22,7 @@ use codex_tt_core::save_state;
 use serde_json::Value;
 
 use crate::runtime::TtRuntime;
+use crate::runtime::WorkerSessionStatus;
 
 const DEFAULT_READ_TURNS: usize = 10;
 const ACTIVE_TURN_MISMATCH_PREFIX: &str = "expected active turn id `";
@@ -109,11 +111,10 @@ pub(crate) async fn list_worker_summaries(
     if let Some(runtime) = runtime {
         for worker in &state.workers {
             let status = match worker.thread_id.as_deref() {
-                Some(thread_id) => runtime
-                    .read_thread(thread_id, false)
-                    .await
-                    .ok()
-                    .map(|response| format_thread_status(&response.thread.status)),
+                Some(thread_id) => match runtime.read_thread(thread_id, false).await {
+                    Ok(response) => Some(format_thread_status(&response.thread.status)),
+                    Err(_) => Some("unavailable".to_string()),
+                },
                 None => None,
             };
             summaries.push(worker_summary(worker, status));
@@ -196,63 +197,56 @@ pub(crate) async fn send_worker_prompt(
     let response = read_thread_with_history_fallback(runtime, thread_id)
         .await
         .with_context(|| format!("read worker `{name}` state"))?;
-    let active_turn = response
-        .thread
-        .turns
-        .iter()
-        .rev()
-        .find(|turn| turn.status == TurnStatus::InProgress);
-
-    let result = if let Some(active_turn) = active_turn {
-        let mut steer_turn_id = active_turn.id.clone();
-        let mut retried_after_turn_mismatch = false;
-        loop {
-            match runtime
-                .steer_turn(thread_id, &steer_turn_id, message.clone())
+    let mut active_turn_id = latest_in_progress_turn_id(&response.thread.turns);
+    let mut refreshed_after_steer_error = false;
+    let result = loop {
+        let Some(steer_turn_id) = active_turn_id.clone() else {
+            let response = runtime
+                .start_turn(thread_id, message.clone())
                 .await
-            {
-                Ok(response) => {
-                    break WorkerSendResult {
-                        mode: WorkerSendMode::Steer,
-                        turn_id: response.turn_id,
-                    };
+                .with_context(|| format!("start worker `{name}` turn"))?;
+            break WorkerSendResult {
+                mode: WorkerSendMode::Start,
+                turn_id: response.turn.id,
+            };
+        };
+
+        match runtime
+            .steer_turn(thread_id, &steer_turn_id, message.clone())
+            .await
+        {
+            Ok(response) => {
+                break WorkerSendResult {
+                    mode: WorkerSendMode::Steer,
+                    turn_id: response.turn_id,
+                };
+            }
+            Err(err) if !refreshed_after_steer_error && steer_retry_requires_refresh(&err) => {
+                let refreshed = read_thread_with_history_fallback(runtime, thread_id)
+                    .await
+                    .with_context(|| format!("refresh worker `{name}` state"))?;
+                active_turn_id = latest_in_progress_turn_id(&refreshed.thread.turns);
+                refreshed_after_steer_error = true;
+                continue;
+            }
+            Err(err) => {
+                if let Some(message) = non_steerable_message(&err) {
+                    anyhow::bail!("worker `{name}` active turn is not steerable: {message}");
                 }
-                Err(err) => {
-                    if let Some(message) = non_steerable_message(&err) {
-                        anyhow::bail!("worker `{name}` active turn is not steerable: {message}");
+                match active_turn_steer_race(&err) {
+                    Some(ActiveTurnSteerRace::Missing) => {
+                        active_turn_id = None;
                     }
-                    match active_turn_steer_race(&err) {
-                        Some(ActiveTurnSteerRace::Missing) => {
-                            let response = runtime
-                                .start_turn(thread_id, message.clone())
-                                .await
-                                .with_context(|| format!("start worker `{name}` turn"))?;
-                            break WorkerSendResult {
-                                mode: WorkerSendMode::Start,
-                                turn_id: response.turn.id,
-                            };
-                        }
-                        Some(ActiveTurnSteerRace::ExpectedTurnMismatch { actual_turn_id })
-                            if !retried_after_turn_mismatch && actual_turn_id != steer_turn_id =>
-                        {
-                            steer_turn_id = actual_turn_id;
-                            retried_after_turn_mismatch = true;
-                        }
-                        Some(ActiveTurnSteerRace::ExpectedTurnMismatch { .. }) | None => {
-                            return Err(err).with_context(|| format!("steer worker `{name}`"));
-                        }
+                    Some(ActiveTurnSteerRace::ExpectedTurnMismatch { actual_turn_id })
+                        if actual_turn_id != steer_turn_id =>
+                    {
+                        active_turn_id = Some(actual_turn_id);
+                    }
+                    Some(ActiveTurnSteerRace::ExpectedTurnMismatch { .. }) | None => {
+                        return Err(err).with_context(|| format!("steer worker `{name}`"));
                     }
                 }
             }
-        }
-    } else {
-        let response = runtime
-            .start_turn(thread_id, message.clone())
-            .await
-            .with_context(|| format!("start worker `{name}` turn"))?;
-        WorkerSendResult {
-            mode: WorkerSendMode::Start,
-            turn_id: response.turn.id,
         }
     };
 
@@ -302,6 +296,7 @@ pub(crate) async fn adopt_worker(
         name: name.to_string(),
         kind: WorkerKind::Worker,
         cwd: thread_cwd.to_path_buf(),
+        binding: WorkerBinding::Adopted,
         thread_id: Some(thread_id.to_string()),
         instruction_path: None,
     };
@@ -472,11 +467,16 @@ async fn ensure_worker_thread(
     state: &mut TtState,
     name: &str,
 ) -> Result<WorkerRecord> {
-    runtime
+    match runtime
         .ensure_named_worker_session(state, name.to_string())
         .await
-        .with_context(|| format!("ensure worker `{name}` thread"))?;
-    save_state(&runtime.workspace_paths, state)?;
+        .with_context(|| format!("ensure worker `{name}` thread"))?
+    {
+        WorkerSessionStatus::Ready => {
+            save_state(&runtime.workspace_paths, state)?;
+        }
+        WorkerSessionStatus::Unavailable { detail, .. } => anyhow::bail!(detail),
+    }
     state
         .workers
         .iter()
@@ -674,6 +674,18 @@ fn active_turn_steer_race(err: &TypedRequestError) -> Option<ActiveTurnSteerRace
         .strip_suffix('`')?
         .to_string();
     Some(ActiveTurnSteerRace::ExpectedTurnMismatch { actual_turn_id })
+}
+
+fn latest_in_progress_turn_id(turns: &[Turn]) -> Option<String> {
+    turns
+        .iter()
+        .rev()
+        .find(|turn| turn.status == TurnStatus::InProgress)
+        .map(|turn| turn.id.clone())
+}
+
+fn steer_retry_requires_refresh(err: &TypedRequestError) -> bool {
+    active_turn_steer_race(err).is_some() || non_steerable_message(err).is_some()
 }
 
 fn read_turns_not_available_yet(err: &anyhow::Error) -> bool {

@@ -92,11 +92,28 @@ impl WorkerKind {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkerBinding {
+    Managed,
+    Adopted,
+}
+
+impl WorkerBinding {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Managed => "managed",
+            Self::Adopted => "adopted",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkerRecord {
     pub name: String,
     pub kind: WorkerKind,
     pub cwd: PathBuf,
+    pub binding: WorkerBinding,
     pub thread_id: Option<String>,
     pub instruction_path: Option<PathBuf>,
 }
@@ -332,8 +349,9 @@ pub fn ensure_workspace_artifacts(paths: &WorkspacePaths) -> Result<()> {
 pub fn load_state(paths: &WorkspacePaths) -> Result<TtState> {
     let bytes = fs::read(paths.state_path())
         .with_context(|| format!("read TT state {}", paths.state_path().display()))?;
-    serde_json::from_slice(&bytes)
-        .with_context(|| format!("parse TT state {}", paths.state_path().display()))
+    let raw: RawTtState = serde_json::from_slice(&bytes)
+        .with_context(|| format!("parse TT state {}", paths.state_path().display()))?;
+    Ok(raw.into_state(paths))
 }
 
 pub fn save_state(paths: &WorkspacePaths, state: &TtState) -> Result<()> {
@@ -404,6 +422,7 @@ pub fn default_worker_records(paths: &WorkspacePaths) -> Vec<WorkerRecord> {
             name: "director".to_string(),
             kind: WorkerKind::Director,
             cwd: paths.primary_checkout(),
+            binding: WorkerBinding::Managed,
             thread_id: None,
             instruction_path: Some(paths.role_path(Role::Director)),
         },
@@ -411,6 +430,7 @@ pub fn default_worker_records(paths: &WorkspacePaths) -> Vec<WorkerRecord> {
             name: "developer".to_string(),
             kind: WorkerKind::Developer,
             cwd: paths.primary_checkout(),
+            binding: WorkerBinding::Managed,
             thread_id: None,
             instruction_path: Some(paths.role_path(Role::Developer)),
         },
@@ -436,12 +456,94 @@ fn seed_missing_default_workers(paths: &WorkspacePaths, state: &mut TtState) {
             .iter_mut()
             .find(|worker| worker.name == default_worker.name)
         {
+            existing.binding = WorkerBinding::Managed;
             if existing.instruction_path.is_none() {
                 existing.instruction_path = default_worker.instruction_path;
             }
             continue;
         }
         state.workers.push(default_worker);
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct RawWorkerRecord {
+    name: String,
+    kind: WorkerKind,
+    cwd: PathBuf,
+    binding: Option<WorkerBinding>,
+    thread_id: Option<String>,
+    instruction_path: Option<PathBuf>,
+}
+
+impl RawWorkerRecord {
+    fn into_worker_record(self, paths: &WorkspacePaths) -> WorkerRecord {
+        let binding = self
+            .binding
+            .unwrap_or_else(|| infer_worker_binding(paths, &self));
+        WorkerRecord {
+            name: self.name,
+            kind: self.kind,
+            cwd: self.cwd,
+            binding,
+            thread_id: self.thread_id,
+            instruction_path: self.instruction_path,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct RawTtState {
+    supervisor_thread_id: Option<String>,
+    workers: Vec<RawWorkerRecord>,
+    runtime_running: bool,
+    runtime_pid: Option<u32>,
+    runtime_websocket_url: Option<String>,
+    runtime_auth_token: Option<String>,
+    last_runtime_started_at: Option<DateTime<Utc>>,
+    auto_loop: bool,
+    operator_pause: bool,
+    default_view: DefaultView,
+    active_dispatch_id: Option<String>,
+    pending_director_evaluation: bool,
+    pending_developer_dispatch: bool,
+}
+
+impl RawTtState {
+    fn into_state(self, paths: &WorkspacePaths) -> TtState {
+        TtState {
+            supervisor_thread_id: self.supervisor_thread_id,
+            workers: self
+                .workers
+                .into_iter()
+                .map(|worker| worker.into_worker_record(paths))
+                .collect(),
+            runtime_running: self.runtime_running,
+            runtime_pid: self.runtime_pid,
+            runtime_websocket_url: self.runtime_websocket_url,
+            runtime_auth_token: self.runtime_auth_token,
+            last_runtime_started_at: self.last_runtime_started_at,
+            auto_loop: self.auto_loop,
+            operator_pause: self.operator_pause,
+            default_view: self.default_view,
+            active_dispatch_id: self.active_dispatch_id,
+            pending_director_evaluation: self.pending_director_evaluation,
+            pending_developer_dispatch: self.pending_developer_dispatch,
+        }
+    }
+}
+
+fn infer_worker_binding(paths: &WorkspacePaths, worker: &RawWorkerRecord) -> WorkerBinding {
+    if worker.kind.preset_role().is_some() {
+        return WorkerBinding::Managed;
+    }
+
+    let worker_root = normalize_existing_path(&paths.worker_checkout(&worker.name));
+    let worker_cwd = normalize_existing_path(&worker.cwd);
+    if worker_cwd == worker_root {
+        WorkerBinding::Managed
+    } else {
+        WorkerBinding::Adopted
     }
 }
 
@@ -475,6 +577,10 @@ fn write_if_missing(path: &Path, contents: &str) -> Result<()> {
         return Ok(());
     }
     fs::write(path, contents).with_context(|| format!("write {}", path.display()))
+}
+
+fn normalize_existing_path(path: &Path) -> PathBuf {
+    fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
 }
 
 fn migrate_legacy_runtime_artifacts(paths: &WorkspacePaths) -> Result<()> {
@@ -575,8 +681,10 @@ mod tests {
         assert_eq!(state.default_view, DefaultView::Supervisor);
         assert_eq!(state.workers.len(), 2);
         assert_eq!(state.workers[0].name, "director");
+        assert_eq!(state.workers[0].binding, WorkerBinding::Managed);
         assert_eq!(state.workers[0].cwd, paths.primary_checkout());
         assert_eq!(state.workers[1].name, "developer");
+        assert_eq!(state.workers[1].binding, WorkerBinding::Managed);
     }
 
     #[test]
@@ -632,6 +740,77 @@ mod tests {
             fs::read_to_string(paths.log_path()).expect("read migrated log"),
             "legacy-log\n"
         );
+    }
+
+    #[test]
+    fn migrates_legacy_worker_bindings_from_worker_shape() {
+        let tempdir = tempfile::tempdir().expect("tempdir");
+        let paths = WorkspacePaths::new(tempdir.path().to_path_buf());
+        fs::create_dir_all(paths.runtime_dir()).expect("create runtime dir");
+
+        let managed_worker_path = paths.worker_checkout("feature-a");
+        let adopted_worker_path = tempdir.path().join("adopted");
+        fs::create_dir_all(&managed_worker_path).expect("create managed worker path");
+        fs::create_dir_all(&adopted_worker_path).expect("create adopted worker path");
+
+        fs::write(
+            paths.state_path(),
+            format!(
+                r#"{{
+  "supervisor_thread_id": null,
+  "workers": [
+    {{
+      "name": "director",
+      "kind": "director",
+      "cwd": "{}",
+      "thread_id": null,
+      "instruction_path": "{}"
+    }},
+    {{
+      "name": "feature-a",
+      "kind": "worker",
+      "cwd": "{}",
+      "thread_id": "thr_managed",
+      "instruction_path": null
+    }},
+    {{
+      "name": "adopted",
+      "kind": "worker",
+      "cwd": "{}",
+      "thread_id": "thr_adopted",
+      "instruction_path": null
+    }}
+  ],
+  "runtime_running": false,
+  "runtime_pid": null,
+  "runtime_websocket_url": null,
+  "runtime_auth_token": null,
+  "last_runtime_started_at": null,
+  "auto_loop": false,
+  "operator_pause": false,
+  "default_view": "supervisor",
+  "active_dispatch_id": null,
+  "pending_director_evaluation": false,
+  "pending_developer_dispatch": false
+}}"#,
+                paths.primary_checkout().display(),
+                paths.role_path(Role::Director).display(),
+                managed_worker_path.display(),
+                adopted_worker_path.display()
+            ),
+        )
+        .expect("write legacy state");
+
+        let state = load_state(&paths).expect("load state");
+        assert_eq!(state.workers.len(), 3);
+        assert_eq!(state.workers[0].binding, WorkerBinding::Managed);
+        assert_eq!(state.workers[1].binding, WorkerBinding::Managed);
+        assert_eq!(state.workers[2].binding, WorkerBinding::Adopted);
+
+        save_state(&paths, &state).expect("save state");
+        let saved = fs::read_to_string(paths.state_path()).expect("read saved state");
+        assert!(saved.contains(r#""binding": "managed""#));
+        assert!(saved.contains(r#""binding": "adopted""#));
     }
 
     #[test]

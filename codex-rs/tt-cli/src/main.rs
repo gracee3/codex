@@ -15,6 +15,7 @@ use codex_arg0::Arg0DispatchPaths;
 use codex_arg0::arg0_dispatch_or_else;
 use codex_tt_core::DefaultView;
 use codex_tt_core::TtState;
+use codex_tt_core::WorkerBinding;
 use codex_tt_core::WorkerKind;
 use codex_tt_core::WorkerRecord;
 use codex_tt_core::WorkspacePaths;
@@ -395,6 +396,7 @@ async fn add_worker(
         name: name.clone(),
         kind: WorkerKind::Worker,
         cwd: worker_path.clone(),
+        binding: WorkerBinding::Managed,
         thread_id: None,
         instruction_path: None,
     });
