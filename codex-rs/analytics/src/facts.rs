@@ -92,6 +92,7 @@ pub(crate) enum CustomAnalyticsFact {
     SkillInvoked(SkillInvokedInput),
     AppMentioned(AppMentionedInput),
     AppUsed(AppUsedInput),
+    HookRun(HookRunInput),
     PluginUsed(PluginUsedInput),
     PluginStateChanged(PluginStateChangedInput),
 }
@@ -109,6 +110,17 @@ pub(crate) struct AppMentionedInput {
 pub(crate) struct AppUsedInput {
     pub tracking: TrackEventsContext,
     pub app: AppInvocation,
+}
+
+pub(crate) struct HookRunInput {
+    pub tracking: TrackEventsContext,
+    pub hook: HookRunFact,
+}
+
+pub struct HookRunFact {
+    pub event_name: HookEventName,
+    pub hook_source: HookSource,
+    pub status: HookRunStatus,
 }
 
 pub(crate) struct PluginUsedInput {

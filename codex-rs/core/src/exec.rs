@@ -298,7 +298,11 @@ pub fn build_exec_request(
             windows_sandbox_level,
             windows_sandbox_private_desktop,
         })
-        .map(|request| ExecRequest::from_sandbox_exec_request(request, options))
+        .map(|request| {
+            let windows_sandbox_policy_cwd = AbsolutePathBuf::try_from(sandbox_cwd.to_path_buf())
+                .unwrap_or_else(|_| request.cwd.clone());
+            ExecRequest::from_sandbox_exec_request(request, options, windows_sandbox_policy_cwd)
+        })
         .map_err(CodexErr::from)?;
     exec_req.windows_restricted_token_filesystem_overlay =
         resolve_windows_restricted_token_filesystem_overlay(
@@ -326,6 +330,7 @@ pub(crate) async fn execute_exec_request(
         expiration,
         capture_policy,
         sandbox,
+        windows_sandbox_policy_cwd: _,
         windows_sandbox_level,
         windows_sandbox_private_desktop,
         sandbox_policy,
@@ -907,6 +912,9 @@ pub(crate) fn resolve_windows_restricted_token_filesystem_overlay(
     if !file_system_sandbox_policy
         .get_unreadable_roots_with_cwd(sandbox_policy_cwd)
         .is_empty()
+        || !file_system_sandbox_policy
+            .get_unreadable_globs_with_cwd(sandbox_policy_cwd)
+            .is_empty()
     {
         return Err(
             "windows unelevated restricted-token sandbox cannot enforce unreadable split filesystem carveouts directly; refusing to run unsandboxed"

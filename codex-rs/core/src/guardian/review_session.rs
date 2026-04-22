@@ -9,7 +9,6 @@ use std::time::Duration;
 use anyhow::anyhow;
 use codex_protocol::config_types::Personality;
 use codex_protocol::config_types::ReasoningSummary as ReasoningSummaryConfig;
-use codex_protocol::models::DeveloperInstructions;
 use codex_protocol::models::ResponseItem;
 use codex_protocol::openai_models::ReasoningEffort as ReasoningEffortConfig;
 use codex_protocol::protocol::AskForApproval;
@@ -22,19 +21,22 @@ use codex_protocol::protocol::SubAgentSource;
 use codex_protocol::user_input::UserInput;
 use serde_json::Value;
 use tokio::sync::Mutex;
+use tokio::sync::Semaphore;
 use tokio_util::sync::CancellationToken;
 use tracing::warn;
 
-use crate::codex::Codex;
-use crate::codex::Session;
-use crate::codex::TurnContext;
 use crate::codex_delegate::run_codex_thread_interactive;
 use crate::config::Config;
 use crate::config::Constrained;
 use crate::config::ManagedFeatures;
 use crate::config::NetworkProxySpec;
 use crate::config::Permissions;
+use crate::context::ContextualUserFragment;
+use crate::context::GuardianFollowupReviewReminder;
 use crate::rollout::recorder::RolloutRecorder;
+use crate::session::Codex;
+use crate::session::session::Session;
+use crate::session::turn_context::TurnContext;
 use codex_config::types::McpServerConfig;
 use codex_features::Feature;
 use codex_model_provider_info::ModelProviderInfo;
@@ -241,6 +243,10 @@ impl GuardianReviewSessionManager {
         }
     }
 
+    #[expect(
+        clippy::await_holding_invalid_type,
+        reason = "review session selection and trunk spawning must stay serialized"
+    )]
     pub(crate) async fn run_review(
         &self,
         params: GuardianReviewSessionParams,
@@ -258,7 +264,7 @@ impl GuardianReviewSessionManager {
             Ok(mut state) => {
                 if let Some(trunk) = state.trunk.as_ref()
                     && trunk.reuse_key != next_reuse_key
-                    && trunk.review_lock.try_lock().is_ok()
+                    && trunk.review_lock.try_acquire().is_ok()
                 {
                     stale_trunk_to_shutdown = state.trunk.take();
                 }
@@ -314,7 +320,7 @@ impl GuardianReviewSessionManager {
                 .await;
         }
 
-        let trunk_guard = match trunk.review_lock.try_lock() {
+        let trunk_guard = match trunk.review_lock.try_acquire() {
             Ok(trunk_guard) => trunk_guard,
             Err(_) => {
                 let initial_history = trunk.fork_initial_history().await;
@@ -548,8 +554,7 @@ async fn run_review_on_session(
 
 async fn append_guardian_followup_reminder(review_session: &GuardianReviewSession) {
     let turn_context = review_session.codex.session.new_default_turn().await;
-    let reminder: ResponseItem =
-        DeveloperInstructions::new(GUARDIAN_FOLLOWUP_REVIEW_REMINDER).into();
+    let reminder: ResponseItem = ContextualUserFragment::into(GuardianFollowupReviewReminder);
     review_session
         .codex
         .session
@@ -639,6 +644,7 @@ pub(crate) fn build_guardian_review_session_config(
     let mut guardian_config = parent_config.clone();
     guardian_config.model = Some(active_model.to_string());
     guardian_config.model_reasoning_effort = reasoning_effort;
+    guardian_config.include_skill_instructions = false;
     guardian_config.developer_instructions = Some(
         parent_config
             .guardian_policy_config
@@ -649,6 +655,13 @@ pub(crate) fn build_guardian_review_session_config(
     guardian_config.permissions.approval_policy = Constrained::allow_only(AskForApproval::Never);
     guardian_config.permissions.sandbox_policy =
         Constrained::allow_only(SandboxPolicy::new_read_only_policy());
+    guardian_config.include_apps_instructions = false;
+    guardian_config
+        .mcp_servers
+        .set(HashMap::new())
+        .map_err(|err| {
+            anyhow::anyhow!("guardian review session could not clear MCP servers: {err}")
+        })?;
     if let Some(live_network_config) = live_network_config
         && guardian_config.permissions.network.is_some()
     {
@@ -677,8 +690,8 @@ pub(crate) fn build_guardian_review_session_config(
             )
         })?;
         if guardian_config.features.enabled(feature) {
-            anyhow::bail!(
-                "guardian review session requires `features.{}` to be disabled",
+            warn!(
+                "guardian review session could not disable `features.{}`; continuing with the feature enabled",
                 feature.key()
             );
         }
@@ -741,9 +754,9 @@ async fn interrupt_and_drain_turn(codex: &Codex) -> anyhow::Result<()> {
 mod tests {
     use super::*;
 
-    #[test]
-    fn guardian_review_session_config_change_invalidates_cached_session() {
-        let parent_config = crate::config::test_config();
+    #[tokio::test]
+    async fn guardian_review_session_config_change_invalidates_cached_session() {
+        let parent_config = crate::config::test_config().await;
         let cached_spawn_config = build_guardian_review_session_config(
             &parent_config,
             /*live_network_config*/ None,

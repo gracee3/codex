@@ -7,6 +7,8 @@ use crate::facts::AppInvocation;
 use crate::facts::AppMentionedInput;
 use crate::facts::AppUsedInput;
 use crate::facts::CustomAnalyticsFact;
+use crate::facts::HookRunFact;
+use crate::facts::HookRunInput;
 use crate::facts::PluginState;
 use crate::facts::PluginStateChangedInput;
 use crate::facts::SkillInvocation;
@@ -166,6 +168,12 @@ impl AnalyticsEventsClient {
         }
         self.record_fact(AnalyticsFact::Custom(CustomAnalyticsFact::AppUsed(
             AppUsedInput { tracking, app },
+        )));
+    }
+
+    pub fn track_hook_run(&self, tracking: TrackEventsContext, hook: HookRunFact) {
+        self.record_fact(AnalyticsFact::Custom(CustomAnalyticsFact::HookRun(
+            HookRunInput { tracking, hook },
         )));
     }
 

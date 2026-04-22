@@ -1,6 +1,3 @@
-use std::fmt;
-use std::path::PathBuf;
-
 mod apply;
 mod branch;
 mod errors;
@@ -17,6 +14,8 @@ pub use apply::extract_paths_from_patch;
 pub use apply::parse_git_apply_output;
 pub use apply::stage_paths;
 pub use branch::merge_base_with_head;
+pub use codex_protocol::models::GhostCommit;
+pub use codex_protocol::protocol::GitSha;
 pub use errors::GitToolingError;
 pub use ghost_commits::CreateGhostCommitOptions;
 pub use ghost_commits::GhostSnapshotConfig;

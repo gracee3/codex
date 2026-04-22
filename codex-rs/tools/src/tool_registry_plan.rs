@@ -159,6 +159,12 @@ pub fn build_tool_registry_plan(
         plan.register_handler("request_permissions", ToolHandlerKind::RequestPermissions);
     }
 
+    let deferred_dynamic_tools = params
+        .dynamic_tools
+        .iter()
+        .filter(|tool| tool.defer_loading)
+        .collect::<Vec<_>>();
+
     if config.search_tool
         && let Some(app_tools) = params.app_tools
     {
@@ -384,6 +390,7 @@ pub fn build_tool_registry_plan(
         }
     }
 
+    let mut dynamic_tool_specs = Vec::new();
     for tool in params.dynamic_tools {
         match dynamic_tool_to_responses_api_tool(tool) {
             Ok(converted_tool) => {
@@ -400,6 +407,13 @@ pub fn build_tool_registry_plan(
                 );
             }
         }
+    }
+    for spec in coalesce_loadable_tool_specs(dynamic_tool_specs) {
+        plan.push_spec(
+            spec.into(),
+            /*supports_parallel_tool_calls*/ false,
+            config.code_mode_enabled,
+        );
     }
 
     plan

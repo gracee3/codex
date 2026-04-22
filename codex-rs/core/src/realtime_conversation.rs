@@ -1,5 +1,4 @@
 use crate::client::ModelClient;
-use crate::codex::Session;
 use crate::realtime_context::build_realtime_startup_context;
 use crate::realtime_prompt::prepare_realtime_backend_prompt;
 use async_channel::Receiver;
@@ -61,7 +60,7 @@ const AUDIO_IN_QUEUE_CAPACITY: usize = 256;
 const USER_TEXT_IN_QUEUE_CAPACITY: usize = 64;
 const HANDOFF_OUT_QUEUE_CAPACITY: usize = 64;
 const OUTPUT_EVENTS_QUEUE_CAPACITY: usize = 256;
-const REALTIME_STARTUP_CONTEXT_TOKEN_BUDGET: usize = 5_000;
+const REALTIME_STARTUP_CONTEXT_TOKEN_BUDGET: usize = 5_300;
 const DEFAULT_REALTIME_MODEL: &str = "gpt-realtime-1.5";
 const ACTIVE_RESPONSE_CONFLICT_ERROR_PREFIX: &str =
     "Conversation already has an active response in progress:";
@@ -140,6 +139,7 @@ impl RealtimeHandoffState {
 struct ConversationState {
     audio_tx: Sender<RealtimeAudioFrame>,
     user_text_tx: Sender<String>,
+    session_kind: RealtimeSessionKind,
     writer: RealtimeWebsocketWriter,
     handoff: RealtimeHandoffState,
     input_task: JoinHandle<()>,
@@ -174,6 +174,16 @@ impl RealtimeConversationManager {
         state
             .as_ref()
             .and_then(|state| state.realtime_active.load(Ordering::Relaxed).then_some(()))
+    }
+
+    pub(crate) async fn is_running_v2(&self) -> bool {
+        let state = self.state.lock().await;
+        matches!(
+            state.as_ref(),
+            Some(state)
+                if state.realtime_active.load(Ordering::Relaxed)
+                    && state.session_kind == RealtimeSessionKind::V2
+        )
     }
 
     async fn start(&self, start: RealtimeStart) -> CodexResult<RealtimeStartOutput> {
@@ -260,6 +270,7 @@ impl RealtimeConversationManager {
         *guard = Some(ConversationState {
             audio_tx,
             user_text_tx,
+            session_kind,
             writer,
             handoff,
             input_task: task,
@@ -335,15 +346,18 @@ impl RealtimeConversationManager {
     pub(crate) async fn text_in(&self, text: String) -> CodexResult<()> {
         let sender = {
             let guard = self.state.lock().await;
-            guard.as_ref().map(|state| state.user_text_tx.clone())
+            guard
+                .as_ref()
+                .map(|state| (state.user_text_tx.clone(), state.session_kind))
         };
 
-        let Some(sender) = sender else {
+        let Some((sender, session_kind)) = sender else {
             return Err(CodexErr::InvalidRequest(
                 "conversation is not running".to_string(),
             ));
         };
 
+        let text = prefix_realtime_text(text, REALTIME_USER_TEXT_PREFIX, session_kind);
         sender
             .send(text)
             .await
@@ -366,6 +380,11 @@ impl RealtimeConversationManager {
             return Ok(());
         };
 
+        let output_text = prefix_realtime_text(
+            output_text,
+            REALTIME_BACKEND_TEXT_PREFIX,
+            handoff.session_kind,
+        );
         *handoff.last_output_text.lock().await = Some(output_text.clone());
         if matches!(handoff.session_kind, RealtimeSessionKind::V1) {
             handoff
@@ -611,6 +630,17 @@ fn default_realtime_voice(version: RealtimeWsVersion) -> RealtimeVoice {
     }
 }
 
+fn prefix_realtime_text(text: String, prefix: &str, session_kind: RealtimeSessionKind) -> String {
+    if session_kind != RealtimeSessionKind::V2 || text.is_empty() || text.starts_with(prefix) {
+        return text;
+    }
+    format!("{prefix}{text}")
+}
+
+pub(crate) fn prefix_realtime_v2_text(text: String, prefix: &str) -> String {
+    prefix_realtime_text(text, prefix, RealtimeSessionKind::V2)
+}
+
 fn validate_realtime_voice(version: RealtimeWsVersion, voice: RealtimeVoice) -> CodexResult<()> {
     let voices = RealtimeVoicesList::builtin();
     let allowed = match version {
@@ -712,7 +742,7 @@ async fn handle_start_inner(
             }
             let maybe_routed_text = match &event {
                 RealtimeEvent::HandoffRequested(handoff) => {
-                    realtime_text_from_handoff_request(handoff)
+                    realtime_delegation_from_handoff(handoff)
                 }
                 _ => None,
             };
@@ -766,16 +796,14 @@ pub(crate) async fn handle_audio(
     }
 }
 
-fn realtime_text_from_handoff_request(handoff: &RealtimeHandoffRequested) -> Option<String> {
+fn realtime_transcript_delta_from_handoff(handoff: &RealtimeHandoffRequested) -> Option<String> {
     let active_transcript = handoff
         .active_transcript
         .iter()
         .map(|entry| format!("{role}: {text}", role = entry.role, text = entry.text))
         .collect::<Vec<_>>()
         .join("\n");
-    (!active_transcript.is_empty())
-        .then_some(active_transcript)
-        .or((!handoff.input_transcript.is_empty()).then_some(handoff.input_transcript.clone()))
+    (!active_transcript.is_empty()).then_some(active_transcript)
 }
 
 fn wrap_realtime_delegation_input(input: &str) -> String {

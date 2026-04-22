@@ -1,9 +1,9 @@
 use crate::JsonSchema;
+use crate::LoadableToolSpec;
 use crate::ResponsesApiNamespace;
 use crate::ResponsesApiNamespaceTool;
 use crate::ResponsesApiTool;
 use crate::ToolName;
-use crate::ToolSearchOutputTool;
 use crate::ToolSpec;
 use crate::default_namespace_description;
 use crate::mcp_tool_to_deferred_responses_api_tool;
@@ -210,43 +210,28 @@ pub fn collect_tool_search_output_tools<'a>(
         },
     );
 
-    let mut results = Vec::with_capacity(grouped.len());
-    for (tool_namespace, tools) in grouped {
-        let Some(first_tool) = tools.first() else {
-            continue;
-        };
+fn tool_search_result_source_namespace_description(source: ToolSearchResultSource<'_>) -> String {
+    source
+        .connector_description
+        .map(str::trim)
+        .filter(|description| !description.is_empty())
+        .map(str::to_string)
+        .or_else(|| {
+            source
+                .connector_name
+                .map(str::trim)
+                .filter(|connector_name| !connector_name.is_empty())
+                .map(|connector_name| format!("Tools for working with {connector_name}."))
+        })
+        .unwrap_or_else(|| default_namespace_description(source.tool_namespace))
+}
 
-        let description = first_tool
-            .connector_description
-            .map(str::trim)
-            .filter(|description| !description.is_empty())
-            .map(str::to_string)
-            .or_else(|| {
-                first_tool
-                    .connector_name
-                    .map(str::trim)
-                    .filter(|connector_name| !connector_name.is_empty())
-                    .map(|connector_name| format!("Tools for working with {connector_name}."))
-            });
-
-        let tools = tools
-            .iter()
-            .map(|tool| {
-                let tool_name = ToolName::namespaced(tool.tool_namespace, tool.tool_name);
-                mcp_tool_to_deferred_responses_api_tool(&tool_name, tool.tool)
-                    .map(ResponsesApiNamespaceTool::Function)
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-
-        results.push(ToolSearchOutputTool::Namespace(ResponsesApiNamespace {
-            name: tool_namespace.to_string(),
-            description: description
-                .unwrap_or_else(|| default_namespace_description(tool_namespace)),
-            tools,
-        }));
-    }
-
-    Ok(results)
+fn tool_search_result_source_to_namespace_tool(
+    source: ToolSearchResultSource<'_>,
+) -> Result<ResponsesApiNamespaceTool, serde_json::Error> {
+    let tool_name = ToolName::namespaced(source.tool_namespace, source.tool_name);
+    mcp_tool_to_deferred_responses_api_tool(&tool_name, source.tool)
+        .map(ResponsesApiNamespaceTool::Function)
 }
 
 pub fn collect_tool_search_app_infos<'a>(

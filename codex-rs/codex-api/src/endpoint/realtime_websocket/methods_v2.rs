@@ -18,6 +18,7 @@ use crate::endpoint::realtime_websocket::protocol::SessionAudioInput;
 use crate::endpoint::realtime_websocket::protocol::SessionAudioOutput;
 use crate::endpoint::realtime_websocket::protocol::SessionAudioOutputFormat;
 use crate::endpoint::realtime_websocket::protocol::SessionFunctionTool;
+use crate::endpoint::realtime_websocket::protocol::SessionInputAudioTranscription;
 use crate::endpoint::realtime_websocket::protocol::SessionNoiseReduction;
 use crate::endpoint::realtime_websocket::protocol::SessionToolType;
 use crate::endpoint::realtime_websocket::protocol::SessionTurnDetection;
@@ -45,14 +46,14 @@ pub(super) fn conversation_item_create_message(text: String) -> RealtimeOutbound
     }
 }
 
-pub(super) fn conversation_handoff_append_message(
-    handoff_id: String,
+pub(super) fn conversation_function_call_output_message(
+    call_id: String,
     output_text: String,
 ) -> RealtimeOutboundMessage {
     RealtimeOutboundMessage::ConversationItemCreate {
         item: ConversationItemPayload::FunctionCallOutput(ConversationFunctionCallOutputItem {
             r#type: ConversationItemType::FunctionCallOutput,
-            call_id: handoff_id,
+            call_id,
             output: output_text,
         }),
     }
@@ -80,10 +81,14 @@ pub(super) fn session_update_session(
                     noise_reduction: Some(SessionNoiseReduction {
                         r#type: NoiseReductionType::NearField,
                     }),
+                    transcription: Some(SessionInputAudioTranscription {
+                        model: REALTIME_V2_INPUT_TRANSCRIPTION_MODEL.to_string(),
+                    }),
                     turn_detection: Some(SessionTurnDetection {
                         r#type: TurnDetectionType::ServerVad,
                         interrupt_response: true,
                         create_response: true,
+                        silence_duration_ms: 500,
                     }),
                 },
                 output: Some(SessionAudioOutput {
@@ -125,6 +130,9 @@ pub(super) fn session_update_session(
                         rate: REALTIME_AUDIO_SAMPLE_RATE,
                     },
                     noise_reduction: None,
+                    transcription: Some(SessionInputAudioTranscription {
+                        model: REALTIME_V2_INPUT_TRANSCRIPTION_MODEL.to_string(),
+                    }),
                     turn_detection: None,
                 },
                 output: None,

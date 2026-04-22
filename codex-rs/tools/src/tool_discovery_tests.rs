@@ -2,28 +2,8 @@ use super::*;
 use crate::JsonSchema;
 use codex_app_server_protocol::AppInfo;
 use pretty_assertions::assert_eq;
-use rmcp::model::JsonObject;
-use rmcp::model::Tool;
 use serde_json::json;
 use std::collections::BTreeMap;
-use std::sync::Arc;
-
-fn mcp_tool(name: &str, description: &str) -> Tool {
-    Tool {
-        name: name.to_string().into(),
-        title: None,
-        description: Some(description.to_string().into()),
-        input_schema: Arc::new(JsonObject::from_iter([(
-            "type".to_string(),
-            json!("object"),
-        )])),
-        output_schema: None,
-        annotations: None,
-        execution: None,
-        icons: None,
-        meta: None,
-    }
-}
 
 #[test]
 fn create_tool_search_tool_deduplicates_and_renders_enabled_apps() {
