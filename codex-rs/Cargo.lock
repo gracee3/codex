@@ -2504,6 +2504,7 @@ name = "codex-tt-cli"
 version = "0.121.0"
 dependencies = [
  "anyhow",
+ "app_test_support",
  "chrono",
  "clap",
  "codex-app-server-client",
@@ -2516,6 +2517,7 @@ dependencies = [
  "codex-tui",
  "codex-utils-cargo-bin",
  "codex-utils-cli",
+ "core_test_support",
  "pretty_assertions",
  "serde_json",
  "tempfile",
