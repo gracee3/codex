@@ -1,5 +1,6 @@
 use super::*;
 
+use codex_protocol::protocol::SessionSource;
 use serde_json::Value;
 use tempfile::TempDir;
 use tokio::process::Command;
@@ -69,6 +70,7 @@ fn turn_metadata_state_uses_platform_sandbox_tag() {
     let state = TurnMetadataState::new(
         "session-a".to_string(),
         "turn-a".to_string(),
+        &SessionSource::Cli,
         cwd,
         &sandbox_policy,
         WindowsSandboxLevel::Disabled,
@@ -78,8 +80,10 @@ fn turn_metadata_state_uses_platform_sandbox_tag() {
     let json: Value = serde_json::from_str(&header).expect("json");
     let sandbox_name = json.get("sandbox").and_then(Value::as_str);
     let session_id = json.get("session_id").and_then(Value::as_str);
+    let thread_source = json.get("thread_source").and_then(Value::as_str);
 
     let expected_sandbox = sandbox_tag(&sandbox_policy, WindowsSandboxLevel::Disabled);
     assert_eq!(sandbox_name, Some(expected_sandbox));
     assert_eq!(session_id, Some("session-a"));
+    assert_eq!(thread_source, Some("user"));
 }

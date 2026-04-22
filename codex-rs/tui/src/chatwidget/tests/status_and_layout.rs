@@ -692,7 +692,7 @@ async fn status_widget_and_approval_modal_snapshot() {
         approval_id: Some("call-approve-exec".into()),
         turn_id: "turn-approve-exec".into(),
         command: vec!["echo".into(), "hello world".into()],
-        cwd: PathBuf::from("/tmp"),
+        cwd: PathBuf::from("/tmp").abs(),
         reason: Some(
             "this is a test reason such as one that would be produced by the model".into(),
         ),
@@ -872,7 +872,7 @@ async fn status_line_legacy_context_used_renders_context_meter() {
 
     chat.refresh_status_line();
 
-    assert_eq!(status_line_text(&chat), Some("Context [     ]".to_string()));
+    assert_eq!(status_line_text(&chat), Some("Context 0% used".to_string()));
     assert!(
         drain_insert_history(&mut rx).is_empty(),
         "legacy context-used should remain a valid status line item"
@@ -887,7 +887,7 @@ async fn status_line_legacy_context_remaining_renders_context_meter() {
 
     chat.refresh_status_line();
 
-    assert_eq!(status_line_text(&chat), Some("Context [     ]".to_string()));
+    assert_eq!(status_line_text(&chat), Some("Context 0% used".to_string()));
     assert!(
         drain_insert_history(&mut rx).is_empty(),
         "legacy context-remaining should remain a valid status line item"
@@ -1006,7 +1006,7 @@ async fn status_line_model_with_reasoning_includes_fast_for_fast_capable_models(
 
     assert_eq!(
         status_line_text(&chat),
-        Some(format!("gpt-5.4 xhigh fast · Context [     ] · {test_cwd}"))
+        Some(format!("gpt-5.4 xhigh fast · Context 0% used · {test_cwd}"))
     );
 
     chat.set_model("gpt-5.3-codex");
@@ -1015,7 +1015,7 @@ async fn status_line_model_with_reasoning_includes_fast_for_fast_capable_models(
     assert_eq!(
         status_line_text(&chat),
         Some(format!(
-            "gpt-5.3-codex xhigh · Context [     ] · {test_cwd}"
+            "gpt-5.3-codex xhigh · Context 0% used · {test_cwd}"
         ))
     );
 }
@@ -1290,7 +1290,7 @@ async fn user_prompt_submit_app_server_hook_notifications_render_snapshot() {
                 handler_type: AppServerHookHandlerType::Command,
                 execution_mode: AppServerHookExecutionMode::Sync,
                 scope: AppServerHookScope::Turn,
-                source_path: PathBuf::from("/tmp/hooks.json"),
+                source_path: PathBuf::from("/tmp/hooks.json").abs(),
                 display_order: 0,
                 status: AppServerHookRunStatus::Running,
                 status_message: Some("checking go-workflow input policy".to_string()),
@@ -1312,7 +1312,7 @@ async fn user_prompt_submit_app_server_hook_notifications_render_snapshot() {
                 handler_type: AppServerHookHandlerType::Command,
                 execution_mode: AppServerHookExecutionMode::Sync,
                 scope: AppServerHookScope::Turn,
-                source_path: PathBuf::from("/tmp/hooks.json"),
+                source_path: PathBuf::from("/tmp/hooks.json").abs(),
                 display_order: 0,
                 status: AppServerHookRunStatus::Stopped,
                 status_message: Some("checking go-workflow input policy".to_string()),
@@ -1404,7 +1404,9 @@ async fn chatwidget_exec_and_status_layout_vt100_snapshot() {
             path: "diff_render.rs".into(),
         },
     ];
-    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let cwd = std::env::current_dir()
+        .unwrap_or_else(|_| PathBuf::from("."))
+        .abs();
     chat.handle_codex_event(Event {
         id: "c1".into(),
         msg: EventMsg::ExecCommandBegin(ExecCommandBeginEvent {

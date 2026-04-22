@@ -54,8 +54,8 @@ async fn exec_approval_emits_proposed_command_and_decision_history() {
 #[test]
 fn app_server_exec_approval_request_splits_shell_wrapped_command() {
     let script = r#"python3 -c 'print("Hello, world!")'"#;
-    let request = exec_approval_request_from_params(
-        AppServerCommandExecutionRequestApprovalParams {
+    let request =
+        exec_approval_request_from_params(AppServerCommandExecutionRequestApprovalParams {
             thread_id: "thread-1".to_string(),
             turn_id: "turn-1".to_string(),
             item_id: "item-1".to_string(),
@@ -72,9 +72,7 @@ fn app_server_exec_approval_request_splits_shell_wrapped_command() {
             proposed_execpolicy_amendment: None,
             proposed_network_policy_amendments: None,
             available_decisions: None,
-        },
-        &test_path_buf("/tmp").abs(),
-    );
+        });
 
     assert_eq!(
         request.command,
@@ -92,8 +90,8 @@ fn app_server_exec_approval_request_preserves_permissions_context() {
         .expect("absolute read path");
     let write_path = AbsolutePathBuf::try_from(PathBuf::from(test_path_display("/tmp/write")))
         .expect("absolute write path");
-    let request = exec_approval_request_from_params(
-        AppServerCommandExecutionRequestApprovalParams {
+    let request =
+        exec_approval_request_from_params(AppServerCommandExecutionRequestApprovalParams {
             thread_id: "thread-1".to_string(),
             turn_id: "turn-1".to_string(),
             item_id: "item-1".to_string(),
@@ -118,9 +116,7 @@ fn app_server_exec_approval_request_preserves_permissions_context() {
             proposed_execpolicy_amendment: None,
             proposed_network_policy_amendments: None,
             available_decisions: None,
-        },
-        &test_path_buf("/tmp").abs(),
-    );
+        });
 
     assert_eq!(
         request.network_approval_context,

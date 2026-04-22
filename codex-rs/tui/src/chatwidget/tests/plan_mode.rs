@@ -336,12 +336,15 @@ async fn request_user_input_notification_overrides_pending_agent_turn_complete_n
 
     assert_matches!(
         chat.pending_notification,
-        Some(Notification::PlanModePrompt { ref title }) if title == "Reasoning scope"
+        Some(Notification::UserInputRequested {
+            question_count: 1,
+            summary: Some(ref summary),
+        }) if summary == "Reasoning scope"
     );
 }
 
 #[tokio::test]
-async fn handle_request_user_input_sets_pending_notification() {
+async fn handle_request_user_input_respects_notification_filters() {
     let (mut chat, _rx, _op_rx) = make_chatwidget_manual(Some("gpt-5.1-codex-max")).await;
     chat.config.tui_notifications.notifications =
         Notifications::Custom(vec!["plan-mode-prompt".to_string()]);
@@ -362,10 +365,7 @@ async fn handle_request_user_input_sets_pending_notification() {
         }],
     });
 
-    assert_matches!(
-        chat.pending_notification,
-        Some(Notification::PlanModePrompt { ref title }) if title == "Reasoning scope"
-    );
+    assert!(chat.pending_notification.is_none());
 }
 
 #[tokio::test]

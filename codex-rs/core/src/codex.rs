@@ -1469,6 +1469,7 @@ impl Session {
         let turn_metadata_state = Arc::new(TurnMetadataState::new(
             conversation_id.to_string(),
             sub_id.clone(),
+            &session_configuration.session_source,
             cwd.to_path_buf(),
             session_configuration.sandbox_policy.get(),
             session_configuration.windows_sandbox_level,
@@ -5765,6 +5766,7 @@ async fn spawn_review_thread(
     let turn_metadata_state = Arc::new(TurnMetadataState::new(
         sess.conversation_id.to_string(),
         review_turn_id.clone(),
+        &session_source,
         parent_turn_context.cwd.to_path_buf(),
         parent_turn_context.sandbox_policy.get(),
         parent_turn_context.windows_sandbox_level,

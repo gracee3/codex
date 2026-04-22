@@ -42,11 +42,7 @@ use base64::Engine;
 use codex_app_server_protocol::McpServerStatus;
 use codex_app_server_protocol::McpServerStatusDetail;
 use codex_config::types::McpServerTransportConfig;
-#[cfg(test)]
-use codex_core::McpManager;
 use codex_core::config::Config;
-#[cfg(test)]
-use codex_core::plugins::PluginsManager;
 use codex_core::web_search_detail;
 #[cfg(test)]
 use codex_mcp::qualified_mcp_tool_name_prefix;
@@ -85,8 +81,6 @@ use std::collections::HashMap;
 use std::io::Cursor;
 use std::path::Path;
 use std::path::PathBuf;
-#[cfg(test)]
-use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
 use tracing::error;
@@ -1836,13 +1830,12 @@ pub(crate) fn new_mcp_tools_output(
         lines.push("".into());
     }
 
-    let mcp_manager = McpManager::new(Arc::new(PluginsManager::new(config.codex_home.clone())));
-    let effective_servers = mcp_manager.effective_servers(config, /*auth*/ None);
+    let effective_servers = config.mcp_servers.get();
     let mut servers: Vec<_> = effective_servers.iter().collect();
     servers.sort_by(|(a, _), (b, _)| a.cmp(b));
 
     for (server, cfg) in servers {
-        let prefix = qualified_mcp_tool_name_prefix(server);
+        let prefix = qualified_mcp_tool_name_prefix(server.as_str());
         let mut names: Vec<String> = tools
             .keys()
             .filter(|k| k.starts_with(&prefix))
@@ -1851,7 +1844,7 @@ pub(crate) fn new_mcp_tools_output(
         names.sort();
 
         let auth_status = auth_statuses
-            .get(server.as_str())
+            .get(server)
             .copied()
             .unwrap_or(McpAuthStatus::Unsupported);
         let mut header: Vec<Span<'static>> = vec!["  • ".into(), server.clone().into()];
@@ -1860,7 +1853,10 @@ pub(crate) fn new_mcp_tools_output(
             header.push("(disabled)".red());
             lines.push(header.into());
             if let Some(reason) = cfg.disabled_reason.as_ref().map(ToString::to_string) {
-                lines.push(vec!["    • Reason: ".into(), reason.dim()].into());
+                lines.push(Line::from(vec![
+                    Span::from("    • Reason: "),
+                    Span::from(reason).dim(),
+                ]));
             }
             lines.push(Line::from(""));
             continue;
@@ -1889,7 +1885,7 @@ pub(crate) fn new_mcp_tools_output(
                     lines.push(vec!["    • Cwd: ".into(), cwd.display().to_string().into()].into());
                 }
 
-                let env_display = format_env_display(env.as_ref(), env_vars);
+                let env_display = format_env_display(env.as_ref(), env_vars.as_slice());
                 if env_display != "-" {
                     lines.push(vec!["    • Env: ".into(), env_display.into()].into());
                 }
@@ -1934,8 +1930,7 @@ pub(crate) fn new_mcp_tools_output(
             lines.push(vec!["    • Tools: ".into(), names.join(", ").into()].into());
         }
 
-        let server_resources: Vec<Resource> =
-            resources.get(server.as_str()).cloned().unwrap_or_default();
+        let server_resources: Vec<Resource> = resources.get(server).cloned().unwrap_or_default();
         if server_resources.is_empty() {
             lines.push("    • Resources: (none)".into());
         } else {
@@ -1955,10 +1950,8 @@ pub(crate) fn new_mcp_tools_output(
             lines.push(spans.into());
         }
 
-        let server_templates: Vec<ResourceTemplate> = resource_templates
-            .get(server.as_str())
-            .cloned()
-            .unwrap_or_default();
+        let server_templates: Vec<ResourceTemplate> =
+            resource_templates.get(server).cloned().unwrap_or_default();
         if server_templates.is_empty() {
             lines.push("    • Resource templates: (none)".into());
         } else {
@@ -2886,7 +2879,7 @@ mod tests {
             approval_policy: AskForApproval::Never,
             approvals_reviewer: codex_protocol::config_types::ApprovalsReviewer::User,
             sandbox_policy: SandboxPolicy::new_read_only_policy(),
-            cwd: PathBuf::from("/tmp/project").abs().to_path_buf(),
+            cwd: PathBuf::from("/tmp/project").abs(),
             reasoning_effort: None,
             history_log_id: 0,
             history_entry_count: 0,

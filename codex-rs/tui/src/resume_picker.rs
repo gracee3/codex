@@ -1646,6 +1646,7 @@ mod tests {
     use super::*;
     use chrono::Duration;
     use codex_protocol::ThreadId;
+    use codex_utils_absolute_path::test_support::PathBufExt as _;
 
     use crossterm::event::KeyCode;
     use crossterm::event::KeyEvent;
@@ -2682,8 +2683,7 @@ mod tests {
             updated_at: 2,
             status: codex_app_server_protocol::ThreadStatus::Idle,
             path: None,
-            workspace: None,
-            cwd: PathBuf::from("/tmp"),
+            cwd: PathBuf::from("/tmp").abs(),
             cli_version: String::from("0.0.0"),
             source: codex_app_server_protocol::SessionSource::Cli,
             agent_nickname: None,

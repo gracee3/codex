@@ -236,6 +236,8 @@ mod tests {
     use codex_protocol::protocol::HookOutputEntry;
     use codex_protocol::protocol::HookOutputEntryKind;
     use codex_protocol::protocol::HookRunStatus;
+    use codex_utils_absolute_path::test_support::PathBufExt;
+    use codex_utils_absolute_path::test_support::test_path_buf;
     use pretty_assertions::assert_eq;
 
     use super::PreToolUseHandlerData;
@@ -460,7 +462,7 @@ mod tests {
             command: "echo hook".to_string(),
             timeout_sec: 5,
             status_message: None,
-            source_path: PathBuf::from("/tmp/hooks.json"),
+            source_path: test_path_buf("/tmp/hooks.json").abs(),
             display_order: 0,
         }
     }

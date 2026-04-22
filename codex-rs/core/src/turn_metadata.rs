@@ -15,6 +15,7 @@ use codex_git_utils::get_has_changes;
 use codex_git_utils::get_head_commit_hash;
 use codex_protocol::config_types::WindowsSandboxLevel;
 use codex_protocol::protocol::SandboxPolicy;
+use codex_protocol::protocol::SessionSource;
 
 #[derive(Clone, Debug, Default)]
 struct WorkspaceGitMetadata {
@@ -57,6 +58,8 @@ pub(crate) struct TurnMetadataBag {
     session_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     turn_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    thread_source: Option<String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     workspaces: BTreeMap<String, TurnMetadataWorkspace>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -72,6 +75,7 @@ impl TurnMetadataBag {
 fn build_turn_metadata_bag(
     session_id: Option<String>,
     turn_id: Option<String>,
+    thread_source: Option<String>,
     sandbox: Option<String>,
     repo_root: Option<String>,
     workspace_git_metadata: Option<WorkspaceGitMetadata>,
@@ -86,6 +90,7 @@ fn build_turn_metadata_bag(
     TurnMetadataBag {
         session_id,
         turn_id,
+        thread_source,
         workspaces,
         sandbox,
     }
@@ -111,6 +116,7 @@ pub async fn build_turn_metadata_header(cwd: &Path, sandbox: Option<&str>) -> Op
     build_turn_metadata_bag(
         /*session_id*/ None,
         /*turn_id*/ None,
+        /*thread_source*/ None,
         sandbox.map(ToString::to_string),
         repo_root,
         Some(WorkspaceGitMetadata {
@@ -136,6 +142,7 @@ impl TurnMetadataState {
     pub(crate) fn new(
         session_id: String,
         turn_id: String,
+        session_source: &SessionSource,
         cwd: PathBuf,
         sandbox_policy: &SandboxPolicy,
         windows_sandbox_level: WindowsSandboxLevel,
@@ -145,6 +152,7 @@ impl TurnMetadataState {
         let base_metadata = build_turn_metadata_bag(
             Some(session_id),
             Some(turn_id),
+            session_source.thread_source_name().map(ToString::to_string),
             sandbox,
             /*repo_root*/ None,
             /*workspace_git_metadata*/ None,
@@ -204,6 +212,7 @@ impl TurnMetadataState {
             let enriched_metadata = build_turn_metadata_bag(
                 state.base_metadata.session_id.clone(),
                 state.base_metadata.turn_id.clone(),
+                state.base_metadata.thread_source.clone(),
                 state.base_metadata.sandbox.clone(),
                 Some(repo_root),
                 Some(workspace_git_metadata),

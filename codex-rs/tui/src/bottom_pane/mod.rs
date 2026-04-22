@@ -1222,6 +1222,7 @@ mod tests {
     use crate::app_event::AppEvent;
     use crate::status_indicator_widget::STATUS_DETAILS_DEFAULT_MAX_LINES;
     use crate::status_indicator_widget::StatusDetailsCapitalization;
+    use crate::test_support::PathBufExt as _;
     use codex_protocol::protocol::Op;
     use codex_protocol::protocol::SkillScope;
     use crossterm::event::KeyEventKind;
@@ -1674,7 +1675,7 @@ mod tests {
                 interface: None,
                 dependencies: None,
                 policy: None,
-                path_to_skills_md: PathBuf::from("test-skill"),
+                path_to_skills_md: PathBuf::from("/tmp/test-skill").abs(),
                 scope: SkillScope::User,
             }]),
         });

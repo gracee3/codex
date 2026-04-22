@@ -132,6 +132,52 @@ fn shell_zsh_fork_prefers_shell_command_over_unified_exec() {
 }
 
 #[test]
+fn original_image_detail_requires_feature_flag_and_model_support() {
+    let mut model_info = model_info();
+    model_info.supports_image_detail_original = true;
+    let available_models = Vec::new();
+
+    let tools_config = ToolsConfig::new(&ToolsConfigParams {
+        model_info: &model_info,
+        available_models: &available_models,
+        features: &Features::with_defaults(),
+        image_generation_tool_auth_allowed: true,
+        web_search_mode: Some(WebSearchMode::Cached),
+        session_source: SessionSource::Cli,
+        sandbox_policy: &SandboxPolicy::DangerFullAccess,
+        windows_sandbox_level: WindowsSandboxLevel::Disabled,
+    });
+    assert!(!tools_config.can_request_original_image_detail);
+
+    let mut features = Features::with_defaults();
+    features.enable(Feature::ImageDetailOriginal);
+    let tools_config = ToolsConfig::new(&ToolsConfigParams {
+        model_info: &model_info,
+        available_models: &available_models,
+        features: &features,
+        image_generation_tool_auth_allowed: true,
+        web_search_mode: Some(WebSearchMode::Cached),
+        session_source: SessionSource::Cli,
+        sandbox_policy: &SandboxPolicy::DangerFullAccess,
+        windows_sandbox_level: WindowsSandboxLevel::Disabled,
+    });
+    assert!(tools_config.can_request_original_image_detail);
+
+    model_info.supports_image_detail_original = false;
+    let tools_config = ToolsConfig::new(&ToolsConfigParams {
+        model_info: &model_info,
+        available_models: &available_models,
+        features: &features,
+        image_generation_tool_auth_allowed: true,
+        web_search_mode: Some(WebSearchMode::Cached),
+        session_source: SessionSource::Cli,
+        sandbox_policy: &SandboxPolicy::DangerFullAccess,
+        windows_sandbox_level: WindowsSandboxLevel::Disabled,
+    });
+    assert!(!tools_config.can_request_original_image_detail);
+}
+
+#[test]
 fn subagents_keep_request_user_input_mode_config_and_agent_jobs_workers_opt_in_by_label() {
     let model_info = model_info();
     let mut features = Features::with_defaults();

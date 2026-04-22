@@ -7686,7 +7686,7 @@ mod tests {
     async fn update_feature_flags_enabling_guardian_selects_guardian_approvals() -> Result<()> {
         let (mut app, mut app_event_rx, mut op_rx) = make_test_app_with_channels().await;
         let codex_home = tempdir()?;
-        app.config.codex_home = codex_home.path().to_path_buf();
+        app.config.codex_home = codex_home.path().to_path_buf().abs();
         let guardian_approvals = guardian_approvals_mode();
 
         app.update_feature_flags(vec![(Feature::GuardianApproval, true)])
@@ -7770,7 +7770,7 @@ mod tests {
     -> Result<()> {
         let (mut app, mut app_event_rx, mut op_rx) = make_test_app_with_channels().await;
         let codex_home = tempdir()?;
-        app.config.codex_home = codex_home.path().to_path_buf();
+        app.config.codex_home = codex_home.path().to_path_buf().abs();
         let config_toml_path = codex_home.path().join("config.toml").abs();
         let config_toml = "approvals_reviewer = \"guardian_subagent\"\napproval_policy = \"on-request\"\nsandbox_mode = \"workspace-write\"\n\n[features]\nguardian_approval = true\n";
         std::fs::write(config_toml_path.as_path(), config_toml)?;
@@ -7861,7 +7861,7 @@ mod tests {
     -> Result<()> {
         let (mut app, _app_event_rx, mut op_rx) = make_test_app_with_channels().await;
         let codex_home = tempdir()?;
-        app.config.codex_home = codex_home.path().to_path_buf();
+        app.config.codex_home = codex_home.path().to_path_buf().abs();
         let guardian_approvals = guardian_approvals_mode();
         let config_toml_path = codex_home.path().join("config.toml").abs();
         let config_toml = "approvals_reviewer = \"user\"\n";
@@ -7929,7 +7929,7 @@ mod tests {
     -> Result<()> {
         let (mut app, mut app_event_rx, mut op_rx) = make_test_app_with_channels().await;
         let codex_home = tempdir()?;
-        app.config.codex_home = codex_home.path().to_path_buf();
+        app.config.codex_home = codex_home.path().to_path_buf().abs();
         let config_toml_path = codex_home.path().join("config.toml").abs();
         let config_toml = "approvals_reviewer = \"user\"\napproval_policy = \"on-request\"\nsandbox_mode = \"workspace-write\"\n\n[features]\nguardian_approval = true\n";
         std::fs::write(config_toml_path.as_path(), config_toml)?;
@@ -7988,7 +7988,7 @@ mod tests {
     -> Result<()> {
         let (mut app, _app_event_rx, mut op_rx) = make_test_app_with_channels().await;
         let codex_home = tempdir()?;
-        app.config.codex_home = codex_home.path().to_path_buf();
+        app.config.codex_home = codex_home.path().to_path_buf().abs();
         let guardian_approvals = guardian_approvals_mode();
         app.active_profile = Some("guardian".to_string());
         let config_toml_path = codex_home.path().join("config.toml").abs();
@@ -8059,7 +8059,7 @@ mod tests {
     -> Result<()> {
         let (mut app, mut app_event_rx, mut op_rx) = make_test_app_with_channels().await;
         let codex_home = tempdir()?;
-        app.config.codex_home = codex_home.path().to_path_buf();
+        app.config.codex_home = codex_home.path().to_path_buf().abs();
         app.active_profile = Some("guardian".to_string());
         let config_toml_path = codex_home.path().join("config.toml").abs();
         let config_toml = r#"
@@ -8147,7 +8147,7 @@ guardian_approval = true
     -> Result<()> {
         let (mut app, mut app_event_rx, mut op_rx) = make_test_app_with_channels().await;
         let codex_home = tempdir()?;
-        app.config.codex_home = codex_home.path().to_path_buf();
+        app.config.codex_home = codex_home.path().to_path_buf().abs();
         app.active_profile = Some("guardian".to_string());
         let config_toml_path = codex_home.path().join("config.toml").abs();
         let config_toml = "profile = \"guardian\"\napprovals_reviewer = \"guardian_subagent\"\n\n[features]\nguardian_approval = true\n";
@@ -8619,8 +8619,7 @@ guardian_approval = true
                     updated_at: 2,
                     status: codex_app_server_protocol::ThreadStatus::Idle,
                     path: Some(rollout_path.clone()),
-                    workspace: None,
-                    cwd: PathBuf::from("/tmp/agent"),
+                    cwd: PathBuf::from("/tmp/agent").abs(),
                     cli_version: "0.0.0".to_string(),
                     source: codex_app_server_protocol::SessionSource::Unknown,
                     agent_nickname: Some("Robie".to_string()),
@@ -8701,8 +8700,7 @@ guardian_approval = true
                     updated_at: 2,
                     status: codex_app_server_protocol::ThreadStatus::Idle,
                     path: None,
-                    workspace: None,
-                    cwd: PathBuf::from("/tmp/agent"),
+                    cwd: PathBuf::from("/tmp/agent").abs(),
                     cli_version: "0.0.0".to_string(),
                     source: codex_app_server_protocol::SessionSource::Unknown,
                     agent_nickname: Some("Robie".to_string()),
@@ -8919,7 +8917,7 @@ guardian_approval = true
                 approval_policy: AskForApproval::Never,
                 approvals_reviewer: ApprovalsReviewer::User,
                 sandbox_policy: SandboxPolicy::new_read_only_policy(),
-                cwd: PathBuf::from("/tmp/project").abs().to_path_buf(),
+                cwd: PathBuf::from("/tmp/project").abs(),
                 reasoning_effort: Some(ReasoningEffortConfig::High),
                 history_log_id: 0,
                 history_entry_count: 0,
@@ -9239,7 +9237,7 @@ guardian_approval = true
                 handler_type: AppServerHookHandlerType::Command,
                 execution_mode: AppServerHookExecutionMode::Sync,
                 scope: AppServerHookScope::Turn,
-                source_path: PathBuf::from("/tmp/hooks.json"),
+                source_path: PathBuf::from("/tmp/hooks.json").abs(),
                 display_order: 0,
                 status: AppServerHookRunStatus::Running,
                 status_message: Some("checking go-workflow input policy".to_string()),
@@ -9261,7 +9259,7 @@ guardian_approval = true
                 handler_type: AppServerHookHandlerType::Command,
                 execution_mode: AppServerHookExecutionMode::Sync,
                 scope: AppServerHookScope::Turn,
-                source_path: PathBuf::from("/tmp/hooks.json"),
+                source_path: PathBuf::from("/tmp/hooks.json").abs(),
                 display_order: 0,
                 status: AppServerHookRunStatus::Stopped,
                 status_message: Some("checking go-workflow input policy".to_string()),
@@ -9312,7 +9310,7 @@ guardian_approval = true
                 reason: Some("needs approval".to_string()),
                 network_approval_context: None,
                 command: Some("echo hello".to_string()),
-                cwd: Some(PathBuf::from("/tmp/project")),
+                cwd: Some(PathBuf::from("/tmp/project").abs()),
                 command_actions: None,
                 additional_permissions: None,
                 proposed_execpolicy_amendment: None,
@@ -9873,7 +9871,7 @@ guardian_approval = true
     async fn refresh_in_memory_config_from_disk_loads_latest_apps_state() -> Result<()> {
         let mut app = make_test_app().await;
         let codex_home = tempdir()?;
-        app.config.codex_home = codex_home.path().to_path_buf();
+        app.config.codex_home = codex_home.path().to_path_buf().abs();
         let app_id = "unit_test_refresh_in_memory_config_connector".to_string();
 
         assert_eq!(app_enabled_in_effective_config(&app.config, &app_id), None);
@@ -9913,7 +9911,7 @@ guardian_approval = true
     -> Result<()> {
         let mut app = make_test_app().await;
         let codex_home = tempdir()?;
-        app.config.codex_home = codex_home.path().to_path_buf();
+        app.config.codex_home = codex_home.path().to_path_buf().abs();
         std::fs::write(codex_home.path().join("config.toml"), "[broken")?;
         let original_config = app.config.clone();
 
@@ -9943,7 +9941,7 @@ guardian_approval = true
                 approval_policy: AskForApproval::Never,
                 approvals_reviewer: ApprovalsReviewer::User,
                 sandbox_policy: SandboxPolicy::new_read_only_policy(),
-                cwd: next_cwd.clone(),
+                cwd: next_cwd.abs(),
                 reasoning_effort: None,
                 history_log_id: 0,
                 history_entry_count: 0,
@@ -9967,7 +9965,7 @@ guardian_approval = true
     -> Result<()> {
         let mut app = make_test_app().await;
         let codex_home = tempdir()?;
-        app.config.codex_home = codex_home.path().to_path_buf();
+        app.config.codex_home = codex_home.path().to_path_buf().abs();
         std::fs::write(codex_home.path().join("config.toml"), "[broken")?;
         let current_config = app.config.clone();
         let current_cwd = current_config.cwd.clone();
@@ -9984,7 +9982,7 @@ guardian_approval = true
     async fn rebuild_config_for_resume_or_fallback_errors_when_cwd_changes() -> Result<()> {
         let mut app = make_test_app().await;
         let codex_home = tempdir()?;
-        app.config.codex_home = codex_home.path().to_path_buf();
+        app.config.codex_home = codex_home.path().to_path_buf().abs();
         std::fs::write(codex_home.path().join("config.toml"), "[broken")?;
         let current_cwd = app.config.cwd.clone();
         let next_cwd_tmp = tempdir()?;
@@ -10059,7 +10057,7 @@ guardian_approval = true
                 approval_policy: AskForApproval::Never,
                 approvals_reviewer: ApprovalsReviewer::User,
                 sandbox_policy: SandboxPolicy::new_read_only_policy(),
-                cwd: PathBuf::from("/home/user/project"),
+                cwd: PathBuf::from("/home/user/project").abs(),
                 reasoning_effort: None,
                 history_log_id: 0,
                 history_entry_count: 0,
@@ -10122,7 +10120,7 @@ guardian_approval = true
                 approval_policy: AskForApproval::Never,
                 approvals_reviewer: ApprovalsReviewer::User,
                 sandbox_policy: SandboxPolicy::new_read_only_policy(),
-                cwd: PathBuf::from("/home/user/project"),
+                cwd: PathBuf::from("/home/user/project").abs(),
                 reasoning_effort: None,
                 history_log_id: 0,
                 history_entry_count: 0,
@@ -10215,7 +10213,7 @@ guardian_approval = true
                 approval_policy: AskForApproval::Never,
                 approvals_reviewer: ApprovalsReviewer::User,
                 sandbox_policy: SandboxPolicy::new_read_only_policy(),
-                cwd: PathBuf::from("/home/user/project"),
+                cwd: PathBuf::from("/home/user/project").abs(),
                 reasoning_effort: None,
                 history_log_id: 0,
                 history_entry_count: 0,
@@ -10560,8 +10558,7 @@ guardian_approval = true
                     updated_at: 0,
                     status: codex_app_server_protocol::ThreadStatus::Idle,
                     path: None,
-                    workspace: None,
-                    cwd: PathBuf::from("/tmp/project"),
+                    cwd: PathBuf::from("/tmp/project").abs(),
                     cli_version: "0.0.0".to_string(),
                     source: SessionSource::Cli.into(),
                     agent_nickname: None,
@@ -10596,7 +10593,7 @@ guardian_approval = true
             approval_policy: AskForApproval::Never,
             approvals_reviewer: ApprovalsReviewer::User,
             sandbox_policy: SandboxPolicy::new_read_only_policy(),
-            cwd: PathBuf::from("/home/user/project"),
+            cwd: PathBuf::from("/home/user/project").abs(),
             reasoning_effort: None,
             history_log_id: 0,
             history_entry_count: 0,
@@ -10705,7 +10702,7 @@ guardian_approval = true
                 approval_policy: AskForApproval::Never,
                 approvals_reviewer: ApprovalsReviewer::User,
                 sandbox_policy: SandboxPolicy::new_read_only_policy(),
-                cwd: PathBuf::from("/tmp/project"),
+                cwd: PathBuf::from("/tmp/project").abs(),
                 reasoning_effort: None,
                 history_log_id: 0,
                 history_entry_count: 0,

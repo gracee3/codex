@@ -2054,7 +2054,7 @@ mod tests {
         std::fs::write(&rollout_path, "")?;
 
         let state_runtime = codex_state::StateRuntime::init(
-            config.codex_home.clone(),
+            config.codex_home.clone().to_path_buf(),
             config.model_provider_id.clone(),
         )
         .await
@@ -2428,7 +2428,7 @@ trust_level = "untrusted"
         )?;
 
         let runtime = codex_state::StateRuntime::init(
-            config.codex_home.clone(),
+            config.codex_home.clone().to_path_buf(),
             config.model_provider_id.clone(),
         )
         .await

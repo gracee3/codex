@@ -1,4 +1,6 @@
 use super::*;
+use codex_app_server_protocol::AutoReviewDecisionSource as AppServerGuardianApprovalReviewDecisionSource;
+use codex_protocol::approvals::GuardianAssessmentDecisionSource;
 use pretty_assertions::assert_eq;
 
 #[tokio::test]
@@ -16,11 +18,13 @@ async fn guardian_denied_exec_renders_warning_and_denied_request() {
         id: "guardian-in-progress".into(),
         msg: EventMsg::GuardianAssessment(GuardianAssessmentEvent {
             id: "guardian-1".into(),
+            target_item_id: None,
             turn_id: "turn-1".into(),
             status: GuardianAssessmentStatus::InProgress,
             risk_level: None,
             user_authorization: None,
             rationale: None,
+            decision_source: None,
             action: action.clone(),
         }),
     });
@@ -34,11 +38,13 @@ async fn guardian_denied_exec_renders_warning_and_denied_request() {
         id: "guardian-assessment".into(),
         msg: EventMsg::GuardianAssessment(GuardianAssessmentEvent {
             id: "guardian-1".into(),
+            target_item_id: None,
             turn_id: "turn-1".into(),
             status: GuardianAssessmentStatus::Denied,
             risk_level: Some(GuardianRiskLevel::High),
             user_authorization: Some(GuardianUserAuthorization::Low),
             rationale: Some("Would exfiltrate local source code.".into()),
+            decision_source: None,
             action,
         }),
     });
@@ -77,11 +83,13 @@ async fn guardian_approved_exec_renders_approved_request() {
         id: "guardian-assessment".into(),
         msg: EventMsg::GuardianAssessment(GuardianAssessmentEvent {
             id: "thread:child-thread:guardian-1".into(),
+            target_item_id: None,
             turn_id: "turn-1".into(),
             status: GuardianAssessmentStatus::Approved,
             risk_level: Some(GuardianRiskLevel::Low),
             user_authorization: Some(GuardianUserAuthorization::High),
             rationale: Some("Narrowly scoped to the requested file.".into()),
+            decision_source: None,
             action: GuardianAssessmentAction::Command {
                 source: GuardianCommandSource::Shell,
                 command: "rm -f /tmp/guardian-approved.sqlite".to_string(),
@@ -205,7 +213,8 @@ async fn app_server_guardian_review_started_sets_review_status() {
             ItemGuardianApprovalReviewStartedNotification {
                 thread_id: "thread-1".to_string(),
                 turn_id: "turn-1".to_string(),
-                target_item_id: "guardian-1".to_string(),
+                review_id: "guardian-1".to_string(),
+                target_item_id: Some("guardian-1".to_string()),
                 review: GuardianApprovalReview {
                     status: GuardianApprovalReviewStatus::InProgress,
                     risk_level: None,
@@ -245,7 +254,8 @@ async fn app_server_guardian_review_denied_renders_denied_request_snapshot() {
             ItemGuardianApprovalReviewStartedNotification {
                 thread_id: "thread-1".to_string(),
                 turn_id: "turn-1".to_string(),
-                target_item_id: "guardian-1".to_string(),
+                review_id: "guardian-1".to_string(),
+                target_item_id: Some("guardian-1".to_string()),
                 review: GuardianApprovalReview {
                     status: GuardianApprovalReviewStatus::InProgress,
                     risk_level: None,
@@ -263,7 +273,9 @@ async fn app_server_guardian_review_denied_renders_denied_request_snapshot() {
             ItemGuardianApprovalReviewCompletedNotification {
                 thread_id: "thread-1".to_string(),
                 turn_id: "turn-1".to_string(),
-                target_item_id: "guardian-1".to_string(),
+                review_id: "guardian-1".to_string(),
+                target_item_id: Some("guardian-1".to_string()),
+                decision_source: AppServerGuardianApprovalReviewDecisionSource::Agent,
                 review: GuardianApprovalReview {
                     status: GuardianApprovalReviewStatus::Denied,
                     risk_level: Some(AppServerGuardianRiskLevel::High),
@@ -392,11 +404,13 @@ async fn guardian_parallel_reviews_render_aggregate_status_snapshot() {
             id: format!("event-{id}"),
             msg: EventMsg::GuardianAssessment(GuardianAssessmentEvent {
                 id: id.to_string(),
+                target_item_id: None,
                 turn_id: "turn-1".to_string(),
                 status: GuardianAssessmentStatus::InProgress,
                 risk_level: None,
                 user_authorization: None,
                 rationale: None,
+                decision_source: None,
                 action: GuardianAssessmentAction::Command {
                     source: GuardianCommandSource::Shell,
                     command: command.to_string(),
@@ -422,11 +436,13 @@ async fn guardian_parallel_reviews_keep_remaining_review_visible_after_denial() 
         id: "event-guardian-1".into(),
         msg: EventMsg::GuardianAssessment(GuardianAssessmentEvent {
             id: "guardian-1".to_string(),
+            target_item_id: None,
             turn_id: "turn-1".to_string(),
             status: GuardianAssessmentStatus::InProgress,
             risk_level: None,
             user_authorization: None,
             rationale: None,
+            decision_source: None,
             action: GuardianAssessmentAction::Command {
                 source: GuardianCommandSource::Shell,
                 command: "rm -rf '/tmp/guardian target 1'".to_string(),
@@ -438,11 +454,13 @@ async fn guardian_parallel_reviews_keep_remaining_review_visible_after_denial() 
         id: "event-guardian-2".into(),
         msg: EventMsg::GuardianAssessment(GuardianAssessmentEvent {
             id: "guardian-2".to_string(),
+            target_item_id: None,
             turn_id: "turn-1".to_string(),
             status: GuardianAssessmentStatus::InProgress,
             risk_level: None,
             user_authorization: None,
             rationale: None,
+            decision_source: None,
             action: GuardianAssessmentAction::Command {
                 source: GuardianCommandSource::Shell,
                 command: "rm -rf '/tmp/guardian target 2'".to_string(),
@@ -454,11 +472,13 @@ async fn guardian_parallel_reviews_keep_remaining_review_visible_after_denial() 
         id: "event-guardian-1-denied".into(),
         msg: EventMsg::GuardianAssessment(GuardianAssessmentEvent {
             id: "guardian-1".to_string(),
+            target_item_id: None,
             turn_id: "turn-1".to_string(),
             status: GuardianAssessmentStatus::Denied,
             risk_level: Some(GuardianRiskLevel::High),
             user_authorization: Some(GuardianUserAuthorization::Low),
             rationale: Some("Would delete important data.".to_string()),
+            decision_source: None,
             action: GuardianAssessmentAction::Command {
                 source: GuardianCommandSource::Shell,
                 command: "rm -rf '/tmp/guardian target 1'".to_string(),

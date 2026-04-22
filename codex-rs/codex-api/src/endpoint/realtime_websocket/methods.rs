@@ -744,10 +744,7 @@ mod tests {
     use codex_protocol::protocol::RealtimeHandoffRequested;
     use codex_protocol::protocol::RealtimeInputAudioSpeechStarted;
     use codex_protocol::protocol::RealtimeResponseCancelled;
-    use codex_protocol::protocol::RealtimeResponseCreated;
-    use codex_protocol::protocol::RealtimeResponseDone;
     use codex_protocol::protocol::RealtimeTranscriptDelta;
-    use codex_protocol::protocol::RealtimeTranscriptDone;
     use codex_protocol::protocol::RealtimeVoice;
     use http::HeaderValue;
     use pretty_assertions::assert_eq;
@@ -892,7 +889,7 @@ mod tests {
             "item": {
                 "id": "item_123",
                 "type": "function_call",
-                "name": "background_agent",
+                "name": "codex",
                 "call_id": "call_123",
                 "arguments": "{\"prompt\":\"delegate this\"}"
             }
@@ -948,11 +945,9 @@ mod tests {
 
         assert_eq!(
             parse_realtime_event(payload.as_str(), RealtimeEventParser::RealtimeV2),
-            Some(RealtimeEvent::OutputTranscriptDone(
-                RealtimeTranscriptDone {
-                    text: "hello world".to_string(),
-                }
-            ))
+            Some(RealtimeEvent::ConversationItemDone {
+                item_id: "item_output_1".to_string(),
+            })
         );
     }
 
@@ -1051,9 +1046,9 @@ mod tests {
 
         assert_eq!(
             parse_realtime_event(payload.as_str(), RealtimeEventParser::RealtimeV2),
-            Some(RealtimeEvent::ResponseDone(RealtimeResponseDone {
-                response_id: None
-            }))
+            Some(RealtimeEvent::ConversationItemAdded(
+                serde_json::from_str(payload.as_str()).expect("valid json payload")
+            ))
         );
     }
 
@@ -1067,9 +1062,9 @@ mod tests {
 
         assert_eq!(
             parse_realtime_event(payload.as_str(), RealtimeEventParser::RealtimeV2),
-            Some(RealtimeEvent::ResponseCreated(RealtimeResponseCreated {
-                response_id: Some("resp_created_1".to_string())
-            }))
+            Some(RealtimeEvent::ConversationItemAdded(
+                serde_json::from_str(payload.as_str()).expect("valid json payload")
+            ))
         );
     }
 
@@ -1607,7 +1602,7 @@ mod tests {
             );
             assert_eq!(
                 first_json["session"]["tools"][0]["name"],
-                Value::String("background_agent".to_string())
+                Value::String("codex".to_string())
             );
             assert_eq!(
                 first_json["session"]["tools"][0]["parameters"]["required"],
