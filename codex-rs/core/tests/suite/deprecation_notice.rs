@@ -173,6 +173,7 @@ async fn emits_deprecation_notice_for_use_legacy_landlock() -> anyhow::Result<()
         entries.insert("use_legacy_landlock".to_string(), true);
         let mut features = config.features.get().clone();
         features.apply_map(&entries);
+        features.record_legacy_usage_force("use_legacy_landlock", Feature::UseLegacyLandlock);
         config
             .features
             .set(features)
