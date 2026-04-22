@@ -14,6 +14,7 @@ use crate::tools::context::FunctionToolOutput;
 use crate::tools::context::ToolInvocation;
 use crate::tools::context::ToolOutput;
 use crate::tools::context::ToolPayload;
+use crate::tools::handlers::unavailable_tool_message;
 use codex_hooks::HookEvent;
 use codex_hooks::HookEventAfterToolUse;
 use codex_hooks::HookPayload;
@@ -294,7 +295,15 @@ impl ToolRegistry {
         let handler = match self.handler(&tool_name) {
             Some(handler) => handler,
             None => {
-                let message = unsupported_tool_call_message(&invocation.payload, &tool_name);
+                let message = match &invocation.payload {
+                    ToolPayload::Function { .. } if display_name.starts_with("mcp__") => {
+                        unavailable_tool_message(
+                            &display_name,
+                            "Retry after the tool becomes available or ask the user to re-enable it.",
+                        )
+                    }
+                    _ => unsupported_tool_call_message(&invocation.payload, &tool_name),
+                };
                 otel.tool_result_with_tags(
                     &display_name,
                     &call_id_owned,

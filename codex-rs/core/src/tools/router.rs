@@ -10,6 +10,7 @@ use crate::tools::registry::ToolArgumentDiffConsumer;
 use crate::tools::registry::ToolRegistry;
 use crate::tools::spec::build_specs_with_discoverable_tools;
 use codex_mcp::ToolInfo;
+use codex_mcp::split_qualified_tool_name;
 use codex_protocol::dynamic_tools::DynamicToolSpec;
 use codex_protocol::models::LocalShellAction;
 use codex_protocol::models::ResponseItem;
@@ -143,6 +144,13 @@ impl ToolRouter {
             .any(|config| config.name() == tool_name)
     }
 
+    pub(crate) fn create_diff_consumer(
+        &self,
+        tool_name: &ToolName,
+    ) -> Option<Box<dyn ToolArgumentDiffConsumer>> {
+        self.registry.create_diff_consumer(tool_name)
+    }
+
     #[instrument(level = "trace", skip_all, err)]
     pub async fn build_tool_call(
         session: &Session,
@@ -156,9 +164,16 @@ impl ToolRouter {
                 call_id,
                 ..
             } => {
-                if let Some((server, tool)) = session.parse_mcp_tool_name(&name, &namespace).await {
+                if let Some((server, tool)) = parse_mcp_tool_name(session, &name, &namespace).await
+                {
+                    let tool_name = match namespace {
+                        Some(namespace) if !name.starts_with(namespace.as_str()) => {
+                            ToolName::plain(format!("{namespace}{name}"))
+                        }
+                        _ => ToolName::plain(name.clone()),
+                    };
                     Ok(Some(ToolCall {
-                        tool_name: ToolName::new(namespace, name),
+                        tool_name,
                         call_id,
                         payload: ToolPayload::Mcp {
                             server,
@@ -264,6 +279,63 @@ impl ToolRouter {
 
         self.registry.dispatch_any(invocation).await
     }
+}
+
+async fn parse_mcp_tool_name(
+    session: &Session,
+    name: &str,
+    namespace: &Option<String>,
+) -> Option<(String, String)> {
+    let tool_name = if let Some(namespace) = namespace {
+        if name.starts_with(namespace.as_str()) {
+            name.to_string()
+        } else {
+            format!("{namespace}{name}")
+        }
+    } else {
+        name.to_string()
+    };
+    let all_tools = session
+        .services
+        .mcp_connection_manager
+        .read()
+        .await
+        .list_all_tools()
+        .await;
+    if namespace.is_none()
+        && let Some(tool) = all_tools
+            .iter()
+            .find(|(qualified_name, _)| qualified_name.as_str() == tool_name)
+            .map(|(_, tool)| tool)
+            .or_else(|| {
+                all_tools.values().find(|tool| {
+                    format!("{}{}", tool.callable_namespace, tool.callable_name) == tool_name
+                })
+            })
+    {
+        return Some((tool.server_name.clone(), tool.tool.name.to_string()));
+    }
+    all_tools
+        .into_values()
+        .find(|tool| {
+            tool.canonical_tool_name()
+                == match namespace {
+                    Some(namespace) => {
+                        let stripped = name.strip_prefix(namespace.as_str()).unwrap_or(name);
+                        ToolName::new(Some(namespace.clone()), stripped.to_string())
+                    }
+                    None => {
+                        if let Some((server_name, callable_name)) =
+                            split_qualified_tool_name(&tool_name)
+                        {
+                            ToolName::namespaced(format!("mcp__{server_name}__"), callable_name)
+                        } else {
+                            ToolName::plain(tool_name.clone())
+                        }
+                    }
+                }
+        })
+        .map(|tool| (tool.server_name, tool.tool.name.to_string()))
 }
 #[cfg(test)]
 #[path = "router_tests.rs"]

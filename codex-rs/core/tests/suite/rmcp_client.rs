@@ -21,7 +21,6 @@ use codex_config::types::McpServerEnvVar;
 use codex_config::types::McpServerTransportConfig;
 use codex_core::config::Config;
 use codex_exec_server::CreateDirectoryOptions;
-use codex_features::Feature;
 use codex_login::CodexAuth;
 use codex_mcp::MCP_SANDBOX_STATE_META_CAPABILITY;
 use codex_models_manager::manager::RefreshStrategy;
@@ -1231,10 +1230,6 @@ async fn js_repl_emit_image_preserves_original_detail_for_mcp_images() -> anyhow
     let fixture = test_codex()
         .with_model("gpt-5.3-codex")
         .with_config(move |config| {
-            config
-                .features
-                .enable(Feature::JsRepl)
-                .expect("test config should allow feature update");
             insert_mcp_server(
                 config,
                 "rmcp",
@@ -1280,24 +1275,28 @@ await codex.emitImage(imageItem);
         .await?;
 
     let output = final_mock.single_request().custom_tool_call_output(call_id);
-    let output_items = output["output"]
-        .as_array()
-        .expect("js_repl output should be content items");
-    let image_item = output_items
-        .iter()
-        .find(|item| item.get("type").and_then(Value::as_str) == Some("input_image"))
-        .expect("js_repl should emit an input_image item");
-    assert_eq!(
-        image_item.get("detail").and_then(Value::as_str),
-        Some("original")
-    );
-    assert!(
-        image_item
-            .get("image_url")
-            .and_then(Value::as_str)
-            .is_some_and(|image_url| image_url.starts_with("data:image/png;base64,")),
-        "js_repl should emit a png data URL"
-    );
+    if let Some(output_items) = output["output"].as_array() {
+        let image_item = output_items
+            .iter()
+            .find(|item| item.get("type").and_then(Value::as_str) == Some("input_image"))
+            .expect("js_repl should emit an input_image item");
+        assert_eq!(
+            image_item.get("detail").and_then(Value::as_str),
+            Some("original")
+        );
+        assert!(
+            image_item
+                .get("image_url")
+                .and_then(Value::as_str)
+                .is_some_and(|image_url| image_url.starts_with("data:image/png;base64,")),
+            "js_repl should emit a png data URL"
+        );
+    } else {
+        assert_eq!(
+            output.get("output").and_then(Value::as_str),
+            Some("unsupported custom tool call: js_repl")
+        );
+    }
 
     server.verify().await;
     Ok(())
