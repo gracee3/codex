@@ -532,7 +532,7 @@ async fn shell_command_snapshot_still_intercepts_apply_patch() -> Result<()> {
     let args = json!({
         "command": script,
         // Keep this above the default because intercepted apply_patch still
-        // performs filesystem work that can be slow in Bazel macOS test
+        // performs filesystem work that can be slow in macOS test
         // environments.
         "timeout_ms": 5_000,
     });

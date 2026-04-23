@@ -1,3 +1,8 @@
+//! Top-level TUI application state and runtime wiring.
+//!
+//! This module owns the `App` struct, shared imports, and the high-level run loop that coordinates
+//! the focused app submodules.
+
 use crate::app_backtrack::BacktrackState;
 use crate::app_command::AppCommand;
 use crate::app_command::AppCommandView;
@@ -26,6 +31,8 @@ use crate::cwd_prompt::CwdPromptAction;
 use crate::diff_render::DiffSummary;
 use crate::exec_command::split_command_string;
 use crate::exec_command::strip_bash_lc_and_escape;
+use crate::external_agent_config_migration_startup::ExternalAgentConfigMigrationStartupOutcome;
+use crate::external_agent_config_migration_startup::handle_external_agent_config_migration_prompt_if_needed;
 use crate::external_editor;
 use crate::file_search::FileSearchManager;
 use crate::history_cell;
@@ -55,6 +62,7 @@ use crate::version::CODEX_CLI_VERSION;
 use codex_ansi_escape::ansi_escape_line;
 use codex_app_server_client::AppServerRequestHandle;
 use codex_app_server_client::TypedRequestError;
+use codex_app_server_protocol::AddCreditsNudgeCreditType;
 use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::CodexErrorInfo as AppServerCodexErrorInfo;
 use codex_app_server_protocol::ConfigLayerSource;
@@ -63,6 +71,7 @@ use codex_app_server_protocol::ListMcpServerStatusParams;
 use codex_app_server_protocol::ListMcpServerStatusResponse;
 use codex_app_server_protocol::McpServerStatus;
 use codex_app_server_protocol::McpServerStatusDetail;
+use codex_app_server_protocol::MergeStrategy;
 use codex_app_server_protocol::PluginInstallParams;
 use codex_app_server_protocol::PluginInstallResponse;
 use codex_app_server_protocol::PluginListParams;
@@ -72,8 +81,10 @@ use codex_app_server_protocol::PluginReadResponse;
 use codex_app_server_protocol::PluginUninstallParams;
 use codex_app_server_protocol::PluginUninstallResponse;
 use codex_app_server_protocol::RequestId;
+use codex_app_server_protocol::SendAddCreditsNudgeEmailParams;
 use codex_app_server_protocol::ServerNotification;
 use codex_app_server_protocol::ServerRequest;
+use codex_app_server_protocol::SkillsListParams;
 use codex_app_server_protocol::SkillsListResponse;
 use codex_app_server_protocol::ThreadItem;
 use codex_app_server_protocol::ThreadLoadedListParams;
@@ -81,6 +92,7 @@ use codex_app_server_protocol::ThreadRollbackResponse;
 use codex_app_server_protocol::Turn;
 use codex_app_server_protocol::TurnError as AppServerTurnError;
 use codex_app_server_protocol::TurnStatus;
+use codex_config::ConfigLayerStackOrdering;
 use codex_config::types::ApprovalsReviewer;
 use codex_config::types::ModelAvailabilityNuxConfig;
 use codex_core::append_message_history_entry;
@@ -127,6 +139,8 @@ use color_eyre::eyre::WrapErr;
 use crossterm::event::KeyCode;
 use crossterm::event::KeyEvent;
 use crossterm::event::KeyEventKind;
+use crossterm::event::KeyModifiers;
+use ratatui::backend::Backend;
 use ratatui::style::Stylize;
 use ratatui::text::Line;
 use ratatui::widgets::Paragraph;
@@ -134,6 +148,7 @@ use ratatui::widgets::Wrap;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::collections::VecDeque;
+use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -153,15 +168,34 @@ use toml::Value as TomlValue;
 use uuid::Uuid;
 mod agent_navigation;
 mod app_server_adapter;
-mod app_server_requests;
+pub(crate) mod app_server_requests;
+mod background_requests;
+mod config_persistence;
+mod event_dispatch;
+mod history_ui;
+mod input;
 mod loaded_threads;
 mod pending_interactive_replay;
+mod platform_actions;
+mod replay_filter;
+mod session_lifecycle;
+mod side;
+mod startup_prompts;
+mod thread_events;
+mod thread_routing;
+mod thread_session_state;
 
 use self::agent_navigation::AgentNavigationDirection;
 use self::agent_navigation::AgentNavigationState;
 use self::app_server_requests::PendingAppServerRequests;
 use self::loaded_threads::find_loaded_subagent_threads_for_primary;
 use self::pending_interactive_replay::PendingInteractiveReplayState;
+use self::platform_actions::*;
+use self::side::SideParentStatus;
+use self::side::SideParentStatusChange;
+use self::side::SideThreadState;
+use self::startup_prompts::*;
+use self::thread_events::*;
 
 const EXTERNAL_EDITOR_HINT: &str = "Save and close external editor to continue.";
 const THREAD_EVENT_CHANNEL_CAPACITY: usize = 32768;
@@ -260,8 +294,8 @@ struct GuardianApprovalsMode {
     sandbox_policy: SandboxPolicy,
 }
 
-/// Enabling the Guardian Approvals experiment in the TUI should also switch the
-/// current `/approvals` settings to the matching Guardian Approvals mode. Users
+/// Enabling the Auto-review experiment in the TUI should also switch the
+/// current `/approvals` settings to the matching Auto-review mode. Users
 /// can still change `/approvals` afterward; this just assumes that opting into
 /// the experiment means they want guardian review enabled immediately.
 fn guardian_approvals_mode() -> GuardianApprovalsMode {
@@ -314,6 +348,7 @@ fn session_summary(
     token_usage: TokenUsage,
     thread_id: Option<ThreadId>,
     thread_name: Option<String>,
+    rollout_path: Option<&Path>,
 ) -> Option<SessionSummary> {
     let usage_line = (!token_usage.is_zero()).then(|| FinalOutput::from(token_usage).to_string());
     let resume_command = codex_core::util::resume_command(thread_name.as_deref(), thread_id);
@@ -326,6 +361,29 @@ fn session_summary(
         usage_line,
         resume_command,
     })
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ResumableThread {
+    thread_id: ThreadId,
+    thread_name: Option<String>,
+}
+
+fn resumable_thread(
+    thread_id: Option<ThreadId>,
+    thread_name: Option<String>,
+    rollout_path: Option<&Path>,
+) -> Option<ResumableThread> {
+    let thread_id = thread_id?;
+    let rollout_path = rollout_path?;
+    rollout_path_is_resumable(rollout_path).then_some(ResumableThread {
+        thread_id,
+        thread_name,
+    })
+}
+
+fn rollout_path_is_resumable(rollout_path: &Path) -> bool {
+    std::fs::metadata(rollout_path).is_ok_and(|metadata| metadata.is_file() && metadata.len() > 0)
 }
 
 fn errors_for_cwd(cwd: &Path, response: &ListSkillsResponseEvent) -> Vec<SkillErrorInfo> {
@@ -987,6 +1045,7 @@ pub(crate) struct App {
     thread_event_channels: HashMap<ThreadId, ThreadEventChannel>,
     thread_event_listener_tasks: HashMap<ThreadId, JoinHandle<()>>,
     agent_navigation: AgentNavigationState,
+    side_threads: HashMap<ThreadId, SideThreadState>,
     active_thread_id: Option<ThreadId>,
     active_thread_rx: Option<mpsc::Receiver<ThreadBufferedEvent>>,
     primary_thread_id: Option<ThreadId>,
@@ -1073,8 +1132,7 @@ impl App {
             config: cfg,
             frame_requester: tui.frame_requester(),
             app_event_tx: self.app_event_tx.clone(),
-            // Fork/resume bootstraps here don't carry any prefilled message content.
-            initial_user_message: None,
+            initial_user_message,
             enhanced_keys_supported: self.enhanced_keys_supported,
             has_chatgpt_account: self.chat_widget.has_chatgpt_account(),
             model_catalog: self.model_catalog.clone(),
@@ -3462,6 +3520,7 @@ impl App {
         initial_images: Vec<PathBuf>,
         session_selection: SessionSelection,
         is_first_run: bool,
+        entered_trust_nux: bool,
         should_prompt_windows_sandbox_nux_at_startup: bool,
         remote_app_server_url: Option<String>,
         remote_app_server_auth_token: Option<String>,
@@ -3481,6 +3540,38 @@ impl App {
 
         let harness_overrides =
             normalize_harness_overrides_for_cwd(harness_overrides, &config.cwd)?;
+        let external_agent_config_migration_outcome =
+            handle_external_agent_config_migration_prompt_if_needed(
+                tui,
+                &mut app_server,
+                &mut config,
+                &cli_kv_overrides,
+                &harness_overrides,
+                entered_trust_nux,
+            )
+            .await?;
+        let external_agent_config_migration_message = match external_agent_config_migration_outcome
+        {
+            ExternalAgentConfigMigrationStartupOutcome::Continue { success_message } => {
+                success_message
+            }
+            ExternalAgentConfigMigrationStartupOutcome::ExitRequested => {
+                app_server
+                    .shutdown()
+                    .await
+                    .inspect_err(|err| {
+                        tracing::warn!("app-server shutdown failed: {err}");
+                    })
+                    .ok();
+                return Ok(AppExitInfo {
+                    token_usage: TokenUsage::default(),
+                    thread_id: None,
+                    thread_name: None,
+                    update_action: None,
+                    exit_reason: ExitReason::UserRequested,
+                });
+            }
+        };
         let bootstrap = app_server.bootstrap(&config).await?;
         let mut model = bootstrap.default_model;
         let available_models = bootstrap.available_models;
@@ -3650,6 +3741,9 @@ impl App {
                 (ChatWidget::new_with_app_event(init), Some(forked))
             }
         };
+        if let Some(message) = external_agent_config_migration_message {
+            chat_widget.add_info_message(message, /*hint*/ None);
+        }
 
         chat_widget
             .maybe_prompt_windows_sandbox_enable(should_prompt_windows_sandbox_nux_at_startup);
@@ -3691,6 +3785,7 @@ impl App {
             thread_event_channels: HashMap::new(),
             thread_event_listener_tasks: HashMap::new(),
             agent_navigation: AgentNavigationState::default(),
+            side_threads: HashMap::new(),
             active_thread_id: None,
             active_thread_rx: None,
             primary_thread_id: None,
@@ -3698,6 +3793,7 @@ impl App {
             primary_session_configured: None,
             pending_primary_events: VecDeque::new(),
             pending_app_server_requests: PendingAppServerRequests::default(),
+            pending_plugin_enabled_writes: HashMap::new(),
         };
         if let Some(started) = initial_started_thread {
             app.enqueue_primary_thread_session(started.session, started.turns)
@@ -3739,6 +3835,7 @@ impl App {
         tokio::pin!(tui_events);
 
         tui.frame_requester().schedule_frame();
+        app.refresh_startup_skills(&app_server);
         // Kick off a non-blocking rate-limit prefetch so the first `/status`
         // already has data, without delaying the initial frame render.
         if requires_openai_auth && has_chatgpt_account {
@@ -3845,10 +3942,15 @@ impl App {
                 return Err(err);
             }
         };
+        let resumable_thread = resumable_thread(
+            app.chat_widget.thread_id(),
+            app.chat_widget.thread_name(),
+            app.chat_widget.rollout_path().as_deref(),
+        );
         Ok(AppExitInfo {
             token_usage: app.token_usage(),
-            thread_id: app.chat_widget.thread_id(),
-            thread_name: app.chat_widget.thread_name(),
+            thread_id: resumable_thread.as_ref().map(|thread| thread.thread_id),
+            thread_name: resumable_thread.and_then(|thread| thread.thread_name),
             update_action: app.pending_update_action,
             exit_reason,
         })

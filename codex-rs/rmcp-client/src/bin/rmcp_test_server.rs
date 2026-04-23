@@ -56,7 +56,6 @@ impl TestToolServer {
 #[derive(Deserialize)]
 struct EchoArgs {
     message: String,
-    #[allow(dead_code)]
     env_var: Option<String>,
 }
 
@@ -107,9 +106,10 @@ impl ServerHandler for TestToolServer {
                 };
 
                 let env_snapshot: HashMap<String, String> = std::env::vars().collect();
+                let env_name = args.env_var.as_deref().unwrap_or("MCP_TEST_VALUE");
                 let structured_content = json!({
                     "echo": args.message,
-                    "env": env_snapshot.get("MCP_TEST_VALUE"),
+                    "env": env_snapshot.get(env_name),
                 });
 
                 Ok(CallToolResult {

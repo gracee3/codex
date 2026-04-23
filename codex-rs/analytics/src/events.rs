@@ -276,3 +276,11 @@ fn subagent_parent_thread_id(subagent_source: &SubAgentSource) -> Option<String>
         _ => None,
     }
 }
+
+fn analytics_hook_status(status: HookRunStatus) -> HookRunStatus {
+    match status {
+        // Running is unexpected here and normalized defensively.
+        HookRunStatus::Running => HookRunStatus::Failed,
+        other => other,
+    }
+}

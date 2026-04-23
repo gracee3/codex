@@ -19,8 +19,6 @@
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use ratatui::text::Line;
-use std::collections::BTreeMap;
 use std::collections::HashSet;
 use strum_macros::Display;
 use strum_macros::EnumIter;
@@ -32,6 +30,8 @@ use crate::bottom_pane::CancellationEvent;
 use crate::bottom_pane::bottom_pane_view::BottomPaneView;
 use crate::bottom_pane::multi_select_picker::MultiSelectItem;
 use crate::bottom_pane::multi_select_picker::MultiSelectPicker;
+use crate::bottom_pane::status_surface_preview::StatusSurfacePreviewData;
+use crate::bottom_pane::status_surface_preview::StatusSurfacePreviewItem;
 use crate::render::renderable::Renderable;
 
 /// Available items that can be displayed in the status line.
@@ -131,7 +131,6 @@ impl StatusLineItem {
             StatusLineItem::FastMode => "Whether Fast mode is currently active",
         }
     }
-}
 
 const SELECTABLE_STATUS_LINE_ITEMS: &[StatusLineItem] = &[
     StatusLineItem::ModelName,
@@ -208,7 +207,7 @@ impl StatusLineSetupView {
     /// enabled. Remaining items are appended and marked as disabled.
     pub(crate) fn new(
         status_line_items: Option<&[String]>,
-        preview_data: StatusLinePreviewData,
+        preview_data: StatusSurfacePreviewData,
         app_event_tx: AppEventSender,
     ) -> Self {
         let mut used_ids = HashSet::new();
@@ -247,7 +246,15 @@ impl StatusLineSetupView {
             ])
             .items(items)
             .enable_ordering()
-            .on_preview(move |items| preview_data.line_for_items(items))
+            .on_preview(move |items| {
+                preview_data.line_for_items(
+                    items
+                        .iter()
+                        .filter(|item| item.enabled)
+                        .filter_map(|item| item.id.parse::<StatusLineItem>().ok())
+                        .map(StatusLineItem::preview_item),
+                )
+            })
             .on_confirm(|ids, app_event| {
                 let items = ids
                     .iter()
@@ -302,14 +309,7 @@ impl Renderable for StatusLineSetupView {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app_event_sender::AppEventSender;
-    use insta::assert_snapshot;
     use pretty_assertions::assert_eq;
-    use ratatui::buffer::Buffer;
-    use ratatui::layout::Rect;
-    use tokio::sync::mpsc::unbounded_channel;
-
-    use crate::app_event::AppEvent;
 
     #[test]
     fn context_usage_is_canonical_and_accepts_legacy_ids() {

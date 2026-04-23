@@ -8,6 +8,7 @@ use crate::codex_thread::ThreadConfigSnapshot;
 use crate::find_archived_thread_path_by_id_str;
 use crate::find_thread_path_by_id_str;
 use crate::rollout::RolloutRecorder;
+use crate::session::emit_subagent_session_started;
 use crate::session_prefix::format_subagent_context_line;
 use crate::session_prefix::format_subagent_notification_message;
 use crate::shell_snapshot::ShellSnapshot;
@@ -197,10 +198,10 @@ fn keep_forked_rollout_item(item: &RolloutItem) -> bool {
             | ResponseItem::Compaction { .. }
             | ResponseItem::Other,
         ) => false,
-        RolloutItem::Compacted(_)
-        | RolloutItem::EventMsg(_)
-        | RolloutItem::SessionMeta(_)
-        | RolloutItem::TurnContext(_) => true,
+        // A forked child gets its own runtime config, including spawned-agent
+        // instructions, so it must establish a fresh context diff baseline.
+        RolloutItem::TurnContext(_) => false,
+        RolloutItem::Compacted(_) | RolloutItem::EventMsg(_) | RolloutItem::SessionMeta(_) => true,
     }
 }
 
@@ -224,6 +225,15 @@ impl AgentControl {
     pub(crate) fn new(manager: Weak<ThreadManagerState>) -> Self {
         Self {
             manager,
+            ..Default::default()
+        }
+    }
+
+    /// Create a control-plane handle over the same thread manager with an independent live-agent
+    /// registry.
+    pub(crate) fn detached_registry(&self) -> Self {
+        Self {
+            manager: self.manager.clone(),
             ..Default::default()
         }
     }

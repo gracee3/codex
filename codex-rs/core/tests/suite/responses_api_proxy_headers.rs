@@ -1,6 +1,5 @@
-//! Exercises a real `responses-api-proxy` process with request dumping enabled, then verifies that
-//! parent and spawned subagent requests carry the expected window, parent-thread, and subagent
-//! identity headers in the dumped Responses API requests.
+//! Verifies that parent and spawned subagent Responses API requests carry the expected window,
+//! parent-thread, and subagent identity headers.
 
 use anyhow::Result;
 use anyhow::anyhow;
@@ -16,7 +15,6 @@ use core_test_support::responses::start_mock_server;
 use core_test_support::skip_if_no_network;
 use core_test_support::test_codex::test_codex;
 use pretty_assertions::assert_eq;
-use serde_json::Value;
 use serde_json::json;
 use std::io::Write;
 use std::path::Path;
@@ -24,8 +22,6 @@ use std::process::Child;
 use std::process::Command as StdCommand;
 use std::process::Stdio;
 use std::time::Duration;
-use std::time::Instant;
-use tempfile::TempDir;
 
 const PARENT_PROMPT: &str = "spawn a subagent and report when it is started";
 const CHILD_PROMPT: &str = "child: say done";
@@ -94,18 +90,18 @@ impl Drop for ResponsesApiProxy {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn responses_api_proxy_dumps_parent_and_subagent_identity_headers() -> Result<()> {
+async fn responses_api_parent_and_subagent_requests_include_identity_headers() -> Result<()> {
     skip_if_no_network!(Ok(()));
 
     let server = start_mock_server().await;
-    let dump_dir = TempDir::new()?;
-    let proxy =
-        ResponsesApiProxy::start(&format!("{}/v1/responses", server.uri()), dump_dir.path())?;
 
     let spawn_args = serde_json::to_string(&json!({ "message": CHILD_PROMPT }))?;
-    mount_sse_once_match(
+    let parent_mock = mount_sse_once_match(
         &server,
-        |req: &wiremock::Request| request_body_contains(req, PARENT_PROMPT),
+        |req: &wiremock::Request| {
+            request_body_contains(req, PARENT_PROMPT)
+                && request_header(req, "x-openai-subagent").is_none()
+        },
         sse(vec![
             ev_response_created("resp-parent-1"),
             ev_function_call(SPAWN_CALL_ID, "spawn_agent", &spawn_args),
@@ -113,10 +109,12 @@ async fn responses_api_proxy_dumps_parent_and_subagent_identity_headers() -> Res
         ]),
     )
     .await;
-    mount_sse_once_match(
+    let child_mock = mount_sse_once_match(
         &server,
         |req: &wiremock::Request| {
-            request_body_contains(req, CHILD_PROMPT) && !request_body_contains(req, SPAWN_CALL_ID)
+            request_body_contains(req, CHILD_PROMPT)
+                && !request_body_contains(req, SPAWN_CALL_ID)
+                && request_header(req, "x-openai-subagent") == Some("collab_spawn")
         },
         sse(vec![
             ev_response_created("resp-child-1"),
@@ -127,7 +125,10 @@ async fn responses_api_proxy_dumps_parent_and_subagent_identity_headers() -> Res
     .await;
     mount_sse_once_match(
         &server,
-        |req: &wiremock::Request| request_body_contains(req, SPAWN_CALL_ID),
+        |req: &wiremock::Request| {
+            request_body_contains(req, SPAWN_CALL_ID)
+                && request_header(req, "x-openai-subagent").is_none()
+        },
         sse(vec![
             ev_response_created("resp-parent-2"),
             ev_assistant_message("msg-parent-2", "parent done"),
@@ -136,9 +137,7 @@ async fn responses_api_proxy_dumps_parent_and_subagent_identity_headers() -> Res
     )
     .await;
 
-    let proxy_base_url = proxy.base_url();
-    let mut builder = test_codex().with_config(move |config| {
-        config.model_provider.base_url = Some(proxy_base_url);
+    let mut builder = test_codex().with_config(|config| {
         config
             .features
             .disable(Feature::EnableRequestCompression)
@@ -147,32 +146,36 @@ async fn responses_api_proxy_dumps_parent_and_subagent_identity_headers() -> Res
     let test = builder.build(&server).await?;
     test.submit_turn(PARENT_PROMPT).await?;
 
-    let dumps = wait_for_proxy_request_dumps(dump_dir.path())?;
-    let parent = dumps
-        .iter()
-        .find(|dump| dump_body_contains(dump, PARENT_PROMPT))
-        .ok_or_else(|| anyhow!("missing parent request dump"))?;
-    let child = dumps
-        .iter()
-        .find(|dump| {
-            dump_body_contains(dump, CHILD_PROMPT) && !dump_body_contains(dump, SPAWN_CALL_ID)
-        })
-        .ok_or_else(|| anyhow!("missing child request dump"))?;
+    let parent = wait_for_matching_request(&parent_mock, "parent request", |request| {
+        request.body_contains_text(PARENT_PROMPT) && request.header("x-openai-subagent").is_none()
+    })
+    .await?;
+    let child = wait_for_matching_request(&child_mock, "child request", |request| {
+        request.body_contains_text(CHILD_PROMPT)
+            && !request.body_contains_text(SPAWN_CALL_ID)
+            && request.header("x-openai-subagent").as_deref() == Some("collab_spawn")
+    })
+    .await?;
 
-    let parent_window_id = header(parent, "x-codex-window-id")
+    let parent_window_id = parent
+        .header("x-codex-window-id")
         .ok_or_else(|| anyhow!("parent request missing x-codex-window-id"))?;
-    let child_window_id = header(child, "x-codex-window-id")
+    let child_window_id = child
+        .header("x-codex-window-id")
         .ok_or_else(|| anyhow!("child request missing x-codex-window-id"))?;
-    let (parent_thread_id, parent_generation) = split_window_id(parent_window_id)?;
-    let (child_thread_id, child_generation) = split_window_id(child_window_id)?;
+    let (parent_thread_id, parent_generation) = split_window_id(&parent_window_id)?;
+    let (child_thread_id, child_generation) = split_window_id(&child_window_id)?;
 
     assert_eq!(parent_generation, 0);
     assert_eq!(child_generation, 0);
     assert!(child_thread_id != parent_thread_id);
-    assert_eq!(header(parent, "x-openai-subagent"), None);
-    assert_eq!(header(child, "x-openai-subagent"), Some("collab_spawn"));
+    assert_eq!(parent.header("x-openai-subagent"), None);
     assert_eq!(
-        header(child, "x-codex-parent-thread-id"),
+        child.header("x-openai-subagent").as_deref(),
+        Some("collab_spawn")
+    );
+    assert_eq!(
+        child.header("x-codex-parent-thread-id").as_deref(),
         Some(parent_thread_id)
     );
 

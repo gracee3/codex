@@ -22,21 +22,13 @@ In the codex-rs folder where the rust code lives:
   - Use an exact `/*param_name*/` comment before opaque literal arguments such as `None`, booleans, and numeric literals when passing them by position.
   - Do not add these comments for string or char literals unless the comment adds real clarity; those literals are intentionally exempt from the lint.
   - The parameter name in the comment must exactly match the callee signature.
-  - You can run `just argument-comment-lint` to run the lint check locally. This is powered by Bazel, so running it the first time can be slow if Bazel is not warmed up, though incremental invocations should take <15s. Most of the time, it is best to update the PR and let CI take responsibility for checking this (or run it asynchronously in the background after submitting the PR). Note CI checks all three platforms, which the local run does not.
+  - You can run `just argument-comment-lint` to run the lint check locally. The first run can still be slow on a cold build cache, though incremental invocations should take <15s. Most of the time, it is best to update the PR and let CI take responsibility for checking this (or run it asynchronously in the background after submitting the PR). Note CI checks all three platforms, which the local run does not.
 - When possible, make `match` statements exhaustive and avoid wildcard arms.
 - Newly added traits should include doc comments that explain their role and how implementations are expected to use them.
 - When writing tests, prefer comparing the equality of entire objects over fields one by one.
 - When making a change that adds or changes an API, ensure that the documentation in the `docs/` folder is up to date if applicable.
 - Prefer private modules and explicitly exported public crate API.
 - If you change `ConfigToml` or nested config types, run `just write-config-schema` to update `codex-rs/core/config.schema.json`.
-- If you change Rust dependencies (`Cargo.toml` or `Cargo.lock`), run `just bazel-lock-update` from the
-  repo root to refresh `MODULE.bazel.lock`, and include that lockfile update in the same change.
-- After dependency changes, run `just bazel-lock-check` from the repo root so lockfile drift is caught
-  locally before CI.
-- Bazel does not automatically make source-tree files available to compile-time Rust file access. If
-  you add `include_str!`, `include_bytes!`, `sqlx::migrate!`, or similar build-time file or
-  directory reads, update the crate's `BUILD.bazel` (`compile_data`, `build_script_data`, or test
-  data) or Bazel may fail even when Cargo passes.
 - Do not create small helper methods that are referenced only once.
 - Avoid large modules:
   - Prefer adding new modules instead of growing existing ones.
@@ -49,6 +41,8 @@ In the codex-rs folder where the rust code lives:
     `codex-rs/tui/src/bottom_pane/mod.rs`, and similarly central orchestration modules.
   - When extracting code from a large module, move the related tests and module/type docs toward
     the new implementation so the invariants stay close to the code that owns them.
+  - Avoid adding new standalone methods to `codex-rs/tui/src/chatwidget.rs` unless the change is
+    trivial; prefer new modules/files and keep `chatwidget.rs` focused on orchestration.
 - When running Rust commands (e.g. `just fix` or `cargo test`) be patient with the command and never try to kill them using the PID. Rust lock can make the execution slow, this is expected.
 
 Run `just fmt` (in `codex-rs` directory) automatically after you have finished making Rust code changes; do not ask for approval to run it. Additionally, run the tests:
@@ -135,11 +129,10 @@ If you don’t have the tool:
 - Prefer deep equals comparisons whenever possible. Perform `assert_eq!()` on entire objects, rather than individual fields.
 - Avoid mutating process environment in tests; prefer passing environment-derived flags or dependencies from above.
 
-### Spawning workspace binaries in tests (Cargo vs Bazel)
+### Spawning workspace binaries in tests
 
 - Prefer `codex_utils_cargo_bin::cargo_bin("...")` over `assert_cmd::Command::cargo_bin(...)` or `escargot` when tests need to spawn first-party binaries.
-  - Under Bazel, binaries and resources may live under runfiles; use `codex_utils_cargo_bin::cargo_bin` to resolve absolute paths that remain stable after `chdir`.
-- When locating fixture files or test resources under Bazel, avoid `env!("CARGO_MANIFEST_DIR")`. Prefer `codex_utils_cargo_bin::find_resource!` so paths resolve correctly under both Cargo and Bazel runfiles.
+- When locating fixture files or test resources, avoid `env!("CARGO_MANIFEST_DIR")` in integration tests that may `chdir`. Prefer `codex_utils_cargo_bin::find_resource!` so paths remain stable.
 
 ### Integration tests (core)
 

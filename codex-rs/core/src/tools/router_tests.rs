@@ -4,6 +4,7 @@ use crate::codex::make_session_and_context;
 use crate::tools::context::ToolPayload;
 use codex_protocol::models::ResponseItem;
 use codex_tools::ToolName;
+use tokio_util::sync::CancellationToken;
 
 use super::ToolRouter;
 

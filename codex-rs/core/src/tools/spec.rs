@@ -8,7 +8,10 @@ use crate::tools::registry::ToolRegistryBuilder;
 use codex_mcp::CODEX_APPS_MCP_SERVER_NAME;
 use codex_mcp::ToolInfo;
 use codex_protocol::dynamic_tools::DynamicToolSpec;
+use codex_tools::AdditionalProperties;
 use codex_tools::DiscoverableTool;
+use codex_tools::JsonSchema;
+use codex_tools::ResponsesApiTool;
 use codex_tools::ToolHandlerKind;
 use codex_tools::ToolName;
 use codex_tools::ToolNamespace;
@@ -17,6 +20,7 @@ use codex_tools::ToolRegistryPlanParams;
 use codex_tools::ToolUserShellType;
 use codex_tools::ToolsConfig;
 use codex_tools::WaitAgentTimeoutOptions;
+use codex_tools::augment_tool_spec_for_code_mode;
 use codex_tools::build_tool_registry_plan;
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -54,6 +58,7 @@ pub(crate) fn build_specs_with_discoverable_tools(
     use crate::tools::handlers::TestSyncHandler;
     use crate::tools::handlers::ToolSearchHandler;
     use crate::tools::handlers::ToolSuggestHandler;
+    use crate::tools::handlers::UnavailableToolHandler;
     use crate::tools::handlers::UnifiedExecHandler;
     use crate::tools::handlers::ViewImageHandler;
     use crate::tools::handlers::multi_agents::CloseAgentHandler;
@@ -67,6 +72,8 @@ pub(crate) fn build_specs_with_discoverable_tools(
     use crate::tools::handlers::multi_agents_v2::SendMessageHandler as SendMessageHandlerV2;
     use crate::tools::handlers::multi_agents_v2::SpawnAgentHandler as SpawnAgentHandlerV2;
     use crate::tools::handlers::multi_agents_v2::WaitAgentHandler as WaitAgentHandlerV2;
+    use crate::tools::handlers::unavailable_tool_message;
+    use crate::tools::tool_search_entry::build_tool_search_entries;
 
     let mut builder = ToolRegistryBuilder::new();
     let app_tool_sources = app_tools.as_ref().map(|app_tools| {
@@ -114,6 +121,11 @@ pub(crate) fn build_specs_with_discoverable_tools(
     let request_user_input_handler = Arc::new(RequestUserInputHandler {
         default_mode_request_user_input: config.default_mode_request_user_input,
     });
+    let deferred_dynamic_tools = dynamic_tools
+        .iter()
+        .filter(|tool| tool.defer_loading)
+        .cloned()
+        .collect::<Vec<_>>();
     let mut tool_search_handler = None;
     let tool_suggest_handler = Arc::new(ToolSuggestHandler);
     for spec in plan.specs {

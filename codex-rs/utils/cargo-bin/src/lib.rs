@@ -82,13 +82,13 @@ macro_rules! find_resource {
     }};
 }
 
-pub fn resolve_cargo_runfile(resource: &Path) -> std::io::Result<PathBuf> {
+pub fn resolve_cargo_resource(resource: &Path) -> std::io::Result<PathBuf> {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     Ok(manifest_dir.join(resource))
 }
 
 pub fn repo_root() -> io::Result<PathBuf> {
-    let marker = resolve_cargo_runfile(Path::new("repo_root.marker"))?;
+    let marker = resolve_cargo_resource(Path::new("repo_root.marker"))?;
     let mut root = marker;
     for _ in 0..4 {
         root = root

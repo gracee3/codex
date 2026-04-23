@@ -1,4 +1,3 @@
-use std::collections::BTreeMap;
 use std::collections::HashSet;
 use std::future::Future;
 use std::sync::Arc;
@@ -19,6 +18,7 @@ use crate::outgoing_message::ConnectionRequestId;
 use crate::outgoing_message::OutgoingMessageSender;
 use crate::outgoing_message::RequestContext;
 use crate::transport::AppServerTransport;
+use crate::transport::ConnectionOrigin;
 use crate::transport::RemoteControlHandle;
 use async_trait::async_trait;
 use codex_app_server_protocol::AppListUpdatedNotification;
@@ -33,10 +33,16 @@ use codex_app_server_protocol::ConfigBatchWriteParams;
 use codex_app_server_protocol::ConfigReadParams;
 use codex_app_server_protocol::ConfigValueWriteParams;
 use codex_app_server_protocol::ConfigWarningNotification;
+use codex_app_server_protocol::DeviceKeyCreateParams;
+use codex_app_server_protocol::DeviceKeyPublicParams;
+use codex_app_server_protocol::DeviceKeySignParams;
 use codex_app_server_protocol::ExperimentalApi;
 use codex_app_server_protocol::ExperimentalFeatureEnablementSetParams;
 use codex_app_server_protocol::ExternalAgentConfigDetectParams;
+use codex_app_server_protocol::ExternalAgentConfigImportCompletedNotification;
 use codex_app_server_protocol::ExternalAgentConfigImportParams;
+use codex_app_server_protocol::ExternalAgentConfigImportResponse;
+use codex_app_server_protocol::ExternalAgentConfigMigrationItemType;
 use codex_app_server_protocol::FsCopyParams;
 use codex_app_server_protocol::FsCreateDirectoryParams;
 use codex_app_server_protocol::FsGetMetadataParams;
@@ -59,8 +65,6 @@ use codex_arg0::Arg0DispatchPaths;
 use codex_chatgpt::connectors;
 use codex_core::ThreadManager;
 use codex_core::config::Config;
-use codex_core::config_loader::CloudRequirementsLoader;
-use codex_core::config_loader::LoaderOverrides;
 use codex_exec_server::EnvironmentManager;
 use codex_features::Feature;
 use codex_login::AuthManager;
@@ -83,7 +87,6 @@ use tokio::sync::broadcast;
 use tokio::sync::watch;
 use tokio::time::Duration;
 use tokio::time::timeout;
-use toml::Value as TomlValue;
 use tracing::Instrument;
 
 const EXTERNAL_AUTH_REFRESH_TIMEOUT: Duration = Duration::from_secs(10);
@@ -159,7 +162,9 @@ impl ExternalAuth for ExternalAuthRefreshBridge {
 pub(crate) struct MessageProcessor {
     outgoing: Arc<OutgoingMessageSender>,
     codex_message_processor: CodexMessageProcessor,
+    thread_manager: Arc<ThreadManager>,
     config_api: ConfigApi,
+    device_key_api: DeviceKeyApi,
     external_agent_config_api: ExternalAgentConfigApi,
     fs_api: FsApi,
     auth_manager: Arc<AuthManager>,
@@ -182,6 +187,7 @@ pub(crate) struct MessageProcessorArgs {
     pub(crate) outgoing: Arc<OutgoingMessageSender>,
     pub(crate) arg0_paths: Arg0DispatchPaths,
     pub(crate) config: Arc<Config>,
+    pub(crate) config_manager: ConfigManager,
     pub(crate) environment_manager: Arc<EnvironmentManager>,
     pub(crate) cli_overrides: Vec<(String, TomlValue)>,
     pub(crate) loader_overrides: LoaderOverrides,
@@ -201,6 +207,7 @@ impl MessageProcessor {
             outgoing,
             arg0_paths,
             config,
+            config_manager,
             environment_manager,
             cli_overrides,
             loader_overrides,
@@ -252,6 +259,7 @@ impl MessageProcessor {
             cloud_requirements,
             thread_manager,
         );
+        let device_key_api = DeviceKeyApi::default();
         let external_agent_config_api =
             ExternalAgentConfigApi::new(config.codex_home.to_path_buf());
         let fs_api = FsApi::default();
@@ -260,7 +268,9 @@ impl MessageProcessor {
         Self {
             outgoing,
             codex_message_processor,
+            thread_manager: Arc::clone(&thread_manager),
             config_api,
+            device_key_api,
             external_agent_config_api,
             fs_api,
             auth_manager,
@@ -717,6 +727,39 @@ impl MessageProcessor {
                 })
                 .await;
             }
+            ClientRequest::DeviceKeyCreate { request_id, params } => {
+                self.handle_device_key_create(
+                    ConnectionRequestId {
+                        connection_id,
+                        request_id,
+                    },
+                    params,
+                    device_key_requests_allowed,
+                )
+                .await;
+            }
+            ClientRequest::DeviceKeyPublic { request_id, params } => {
+                self.handle_device_key_public(
+                    ConnectionRequestId {
+                        connection_id,
+                        request_id,
+                    },
+                    params,
+                    device_key_requests_allowed,
+                )
+                .await;
+            }
+            ClientRequest::DeviceKeySign { request_id, params } => {
+                self.handle_device_key_sign(
+                    ConnectionRequestId {
+                        connection_id,
+                        request_id,
+                    },
+                    params,
+                    device_key_requests_allowed,
+                )
+                .await;
+            }
             ClientRequest::FsReadFile { request_id, params } => {
                 self.handle_fs_read_file(
                     ConnectionRequestId {
@@ -980,6 +1023,98 @@ impl MessageProcessor {
         }
     }
 
+    async fn handle_device_key_create(
+        &self,
+        request_id: ConnectionRequestId,
+        params: DeviceKeyCreateParams,
+        device_key_requests_allowed: bool,
+    ) {
+        if self
+            .reject_device_key_request_over_remote_transport(
+                request_id.clone(),
+                "device/key/create",
+                device_key_requests_allowed,
+            )
+            .await
+        {
+            return;
+        }
+
+        match self.device_key_api.create(params) {
+            Ok(response) => self.outgoing.send_response(request_id, response).await,
+            Err(error) => self.outgoing.send_error(request_id, error).await,
+        }
+    }
+
+    async fn handle_device_key_public(
+        &self,
+        request_id: ConnectionRequestId,
+        params: DeviceKeyPublicParams,
+        device_key_requests_allowed: bool,
+    ) {
+        if self
+            .reject_device_key_request_over_remote_transport(
+                request_id.clone(),
+                "device/key/public",
+                device_key_requests_allowed,
+            )
+            .await
+        {
+            return;
+        }
+
+        match self.device_key_api.public(params) {
+            Ok(response) => self.outgoing.send_response(request_id, response).await,
+            Err(error) => self.outgoing.send_error(request_id, error).await,
+        }
+    }
+
+    async fn handle_device_key_sign(
+        &self,
+        request_id: ConnectionRequestId,
+        params: DeviceKeySignParams,
+        device_key_requests_allowed: bool,
+    ) {
+        if self
+            .reject_device_key_request_over_remote_transport(
+                request_id.clone(),
+                "device/key/sign",
+                device_key_requests_allowed,
+            )
+            .await
+        {
+            return;
+        }
+
+        match self.device_key_api.sign(params) {
+            Ok(response) => self.outgoing.send_response(request_id, response).await,
+            Err(error) => self.outgoing.send_error(request_id, error).await,
+        }
+    }
+
+    async fn reject_device_key_request_over_remote_transport(
+        &self,
+        request_id: ConnectionRequestId,
+        method: &str,
+        device_key_requests_allowed: bool,
+    ) -> bool {
+        if device_key_requests_allowed {
+            return false;
+        }
+
+        self.outgoing
+            .send_error(
+                request_id,
+                JSONRPCErrorError {
+                    code: INVALID_REQUEST_ERROR_CODE,
+                    message: format!("{method} is not available over remote transports"),
+                    data: None,
+                },
+            )
+            .await;
+        true
+    }
+
     async fn handle_external_agent_config_detect(
         &self,
         request_id: ConnectionRequestId,
@@ -996,8 +1131,65 @@ impl MessageProcessor {
         request_id: ConnectionRequestId,
         params: ExternalAgentConfigImportParams,
     ) {
+        let has_plugin_imports = params.migration_items.iter().any(|item| {
+            matches!(
+                item.item_type,
+                ExternalAgentConfigMigrationItemType::Plugins
+            )
+        });
         match self.external_agent_config_api.import(params).await {
-            Ok(response) => self.outgoing.send_response(request_id, response).await,
+            Ok(pending_plugin_imports) => {
+                if has_plugin_imports {
+                    self.handle_config_mutation().await;
+                }
+                self.outgoing
+                    .send_response(request_id, ExternalAgentConfigImportResponse {})
+                    .await;
+
+                if !has_plugin_imports {
+                    return;
+                }
+
+                if pending_plugin_imports.is_empty() {
+                    self.outgoing
+                        .send_server_notification(
+                            ServerNotification::ExternalAgentConfigImportCompleted(
+                                ExternalAgentConfigImportCompletedNotification {},
+                            ),
+                        )
+                        .await;
+                    return;
+                }
+
+                let external_agent_config_api = self.external_agent_config_api.clone();
+                let outgoing = Arc::clone(&self.outgoing);
+                let thread_manager = Arc::clone(&self.thread_manager);
+                tokio::spawn(async move {
+                    for pending_plugin_import in pending_plugin_imports {
+                        match external_agent_config_api
+                            .complete_pending_plugin_import(pending_plugin_import)
+                            .await
+                        {
+                            Ok(()) => {}
+                            Err(error) => {
+                                tracing::warn!(
+                                    error = %error.message,
+                                    "external agent config plugin import failed"
+                                );
+                            }
+                        }
+                    }
+                    thread_manager.plugins_manager().clear_cache();
+                    thread_manager.skills_manager().clear_cache();
+                    outgoing
+                        .send_server_notification(
+                            ServerNotification::ExternalAgentConfigImportCompleted(
+                                ExternalAgentConfigImportCompletedNotification {},
+                            ),
+                        )
+                        .await;
+                });
+            }
             Err(error) => self.outgoing.send_error(request_id, error).await,
         }
     }

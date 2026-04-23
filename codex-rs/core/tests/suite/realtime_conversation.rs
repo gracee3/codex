@@ -17,6 +17,7 @@ use codex_protocol::protocol::RealtimeAudioFrame;
 use codex_protocol::protocol::RealtimeConversationRealtimeEvent;
 use codex_protocol::protocol::RealtimeConversationVersion;
 use codex_protocol::protocol::RealtimeEvent;
+use codex_protocol::protocol::RealtimeNoopRequested;
 use codex_protocol::protocol::RealtimeOutputModality;
 use codex_protocol::protocol::RealtimeVoice;
 use codex_protocol::protocol::SessionSource;
@@ -51,6 +52,8 @@ use wiremock::matchers::method;
 use wiremock::matchers::path_regex;
 
 const STARTUP_CONTEXT_HEADER: &str = "Startup context from Codex.";
+const STARTUP_CONTEXT_OPEN_TAG: &str = "<startup_context>";
+const STARTUP_CONTEXT_CLOSE_TAG: &str = "</startup_context>";
 const REALTIME_BACKEND_PROMPT: &str = include_str!("../../templates/realtime/backend_prompt.md");
 const USER_FIRST_NAME_PLACEHOLDER: &str = "{{ user_first_name }}";
 const MEMORY_PROMPT_PHRASE: &str =
@@ -199,6 +202,11 @@ fn run_realtime_conversation_test_in_subprocess(
         .arg("--exact")
         .arg(test_name)
         .env(REALTIME_CONVERSATION_TEST_SUBPROCESS_ENV_VAR, "1");
+    // The child talks to a loopback websocket server; parent proxy settings can
+    // route that connection away from the test server if inherited.
+    for &key in codex_network_proxy::PROXY_ENV_KEYS {
+        command.env_remove(key);
+    }
     match openai_api_key {
         Some(openai_api_key) => {
             command.env(OPENAI_API_KEY_ENV_VAR, openai_api_key);
@@ -1548,6 +1556,8 @@ async fn conversation_start_injects_startup_context_from_thread_history() -> Res
     let startup_context = websocket_request_instructions(&startup_context_request)
         .expect("startup context request should contain instructions");
 
+    assert!(startup_context.contains(STARTUP_CONTEXT_OPEN_TAG));
+    assert!(startup_context.contains(STARTUP_CONTEXT_CLOSE_TAG));
     assert!(startup_context.contains(STARTUP_CONTEXT_HEADER));
     assert!(!startup_context.contains("## User"));
     assert!(startup_context.contains("### "));
@@ -1605,6 +1615,8 @@ async fn conversation_startup_context_falls_back_to_workspace_map() -> Result<()
     let startup_context = websocket_request_instructions(&startup_context_request)
         .expect("startup context request should contain instructions");
 
+    assert!(startup_context.contains(STARTUP_CONTEXT_OPEN_TAG));
+    assert!(startup_context.contains(STARTUP_CONTEXT_CLOSE_TAG));
     assert!(startup_context.contains(STARTUP_CONTEXT_HEADER));
     assert!(startup_context.contains("## Machine / Workspace Map"));
     assert!(startup_context.contains("notes.txt"));
@@ -1659,6 +1671,8 @@ async fn conversation_startup_context_is_truncated_and_sent_once_per_start() -> 
     .await;
     let startup_context = websocket_request_instructions(&startup_context_request)
         .expect("startup context request should contain instructions");
+    assert!(startup_context.contains(STARTUP_CONTEXT_OPEN_TAG));
+    assert!(startup_context.contains(STARTUP_CONTEXT_CLOSE_TAG));
     assert!(startup_context.contains(STARTUP_CONTEXT_HEADER));
     assert!(startup_context.len() <= 20_500);
 
@@ -1962,6 +1976,27 @@ fn message_input_texts(body: &Value, role: &str) -> Vec<String> {
         .collect()
 }
 
+fn realtime_delegation_input_text(input: &str, transcript_delta: Option<&str>) -> String {
+    let escaped = input
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;");
+    match transcript_delta {
+        Some(transcript_delta) => {
+            let escaped_transcript = transcript_delta
+                .replace('&', "&amp;")
+                .replace('<', "&lt;")
+                .replace('>', "&gt;");
+            format!(
+                "<realtime_delegation>\n  <input>{escaped}</input>\n  <transcript_delta>{escaped_transcript}</transcript_delta>\n</realtime_delegation>"
+            )
+        }
+        None => {
+            format!("<realtime_delegation>\n  <input>{escaped}</input>\n</realtime_delegation>")
+        }
+    }
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn inbound_handoff_request_starts_turn() -> Result<()> {
     skip_if_no_network!(Ok(()));
@@ -2042,11 +2077,9 @@ async fn inbound_handoff_request_starts_turn() -> Result<()> {
 
     let request = response_mock.single_request();
     let user_texts = request.message_input_texts("user");
-    assert!(
-        user_texts
-            .iter()
-            .any(|text| text == "user: text from realtime")
-    );
+    let expected_text =
+        realtime_delegation_input_text("text from realtime", Some("user: text from realtime"));
+    assert!(user_texts.iter().any(|text| text == &expected_text));
 
     realtime_server.shutdown().await;
     Ok(())
@@ -2127,15 +2160,20 @@ async fn inbound_handoff_request_uses_active_transcript() -> Result<()> {
 
     let request = response_mock.single_request();
     let user_texts = request.message_input_texts("user");
-    assert!(user_texts.iter().any(|text| text
-        == "assistant: assistant context\nuser: delegated query\nassistant: assist confirm"));
+    let expected_text = realtime_delegation_input_text(
+        "ignored",
+        Some(
+            "assistant: assistant context\nuser: delegated query\nassistant: assist confirm\nuser: ignored",
+        ),
+    );
+    assert!(user_texts.iter().any(|text| text == &expected_text));
 
     realtime_server.shutdown().await;
     Ok(())
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn inbound_handoff_request_clears_active_transcript_after_each_handoff() -> Result<()> {
+async fn inbound_handoff_request_sends_transcript_delta_after_each_handoff() -> Result<()> {
     skip_if_no_network!(Ok(()));
 
     let api_server = start_mock_server().await;
@@ -2242,22 +2280,21 @@ async fn inbound_handoff_request_clears_active_transcript_after_each_handoff() -
     assert_eq!(requests.len(), 2);
 
     let first_user_texts = requests[0].message_input_texts("user");
+    let first_expected_text =
+        realtime_delegation_input_text("first question", Some("user: first question"));
     assert!(
         first_user_texts
             .iter()
-            .any(|text| text == "user: first question")
+            .any(|text| text == &first_expected_text)
     );
 
     let second_user_texts = requests[1].message_input_texts("user");
+    let second_expected_text =
+        realtime_delegation_input_text("second question", Some("user: second question"));
     assert!(
         second_user_texts
             .iter()
-            .any(|text| text == "user: second question")
-    );
-    assert!(
-        !second_user_texts
-            .iter()
-            .any(|text| text == "user: first question\nuser: second question")
+            .any(|text| text == &second_expected_text)
     );
 
     realtime_server.shutdown().await;
@@ -2408,7 +2445,7 @@ async fn delegated_turn_user_role_echo_does_not_redelegate_and_still_forwards_au
     ]])
     .await;
 
-    let mut builder = test_codex().with_model("gpt-5.1").with_config({
+    let mut builder = test_codex().with_model("gpt-5.4").with_config({
         let realtime_base_url = realtime_server.uri().to_string();
         move |config| {
             config.experimental_realtime_ws_base_url = Some(realtime_base_url);
@@ -2554,7 +2591,7 @@ async fn inbound_handoff_request_does_not_block_realtime_event_forwarding() -> R
     ]]])
     .await;
 
-    let mut builder = test_codex().with_model("gpt-5.1").with_config({
+    let mut builder = test_codex().with_model("gpt-5.4").with_config({
         let realtime_base_url = realtime_server.uri().to_string();
         move |config| {
             config.experimental_realtime_ws_base_url = Some(realtime_base_url);
@@ -2684,7 +2721,7 @@ async fn inbound_handoff_request_steers_active_turn() -> Result<()> {
     ]])
     .await;
 
-    let mut builder = test_codex().with_model("gpt-5.1").with_config({
+    let mut builder = test_codex().with_model("gpt-5.4").with_config({
         let realtime_base_url = realtime_server.uri().to_string();
         move |config| {
             config.experimental_realtime_ws_base_url = Some(realtime_base_url);
@@ -2720,28 +2757,16 @@ async fn inbound_handoff_request_steers_active_turn() -> Result<()> {
         })
         .await?;
 
-    wait_for_event(&test.codex, |event| {
-        matches!(event, EventMsg::AgentMessageContentDelta(_))
-    })
-    .await;
-
-    test.codex
-        .submit(Op::RealtimeConversationAudio(ConversationAudioParams {
-            frame: RealtimeAudioFrame {
-                data: "AQID".to_string(),
-                sample_rate: 24000,
-                num_channels: 1,
-                samples_per_channel: Some(480),
-                item_id: None,
-            },
-        }))
-        .await?;
-
     let _ = wait_for_event_match(&test.codex, |msg| match msg {
         EventMsg::RealtimeConversationRealtime(RealtimeConversationRealtimeEvent {
             payload: RealtimeEvent::HandoffRequested(handoff),
         }) if handoff.input_transcript == "steer via realtime" => Some(()),
         _ => None,
+    })
+    .await;
+
+    wait_for_event(&test.codex, |event| {
+        matches!(event, EventMsg::AgentMessageContentDelta(_))
     })
     .await;
 
@@ -2756,10 +2781,6 @@ async fn inbound_handoff_request_steers_active_turn() -> Result<()> {
     second_completion
         .await
         .expect("second request did not complete");
-    wait_for_event(&test.codex, |event| {
-        matches!(event, EventMsg::TurnComplete(_))
-    })
-    .await;
 
     let requests = api_server.requests().await;
     assert_eq!(requests.len(), 2);
@@ -2770,17 +2791,15 @@ async fn inbound_handoff_request_steers_active_turn() -> Result<()> {
     let second_texts = message_input_texts(&second_body, "user");
 
     assert!(first_texts.iter().any(|text| text == "first prompt"));
-    assert!(
-        !first_texts
-            .iter()
-            .any(|text| text == "user: steer via realtime")
-    );
+    assert!(!first_texts.iter().any(|text| text
+        == &realtime_delegation_input_text(
+            "steer via realtime",
+            Some("user: steer via realtime"),
+        )));
     assert!(second_texts.iter().any(|text| text == "first prompt"));
-    assert!(
-        second_texts
-            .iter()
-            .any(|text| text == "user: steer via realtime")
-    );
+    let expected_steer_text =
+        realtime_delegation_input_text("steer via realtime", Some("user: steer via realtime"));
+    assert!(second_texts.iter().any(|text| text == &expected_steer_text));
 
     realtime_server.shutdown().await;
     api_server.shutdown().await;
@@ -2829,7 +2848,7 @@ async fn inbound_handoff_request_starts_turn_and_does_not_block_realtime_audio()
     ]]])
     .await;
 
-    let mut builder = test_codex().with_model("gpt-5.1").with_config({
+    let mut builder = test_codex().with_model("gpt-5.4").with_config({
         let realtime_base_url = realtime_server.uri().to_string();
         move |config| {
             config.experimental_realtime_ws_base_url = Some(realtime_base_url);
@@ -2895,7 +2914,8 @@ async fn inbound_handoff_request_starts_turn_and_does_not_block_realtime_audio()
     assert_eq!(requests.len(), 1);
     let first_body: Value = serde_json::from_slice(&requests[0]).expect("parse first request");
     let first_texts = message_input_texts(&first_body, "user");
-    let expected_text = format!("user: {delegated_text}");
+    let expected_text =
+        realtime_delegation_input_text(delegated_text, Some("user: delegate from handoff request"));
     assert!(first_texts.iter().any(|text| text == &expected_text));
 
     realtime_server.shutdown().await;

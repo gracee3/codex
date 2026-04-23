@@ -4,10 +4,10 @@ use crate::Prompt;
 use crate::client::ModelClientSession;
 use crate::client_common::ResponseEvent;
 #[cfg(test)]
-use crate::codex::PreviousTurnSettings;
-use crate::codex::Session;
-use crate::codex::TurnContext;
-use crate::codex::get_last_assistant_message_from_turn;
+use crate::session::PreviousTurnSettings;
+use crate::session::session::Session;
+use crate::session::turn::get_last_assistant_message_from_turn;
+use crate::session::turn_context::TurnContext;
 use crate::util::backoff;
 use codex_model_provider_info::ModelProviderInfo;
 use codex_protocol::error::CodexErr;
@@ -27,6 +27,8 @@ use codex_utils_output_truncation::approx_token_count;
 use codex_utils_output_truncation::truncate_text;
 use futures::prelude::*;
 use tracing::error;
+
+use codex_model_provider_info::ModelProviderInfo;
 
 pub const SUMMARIZATION_PROMPT: &str = include_str!("../templates/compact/prompt.md");
 pub const SUMMARY_PREFIX: &str = include_str!("../templates/compact/summary_prefix.md");
@@ -48,7 +50,7 @@ pub(crate) enum InitialContextInjection {
 }
 
 pub(crate) fn should_use_remote_compact_task(provider: &ModelProviderInfo) -> bool {
-    provider.is_openai()
+    provider.supports_remote_compaction()
 }
 
 pub(crate) async fn run_inline_auto_compact_task(
@@ -107,7 +109,7 @@ async fn run_compact_task_inner(
 
     let mut truncated_count = 0usize;
 
-    let max_retries = turn_context.provider.stream_max_retries();
+    let max_retries = turn_context.provider.info().stream_max_retries();
     let mut retries = 0;
     let mut client_session = sess.services.model_client.new_session();
     // Reuse one client session so turn-scoped state (sticky routing, websocket incremental

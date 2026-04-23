@@ -14,7 +14,6 @@ fn format_exit_messages(exit_info: AppExitInfo, color_enabled: bool) -> Vec<Stri
     let AppExitInfo {
         token_usage,
         thread_id,
-        thread_name,
         ..
     } = exit_info;
 

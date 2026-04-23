@@ -6,6 +6,7 @@ use codex_protocol::protocol::RealtimeAudioFrame;
 use codex_protocol::protocol::RealtimeEvent;
 use codex_protocol::protocol::RealtimeHandoffRequested;
 use codex_protocol::protocol::RealtimeInputAudioSpeechStarted;
+use codex_protocol::protocol::RealtimeNoopRequested;
 use codex_protocol::protocol::RealtimeResponseCancelled;
 use serde_json::Map as JsonMap;
 use serde_json::Value;
@@ -34,6 +35,13 @@ pub(super) fn parse_realtime_event_v2(payload: &str) -> Option<RealtimeEvent> {
         "response.output_text.delta" | "response.output_audio_transcript.delta" => {
             parse_transcript_delta_event(&parsed, "delta").map(RealtimeEvent::OutputTranscriptDelta)
         }
+        "response.output_text.done" => {
+            parse_transcript_done_event(&parsed, "text").map(RealtimeEvent::OutputTranscriptDone)
+        }
+        "response.output_audio_transcript.done" => {
+            parse_transcript_done_event(&parsed, "transcript")
+                .map(RealtimeEvent::OutputTranscriptDone)
+        }
         "input_audio_buffer.speech_started" => Some(RealtimeEvent::InputAudioSpeechStarted(
             RealtimeInputAudioSpeechStarted {
                 item_id: parsed
@@ -42,7 +50,7 @@ pub(super) fn parse_realtime_event_v2(payload: &str) -> Option<RealtimeEvent> {
                     .map(str::to_string),
             },
         )),
-        "conversation.item.added" => parsed
+        "conversation.item.added" | "conversation.item.created" => parsed
             .get("item")
             .cloned()
             .map(RealtimeEvent::ConversationItemAdded),
@@ -163,6 +171,29 @@ fn parse_handoff_requested_event(item: &JsonMap<String, Value>) -> Option<Realti
         item_id,
         input_transcript: extract_input_transcript(arguments),
         active_transcript: Vec::new(),
+    }))
+}
+
+fn parse_noop_requested_event(item: &JsonMap<String, Value>) -> Option<RealtimeEvent> {
+    let item_type = item.get("type").and_then(Value::as_str);
+    let item_name = item.get("name").and_then(Value::as_str);
+    if item_type != Some("function_call") || item_name != Some(SILENCE_TOOL_NAME) {
+        return None;
+    }
+
+    let call_id = item
+        .get("call_id")
+        .and_then(Value::as_str)
+        .or_else(|| item.get("id").and_then(Value::as_str))?;
+    let item_id = item
+        .get("id")
+        .and_then(Value::as_str)
+        .unwrap_or(call_id)
+        .to_string();
+
+    Some(RealtimeEvent::NoopRequested(RealtimeNoopRequested {
+        call_id: call_id.to_string(),
+        item_id,
     }))
 }
 

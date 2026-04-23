@@ -2,6 +2,7 @@ use anyhow::Context;
 use std::collections::HashSet;
 use tracing::warn;
 
+use super::OPENAI_BUNDLED_MARKETPLACE_NAME;
 use super::OPENAI_CURATED_MARKETPLACE_NAME;
 use super::PluginCapabilitySummary;
 use super::PluginReadRequest;
@@ -20,6 +21,12 @@ const TOOL_SUGGEST_DISCOVERABLE_PLUGIN_ALLOWLIST: &[&str] = &[
     "google-drive@openai-curated",
     "linear@openai-curated",
     "figma@openai-curated",
+    "computer-use@openai-bundled",
+];
+
+const TOOL_SUGGEST_DISCOVERABLE_MARKETPLACE_ALLOWLIST: &[&str] = &[
+    OPENAI_BUNDLED_MARKETPLACE_NAME,
+    OPENAI_CURATED_MARKETPLACE_NAME,
 ];
 
 pub(crate) async fn list_tool_suggest_discoverable_plugins(
@@ -48,11 +55,9 @@ pub(crate) async fn list_tool_suggest_discoverable_plugins(
         return Ok(Vec::new());
     };
     let mut discoverable_plugins = Vec::<DiscoverablePluginInfo>::new();
-    for plugin in curated_marketplace.plugins {
-        if plugin.installed
-            || (!TOOL_SUGGEST_DISCOVERABLE_PLUGIN_ALLOWLIST.contains(&plugin.id.as_str())
-                && !configured_plugin_ids.contains(plugin.id.as_str()))
-        {
+    for marketplace in marketplaces {
+        let marketplace_name = marketplace.name;
+        if !TOOL_SUGGEST_DISCOVERABLE_MARKETPLACE_ALLOWLIST.contains(&marketplace_name.as_str()) {
             continue;
         }
 
@@ -80,7 +85,6 @@ pub(crate) async fn list_tool_suggest_discoverable_plugins(
                         .collect(),
                 });
             }
-            Err(err) => warn!("failed to load discoverable plugin suggestion {plugin_id}: {err:#}"),
         }
     }
     discoverable_plugins.sort_by(|left, right| {

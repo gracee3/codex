@@ -80,5 +80,4 @@ just fix -p <crate-you-touched>
 cargo test -p <crate-you-touched>
 ```
 
-No Bazel, npm, pnpm, Nix, macOS, Windows, or GitHub Actions workflow is
-supported in this fork.
+Only Linux x86_64 Cargo-based local development is supported in this fork.

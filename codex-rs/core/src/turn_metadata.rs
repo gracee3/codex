@@ -57,6 +57,8 @@ pub(crate) struct TurnMetadataBag {
     session_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     turn_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    thread_source: Option<String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     workspaces: BTreeMap<String, TurnMetadataWorkspace>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -86,6 +88,7 @@ fn build_turn_metadata_bag(
     TurnMetadataBag {
         session_id,
         turn_id,
+        thread_source: Some("user".to_string()),
         workspaces,
         sandbox,
     }

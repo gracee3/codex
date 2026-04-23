@@ -875,10 +875,27 @@ mod tests {
     use tokio_tungstenite::tungstenite::http::header::AUTHORIZATION;
 
     async fn build_test_config() -> Config {
-        match ConfigBuilder::default().build().await {
+        let codex_home = tempfile::tempdir().expect("create temp codex home");
+        let config = ConfigBuilder::default()
+            .codex_home(codex_home.path().to_path_buf())
+            .build()
+            .await;
+        if config.is_ok() {
+            std::mem::forget(codex_home);
+        }
+        match config {
             Ok(config) => config,
-            Err(_) => Config::load_default_with_cli_overrides(Vec::new())
-                .expect("default config should load"),
+            Err(_) => {
+                let codex_home = tempfile::tempdir().expect("create temp codex home");
+                let config = Config::load_default_with_cli_overrides_for_codex_home(
+                    codex_home.path().to_path_buf(),
+                    Vec::new(),
+                )
+                .await
+                .expect("default config should load");
+                std::mem::forget(codex_home);
+                config
+            }
         }
     }
 
