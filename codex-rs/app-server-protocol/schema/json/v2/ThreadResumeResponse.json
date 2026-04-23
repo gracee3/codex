@@ -505,32 +505,6 @@
       ],
       "type": "object"
     },
-    "ManagedWorkspace": {
-      "properties": {
-        "kind": {
-          "$ref": "#/definitions/ManagedWorkspaceKind"
-        },
-        "repoRoot": {
-          "type": "string"
-        },
-        "workspacePath": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "kind",
-        "repoRoot",
-        "workspacePath"
-      ],
-      "type": "object"
-    },
-    "ManagedWorkspaceKind": {
-      "enum": [
-        "repoRoot",
-        "ephemeralWorktree"
-      ],
-      "type": "string"
-    },
     "McpToolCallError": {
       "properties": {
         "message": {
@@ -1143,17 +1117,6 @@
           "description": "Unix timestamp (in seconds) when the thread was last updated.",
           "format": "int64",
           "type": "integer"
-        },
-        "workspace": {
-          "anyOf": [
-            {
-              "$ref": "#/definitions/ManagedWorkspace"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "description": "Managed workspace metadata for repo-root/project-server sessions and Codex-managed subagent worktrees when available."
         }
       },
       "required": [

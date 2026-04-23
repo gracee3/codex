@@ -31,6 +31,8 @@ pub enum SortDirection {
 pub struct Anchor {
     /// The timestamp component of the anchor.
     pub ts: DateTime<Utc>,
+    /// Optional thread id tiebreaker for deterministic pagination within a timestamp.
+    pub id: Option<ThreadId>,
 }
 
 /// A single page of thread metadata results.
@@ -422,7 +424,10 @@ pub(crate) fn anchor_from_item(item: &ThreadMetadata, sort_key: SortKey) -> Opti
         SortKey::CreatedAt => item.created_at,
         SortKey::UpdatedAt => item.updated_at,
     };
-    Some(Anchor { ts })
+    Some(Anchor {
+        ts,
+        id: Some(item.id),
+    })
 }
 
 pub(crate) fn datetime_to_epoch_millis(dt: DateTime<Utc>) -> i64 {

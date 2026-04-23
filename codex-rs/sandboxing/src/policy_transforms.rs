@@ -61,7 +61,7 @@ pub fn normalize_additional_permissions(
                 }
                 let path = match entry.path {
                     FileSystemPath::Path { path } => FileSystemPath::Path {
-                        path: canonicalize_preserving_symlinks(path.as_path())
+                        path: canonicalize(path.as_path())
                             .ok()
                             .and_then(|path| AbsolutePathBuf::from_absolute_path(path).ok())
                             .unwrap_or(path),

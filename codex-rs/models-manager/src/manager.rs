@@ -65,6 +65,41 @@ impl RequestTelemetry for ModelsRequestTelemetry {
             .map(extract_response_debug_context)
             .unwrap_or_default();
         let status = status.map(|status| status.as_u16());
+        if !success {
+            tracing::info!(
+                target: "feedback_tags",
+                endpoint = tracing::field::debug(MODELS_ENDPOINT),
+                auth_header_attached = tracing::field::debug(self.auth_header_attached),
+                auth_header_name = tracing::field::debug(self.auth_header_name.unwrap_or("")),
+                auth_mode = tracing::field::debug(self.auth_mode.as_deref().unwrap_or("")),
+                auth_request_id = tracing::field::debug(response_debug.request_id.as_deref().unwrap_or("")),
+                auth_cf_ray = tracing::field::debug(response_debug.cf_ray.as_deref().unwrap_or("")),
+                auth_error = tracing::field::debug(response_debug.auth_error.as_deref().unwrap_or("")),
+                auth_error_code = tracing::field::debug(
+                    response_debug.auth_error_code.as_deref().unwrap_or("")
+                ),
+                auth_env_openai_api_key_present = tracing::field::debug(
+                    self.auth_env.openai_api_key_env_present
+                ),
+                auth_env_codex_api_key_present = tracing::field::debug(
+                    self.auth_env.codex_api_key_env_present
+                ),
+                auth_env_codex_api_key_enabled = tracing::field::debug(
+                    self.auth_env.codex_api_key_env_enabled
+                ),
+                auth_env_provider_key_name = tracing::field::debug(
+                    self.auth_env.provider_env_key_name.as_deref().unwrap_or("")
+                ),
+                auth_env_provider_key_present = tracing::field::debug(
+                    self.auth_env
+                        .provider_env_key_present
+                        .map_or_else(String::new, |value| value.to_string())
+                ),
+                auth_env_refresh_token_url_override_present = tracing::field::debug(
+                    self.auth_env.refresh_token_url_override_present
+                ),
+            );
+        }
         tracing::event!(
             target: "codex_otel.log_only",
             tracing::Level::INFO,

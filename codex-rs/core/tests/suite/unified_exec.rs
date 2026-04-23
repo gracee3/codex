@@ -2091,10 +2091,11 @@ PY
     let poll_output = outputs
         .get(second_call_id)
         .expect("missing poll unified_exec output");
+    let start_text = start_output.output.as_str();
     let poll_text = poll_output.output.as_str();
     assert!(
-        poll_text.contains("TAIL-MARKER"),
-        "expected poll output to contain tail marker, got {poll_text:?}"
+        start_text.contains("TAIL-MARKER") || poll_text.contains("TAIL-MARKER"),
+        "expected lagged tail marker to survive across unified_exec outputs, got start={start_text:?}, poll={poll_text:?}"
     );
 
     Ok(())

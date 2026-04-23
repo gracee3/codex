@@ -377,16 +377,8 @@ SELECT
 FROM threads
             "#,
         );
-        push_thread_filters(
-            &mut builder,
-            archived_only,
-            allowed_sources,
-            model_providers,
-            anchor,
-            sort_key,
-            search_term,
-        );
-        push_thread_order_and_limit(&mut builder, sort_key, limit);
+        push_thread_filters(&mut builder, filters);
+        push_thread_order_and_limit(&mut builder, sort_key, sort_direction, limit);
 
         let rows = builder.build().fetch_all(self.pool.as_ref()).await?;
         let mut items = rows
@@ -942,17 +934,48 @@ pub(super) fn push_thread_filters<'a>(
             SortKey::CreatedAt => "created_at",
             SortKey::UpdatedAt => "updated_at",
         };
-        let operator = match sort_direction {
-            SortDirection::Asc => ">",
-            SortDirection::Desc => "<",
-        };
-        builder.push(" AND (");
-        builder.push(column);
-        builder.push(" ");
-        builder.push(operator);
-        builder.push(" ");
-        builder.push_bind(anchor_ts);
-        builder.push(")");
+        match (sort_direction, anchor.id) {
+            (SortDirection::Asc, Some(anchor_id)) => {
+                builder.push(" AND (");
+                builder.push(column);
+                builder.push(" > ");
+                builder.push_bind(anchor_ts);
+                builder.push(" OR (");
+                builder.push(column);
+                builder.push(" = ");
+                builder.push_bind(anchor_ts);
+                builder.push(" AND id > ");
+                builder.push_bind(anchor_id.to_string());
+                builder.push("))");
+            }
+            (SortDirection::Desc, Some(anchor_id)) => {
+                builder.push(" AND (");
+                builder.push(column);
+                builder.push(" < ");
+                builder.push_bind(anchor_ts);
+                builder.push(" OR (");
+                builder.push(column);
+                builder.push(" = ");
+                builder.push_bind(anchor_ts);
+                builder.push(" AND id < ");
+                builder.push_bind(anchor_id.to_string());
+                builder.push("))");
+            }
+            (SortDirection::Asc, None) => {
+                builder.push(" AND (");
+                builder.push(column);
+                builder.push(" > ");
+                builder.push_bind(anchor_ts);
+                builder.push(")");
+            }
+            (SortDirection::Desc, None) => {
+                builder.push(" AND (");
+                builder.push(column);
+                builder.push(" < ");
+                builder.push_bind(anchor_ts);
+                builder.push(")");
+            }
+        }
     }
 }
 
@@ -973,6 +996,8 @@ pub(super) fn push_thread_order_and_limit(
     builder.push(" ORDER BY ");
     builder.push(order_column);
     builder.push(" ");
+    builder.push(order_direction);
+    builder.push(", id ");
     builder.push(order_direction);
     builder.push(" LIMIT ");
     builder.push_bind(limit as i64);
@@ -1064,6 +1089,7 @@ mod tests {
 
         let anchor = Anchor {
             ts: older_updated_at,
+            id: None,
         };
         let model_providers = ["test-provider".to_string()];
         let page = runtime
@@ -1083,12 +1109,13 @@ mod tests {
             .expect("list should succeed");
 
         let ids = page.items.iter().map(|item| item.id).collect::<Vec<_>>();
-        assert_eq!(ids, vec![newer_id]);
+        assert_eq!(ids, vec![middle_id]);
         assert_eq!(
             page.next_anchor,
             Some(Anchor {
                 ts: DateTime::<Utc>::from_timestamp_millis(1_700_000_200_000)
                     .expect("valid timestamp"),
+                id: Some(middle_id),
             })
         );
 
@@ -1109,7 +1136,7 @@ mod tests {
             .expect("second page should succeed");
 
         let ids = page.items.iter().map(|item| item.id).collect::<Vec<_>>();
-        assert_eq!(ids, vec![middle_id]);
+        assert_eq!(ids, vec![newer_id]);
         assert_eq!(page.next_anchor, None);
     }
 
