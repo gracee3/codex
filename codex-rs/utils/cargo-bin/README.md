@@ -2,7 +2,7 @@
 
 Helpers for Cargo-based tests in this fork.
 
-This fork no longer supports Bazel runfiles. The helpers in this crate assume:
+The helpers in this crate assume:
 
 - tests are built and run with Cargo
 - `CARGO_BIN_EXE_*` values are absolute paths

@@ -12,7 +12,6 @@ Unsupported in this fork:
 
 - npm, pnpm, and Bun distribution flows
 - Homebrew packaging
-- Bazel
 - GitHub Actions workflows
 - Windows and macOS support
 - SDK packaging outside the Rust workspace

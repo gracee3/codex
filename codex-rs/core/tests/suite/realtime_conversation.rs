@@ -203,7 +203,7 @@ fn run_realtime_conversation_test_in_subprocess(
         .arg(test_name)
         .env(REALTIME_CONVERSATION_TEST_SUBPROCESS_ENV_VAR, "1");
     // The child talks to a loopback websocket server; parent proxy settings can
-    // route that connection away from the test server in Bazel environments.
+    // route that connection away from the test server if inherited.
     for &key in codex_network_proxy::PROXY_ENV_KEYS {
         command.env_remove(key);
     }
@@ -2077,10 +2077,8 @@ async fn inbound_handoff_request_starts_turn() -> Result<()> {
 
     let request = response_mock.single_request();
     let user_texts = request.message_input_texts("user");
-    let expected_text = realtime_delegation_input_text(
-        "text from realtime",
-        Some("user: text from realtime"),
-    );
+    let expected_text =
+        realtime_delegation_input_text("text from realtime", Some("user: text from realtime"));
     assert!(user_texts.iter().any(|text| text == &expected_text));
 
     realtime_server.shutdown().await;
@@ -2164,7 +2162,9 @@ async fn inbound_handoff_request_uses_active_transcript() -> Result<()> {
     let user_texts = request.message_input_texts("user");
     let expected_text = realtime_delegation_input_text(
         "ignored",
-        Some("assistant: assistant context\nuser: delegated query\nassistant: assist confirm\nuser: ignored"),
+        Some(
+            "assistant: assistant context\nuser: delegated query\nassistant: assist confirm\nuser: ignored",
+        ),
     );
     assert!(user_texts.iter().any(|text| text == &expected_text));
 
@@ -2282,12 +2282,20 @@ async fn inbound_handoff_request_sends_transcript_delta_after_each_handoff() -> 
     let first_user_texts = requests[0].message_input_texts("user");
     let first_expected_text =
         realtime_delegation_input_text("first question", Some("user: first question"));
-    assert!(first_user_texts.iter().any(|text| text == &first_expected_text));
+    assert!(
+        first_user_texts
+            .iter()
+            .any(|text| text == &first_expected_text)
+    );
 
     let second_user_texts = requests[1].message_input_texts("user");
     let second_expected_text =
         realtime_delegation_input_text("second question", Some("user: second question"));
-    assert!(second_user_texts.iter().any(|text| text == &second_expected_text));
+    assert!(
+        second_user_texts
+            .iter()
+            .any(|text| text == &second_expected_text)
+    );
 
     realtime_server.shutdown().await;
     Ok(())
@@ -2783,22 +2791,15 @@ async fn inbound_handoff_request_steers_active_turn() -> Result<()> {
     let second_texts = message_input_texts(&second_body, "user");
 
     assert!(first_texts.iter().any(|text| text == "first prompt"));
-    assert!(
-        !first_texts
-            .iter()
-            .any(|text| text == &realtime_delegation_input_text(
-                "steer via realtime",
-                Some("user: steer via realtime"),
-            ))
-    );
+    assert!(!first_texts.iter().any(|text| text
+        == &realtime_delegation_input_text(
+            "steer via realtime",
+            Some("user: steer via realtime"),
+        )));
     assert!(second_texts.iter().any(|text| text == "first prompt"));
     let expected_steer_text =
         realtime_delegation_input_text("steer via realtime", Some("user: steer via realtime"));
-    assert!(
-        second_texts
-            .iter()
-            .any(|text| text == &expected_steer_text)
-    );
+    assert!(second_texts.iter().any(|text| text == &expected_steer_text));
 
     realtime_server.shutdown().await;
     api_server.shutdown().await;
@@ -2913,10 +2914,8 @@ async fn inbound_handoff_request_starts_turn_and_does_not_block_realtime_audio()
     assert_eq!(requests.len(), 1);
     let first_body: Value = serde_json::from_slice(&requests[0]).expect("parse first request");
     let first_texts = message_input_texts(&first_body, "user");
-    let expected_text = realtime_delegation_input_text(
-        delegated_text,
-        Some("user: delegate from handoff request"),
-    );
+    let expected_text =
+        realtime_delegation_input_text(delegated_text, Some("user: delegate from handoff request"));
     assert!(first_texts.iter().any(|text| text == &expected_text));
 
     realtime_server.shutdown().await;

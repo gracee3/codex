@@ -1,7 +1,7 @@
 # Remote Thread Store
 
 - The Rust protobuf output in `proto/codex.thread_store.v1.rs` is checked in.
-- Do not add build-time protobuf generation to `codex-thread-store` unless the Bazel/Cargo story is intentionally changed.
+- Do not add build-time protobuf generation to `codex-thread-store` unless the checked-in protobuf strategy is intentionally changed.
 - When `proto/codex.thread_store.v1.proto` changes, regenerate the Rust file manually and include both files in the same commit.
 
 Run this from the repository root:

@@ -89,8 +89,8 @@ For the first upstream release merge, resolve conflicts in a way that teaches
 Recurring conflict classes so far:
 
 - Keep TT deletions for removed surfaces:
-  - `.github/` Bazel and release automation
-  - Bazel lockfiles and Bazel-only crate metadata
+  - `.github/` upstream automation that does not apply to this fork
+  - lockfiles and crate metadata for removed build integrations
   - `code-mode`, JS REPL, and related tests
   - removed platform-specific sandbox code and dead compatibility surfaces
 - Re-review manually for retained Rust crates:

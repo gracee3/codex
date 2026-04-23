@@ -953,8 +953,8 @@ mod tests {
     use tokio::time::timeout;
     use tokio_tungstenite::accept_async;
 
-    // Windows Bazel CI can take longer than a few seconds for the websocket
-    // client connection attempt to reach the local test listener.
+    // Windows CI can take longer than a few seconds for the websocket client
+    // connection attempt to reach the local test listener.
     #[cfg(windows)]
     const TEST_HTTP_ACCEPT_TIMEOUT: Duration = Duration::from_secs(30);
     #[cfg(not(windows))]

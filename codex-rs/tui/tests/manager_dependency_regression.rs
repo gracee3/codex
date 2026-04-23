@@ -22,7 +22,7 @@ fn rust_sources_under(dir: &Path) -> Vec<PathBuf> {
 #[test]
 fn tui_runtime_source_does_not_depend_on_manager_escape_hatches() {
     let src_file = codex_utils_cargo_bin::find_resource!("src/chatwidget.rs")
-        .unwrap_or_else(|err| panic!("failed to resolve src runfile: {err}"));
+        .unwrap_or_else(|err| panic!("failed to resolve src resource: {err}"));
     let src_dir = src_file
         .parent()
         .unwrap_or_else(|| panic!("source file has no parent: {}", src_file.display()));

@@ -21,8 +21,8 @@ use pretty_assertions::assert_eq;
 use tempfile::TempDir;
 use tokio::time::timeout;
 
-// Bazel CI can spend tens of seconds starting app-server subprocesses or
-// processing list RPCs under load.
+// CI can spend tens of seconds starting app-server subprocesses or processing
+// list RPCs under load.
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Confirms the server returns the default collaboration mode presets in a stable order.
