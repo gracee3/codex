@@ -21,8 +21,6 @@ schema and Responses API tool primitives that no longer need to live in
 - `ResponsesApiWebSearchUserLocation`
 - `ResponsesApiNamespace`
 - `ResponsesApiNamespaceTool`
-- code-mode `ToolSpec` adapters and `exec` / `wait` spec builders
-- JS REPL spec builders
 - MCP resource, `list_dir`, and `test_sync_tool` spec builders
 - local host tool spec builders for shell/exec/request-permissions/view-image
 - collaboration and agent-job `ToolSpec` builders for spawn/send/wait/close,
@@ -39,8 +37,6 @@ schema and Responses API tool primitives that no longer need to live in
 - `dynamic_tool_to_responses_api_tool()`
 - `mcp_tool_to_responses_api_tool()`
 - `mcp_tool_to_deferred_responses_api_tool()`
-- `augment_tool_spec_for_code_mode()`
-- `tool_spec_to_code_mode_tool_definition()`
 
 That extraction is the first step in a longer migration. The goal is not to
 move all of `core/src/tools` into this crate in one shot. Instead, the plan is

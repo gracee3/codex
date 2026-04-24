@@ -71,23 +71,10 @@ impl ToolRouter {
             dynamic_tools,
         );
         let (specs, registry) = builder.build();
-        let model_visible_specs = if config.code_mode_only_enabled {
-            specs
-                .iter()
-                .filter_map(|configured_tool| {
-                    if !codex_code_mode::is_code_mode_nested_tool(configured_tool.name()) {
-                        Some(configured_tool.spec.clone())
-                    } else {
-                        None
-                    }
-                })
-                .collect()
-        } else {
-            specs
-                .iter()
-                .map(|configured_tool| configured_tool.spec.clone())
-                .collect()
-        };
+        let model_visible_specs = specs
+            .iter()
+            .map(|configured_tool| configured_tool.spec.clone())
+            .collect();
 
         Self {
             registry,
@@ -271,25 +258,13 @@ impl ToolRouter {
         cancellation_token: CancellationToken,
         tracker: SharedTurnDiffTracker,
         call: ToolCall,
-        source: ToolCallSource,
+        _source: ToolCallSource,
     ) -> Result<AnyToolResult, FunctionCallError> {
         let ToolCall {
             tool_name,
             call_id,
             payload,
         } = call;
-
-        let direct_js_repl_call = tool_name.namespace.is_none()
-            && matches!(tool_name.name.as_str(), "js_repl" | "js_repl_reset");
-        if source == ToolCallSource::Direct
-            && turn.tools_config.js_repl_tools_only
-            && !direct_js_repl_call
-        {
-            return Err(FunctionCallError::RespondToModel(
-                "direct tool calls are disabled; use js_repl and codex.tool(...) instead"
-                    .to_string(),
-            ));
-        }
 
         let invocation = ToolInvocation {
             session,
@@ -304,6 +279,3 @@ impl ToolRouter {
         self.registry.dispatch_any(invocation).await
     }
 }
-#[cfg(test)]
-#[path = "router_tests.rs"]
-mod tests;

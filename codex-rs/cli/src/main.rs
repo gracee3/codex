@@ -8,8 +8,6 @@ use codex_arg0::arg0_dispatch_or_else;
 use codex_chatgpt::apply_command::ApplyCommand;
 use codex_chatgpt::apply_command::run_apply_command;
 use codex_cli::LandlockCommand;
-use codex_cli::SeatbeltCommand;
-use codex_cli::WindowsCommand;
 use codex_cli::read_api_key_from_stdin;
 use codex_cli::run_login_status;
 use codex_cli::run_login_with_api_key;
@@ -311,16 +309,9 @@ struct SandboxArgs {
 
 #[derive(Debug, clap::Subcommand)]
 enum SandboxCommand {
-    /// Run a command under Seatbelt (macOS only).
-    #[clap(visible_alias = "seatbelt")]
-    Macos(SeatbeltCommand),
-
     /// Run a command under the Linux sandbox (bubblewrap by default).
     #[clap(visible_alias = "landlock")]
     Linux(LandlockCommand),
-
-    /// Run a command under Windows restricted token (Windows only).
-    Windows(WindowsCommand),
 }
 
 #[derive(Debug, Parser)]
@@ -958,22 +949,6 @@ async fn cli_main(arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()> {
                 .await?;
         }
         Some(Subcommand::Sandbox(sandbox_args)) => match sandbox_args.cmd {
-            SandboxCommand::Macos(mut seatbelt_cli) => {
-                reject_remote_mode_for_subcommand(
-                    root_remote.as_deref(),
-                    root_remote_auth_token_env.as_deref(),
-                    "sandbox macos",
-                )?;
-                prepend_config_flags(
-                    &mut seatbelt_cli.config_overrides,
-                    root_config_overrides.clone(),
-                );
-                codex_cli::run_command_under_seatbelt(
-                    seatbelt_cli,
-                    arg0_paths.codex_linux_sandbox_exe.clone(),
-                )
-                .await?;
-            }
             SandboxCommand::Linux(mut landlock_cli) => {
                 reject_remote_mode_for_subcommand(
                     root_remote.as_deref(),
@@ -986,22 +961,6 @@ async fn cli_main(arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()> {
                 );
                 codex_cli::run_command_under_landlock(
                     landlock_cli,
-                    arg0_paths.codex_linux_sandbox_exe.clone(),
-                )
-                .await?;
-            }
-            SandboxCommand::Windows(mut windows_cli) => {
-                reject_remote_mode_for_subcommand(
-                    root_remote.as_deref(),
-                    root_remote_auth_token_env.as_deref(),
-                    "sandbox windows",
-                )?;
-                prepend_config_flags(
-                    &mut windows_cli.config_overrides,
-                    root_config_overrides.clone(),
-                );
-                codex_cli::run_command_under_windows(
-                    windows_cli,
                     arg0_paths.codex_linux_sandbox_exe.clone(),
                 )
                 .await?;

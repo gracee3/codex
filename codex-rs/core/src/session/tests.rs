@@ -3294,15 +3294,8 @@ pub(crate) async fn make_session_and_context() -> (Session, TurnContext) {
             config.features.enabled(Feature::RuntimeMetrics),
             Session::build_model_client_beta_features_header(config.as_ref()),
         ),
-        code_mode_service: crate::tools::code_mode::CodeModeService::new(
-            config.js_repl_node_path.clone(),
-        ),
         environment_manager: Arc::new(codex_exec_server::EnvironmentManager::default_for_tests()),
     };
-    let js_repl = Arc::new(JsReplHandle::with_node_path(
-        config.js_repl_node_path.clone(),
-        config.js_repl_node_module_dirs.clone(),
-    ));
 
     let plugin_outcome = services
         .plugins_manager
@@ -3335,7 +3328,6 @@ pub(crate) async fn make_session_and_context() -> (Session, TurnContext) {
         /*environments*/ None,
         session_configuration.cwd.clone(),
         "turn_id".to_string(),
-        Arc::clone(&js_repl),
         skills_outcome,
     );
 
@@ -3356,7 +3348,6 @@ pub(crate) async fn make_session_and_context() -> (Session, TurnContext) {
         idle_pending_input: Mutex::new(Vec::new()),
         guardian_review_session: crate::guardian::GuardianReviewSessionManager::default(),
         services,
-        js_repl,
         next_internal_sub_id: AtomicU64::new(0),
     };
 
@@ -4606,15 +4597,8 @@ pub(crate) async fn make_session_and_context_with_dynamic_tools_and_rx(
             config.features.enabled(Feature::RuntimeMetrics),
             Session::build_model_client_beta_features_header(config.as_ref()),
         ),
-        code_mode_service: crate::tools::code_mode::CodeModeService::new(
-            config.js_repl_node_path.clone(),
-        ),
         environment_manager: Arc::new(codex_exec_server::EnvironmentManager::default_for_tests()),
     };
-    let js_repl = Arc::new(JsReplHandle::with_node_path(
-        config.js_repl_node_path.clone(),
-        config.js_repl_node_module_dirs.clone(),
-    ));
 
     let plugin_outcome = services
         .plugins_manager
@@ -4647,7 +4631,6 @@ pub(crate) async fn make_session_and_context_with_dynamic_tools_and_rx(
         /*environments*/ None,
         session_configuration.cwd.clone(),
         "turn_id".to_string(),
-        Arc::clone(&js_repl),
         skills_outcome,
     ));
 
@@ -4668,7 +4651,6 @@ pub(crate) async fn make_session_and_context_with_dynamic_tools_and_rx(
         idle_pending_input: Mutex::new(Vec::new()),
         guardian_review_session: crate::guardian::GuardianReviewSessionManager::default(),
         services,
-        js_repl,
         next_internal_sub_id: AtomicU64::new(0),
     });
 

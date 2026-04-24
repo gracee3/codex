@@ -53,37 +53,8 @@ install:
 test:
     RUST_MIN_STACK={{ rust_min_stack }} cargo nextest run --no-fail-fast
 
-# Build and run Codex from source using Bazel.
-# Note we have to use the combination of `[no-cd]` and `--run_under="cd $PWD &&"`
-# to ensure that Bazel runs the command in the current working directory.
-[no-cd]
-bazel-codex *args:
-    bazel run //codex-rs/cli:codex --run_under="cd $PWD &&" -- "$@"
-
-[no-cd]
-bazel-lock-update:
-    bazel mod deps --lockfile_mode=update
-
-[no-cd]
-bazel-lock-check:
-    {{ justfile_directory() }}/scripts/check-module-bazel-lock.sh
-
-bazel-test:
-    bazel test --test_tag_filters=-argument-comment-lint //... --keep_going
-
-[no-cd]
-bazel-clippy:
-    bazel_targets="$({{ justfile_directory() }}/scripts/list-bazel-clippy-targets.sh)" && bazel build --config=clippy -- ${bazel_targets}
-
-[no-cd]
-bazel-argument-comment-lint:
-    bazel build --config=argument-comment-lint -- $({{ justfile_directory() }}/tools/argument-comment-lint/list-bazel-targets.sh)
-
-bazel-remote-test:
-    bazel test --test_tag_filters=-argument-comment-lint //... --config=remote --platforms=//:rbe --keep_going
-
 build-for-release:
-    bazel build //codex-rs/cli:release_binaries --config=remote
+    cargo build -p codex-cli --release
 
 # Run the MCP server
 mcp-server-run *args:
@@ -104,11 +75,7 @@ write-hooks-schema:
 # Run the argument-comment Dylint checks across codex-rs.
 [no-cd]
 argument-comment-lint *args:
-    if [ "$#" -eq 0 ]; then \
-      bazel build --config=argument-comment-lint -- $({{ justfile_directory() }}/tools/argument-comment-lint/list-bazel-targets.sh); \
-    else \
-      {{ justfile_directory() }}/tools/argument-comment-lint/run-prebuilt-linter.py "$@"; \
-    fi
+    {{ justfile_directory() }}/tools/argument-comment-lint/run-prebuilt-linter.py "$@"
 
 [no-cd]
 argument-comment-lint-from-source *args:

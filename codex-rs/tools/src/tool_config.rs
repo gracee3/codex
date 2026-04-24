@@ -138,11 +138,6 @@ impl ToolsConfig {
             windows_sandbox_level,
         } = params;
         let include_apply_patch_tool = features.enabled(Feature::ApplyPatchFreeform);
-        let include_code_mode = features.enabled(Feature::CodeMode);
-        let include_code_mode_only = include_code_mode && features.enabled(Feature::CodeModeOnly);
-        let include_js_repl = features.enabled(Feature::JsRepl);
-        let include_js_repl_tools_only =
-            include_js_repl && features.enabled(Feature::JsReplToolsOnly);
         let include_collab_tools = features.enabled(Feature::Collab);
         let include_multi_agent_v2 = features.enabled(Feature::MultiAgentV2);
         let include_agent_jobs = features.enabled(Feature::SpawnCsv);
@@ -218,10 +213,10 @@ impl ToolsConfig {
             tool_suggest: include_tool_suggest,
             exec_permission_approvals_enabled,
             request_permissions_tool_enabled,
-            code_mode_enabled: include_code_mode,
-            code_mode_only_enabled: include_code_mode_only,
-            js_repl_enabled: include_js_repl,
-            js_repl_tools_only: include_js_repl_tools_only,
+            code_mode_enabled: false,
+            code_mode_only_enabled: false,
+            js_repl_enabled: false,
+            js_repl_tools_only: false,
             can_request_original_image_detail: include_original_image_detail,
             collab_tools: include_collab_tools,
             multi_agent_v2: include_multi_agent_v2,

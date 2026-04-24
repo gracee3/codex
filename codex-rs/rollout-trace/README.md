@@ -12,8 +12,8 @@ The key design choice is: **observe first, interpret later**.
 Hot-path Codex code does not try to build the final graph while the session is
 running. It writes ordered raw events and payload references. The offline reducer
 then decides which events became model-visible conversation, which events were
-runtime work, and how information moved between threads, tools, code cells, and
-terminal sessions.
+runtime work, and how information moved between threads, tools, and terminal
+sessions.
 
 ## What This Gives Us
 
@@ -21,9 +21,8 @@ Rollout traces make failures debuggable when the normal transcript is not enough
 They preserve enough evidence to answer questions like:
 
 - Which model request produced this tool call?
-- Did this output come from the model-visible transcript, a code-mode runtime
-  value, a terminal operation, or an agent notification?
-- Which code-mode `exec` cell issued a nested tool call?
+- Did this output come from the model-visible transcript, a runtime tool
+  result, a terminal operation, or an agent notification?
 - Which terminal operation created or reused a running process?
 - Which multi-agent v2 tool call spawned, messaged, received from, or closed a
   child thread?
@@ -39,8 +38,7 @@ flowchart TD
     subgraph Runtime["codex-core runtime"]
         Protocol["protocol lifecycle\nthread start/end, turn start/end"]
         Inference["inference + compaction\nrequests, responses, checkpoints"]
-        Tools["tool dispatch\ndirect model tools + code-mode nested tools"]
-        CodeMode["code-mode runtime\nexec cells, yields, waits, termination"]
+        Tools["tool dispatch\nmodel tools and runtime tools"]
         Terminal["terminal runtime\nexec_command / write_stdin operations"]
         Agents["multi_agent_v2\nspawn, task delivery, result, close"]
     end
@@ -59,7 +57,7 @@ flowchart TD
     subgraph State["state.json"]
         Threads["threads + turns"]
         Conversation["conversation_items\nwhat the model saw"]
-        RuntimeObjects["inference_calls, tool_calls,\ncode_cells, terminals, compactions"]
+        RuntimeObjects["inference_calls, tool_calls,\nterminals, compactions"]
         Edges["interaction_edges\nspawn, task, result, close"]
         RawRefs["raw_payload refs"]
     end
@@ -67,7 +65,6 @@ flowchart TD
     Protocol --> Recorder
     Inference --> Recorder
     Tools --> Recorder
-    CodeMode --> Recorder
     Terminal --> Recorder
     Agents --> Recorder
 
@@ -118,12 +115,11 @@ By default this writes `<trace-bundle>/state.json`.
 ```mermaid
 flowchart LR
     Model["model-visible payloads\nrequests and response output items"]
-    Runtime["runtime observations\ntool dispatch, terminal output, code-mode JSON"]
+    Runtime["runtime observations\ntool dispatch and terminal output"]
     RawPayloads["payloads/*.json\nexact evidence"]
     Reducer["reducer"]
     Conversation["ConversationItem\nwhat the model saw"]
     ToolCall["ToolCall\nruntime tool boundary"]
-    CodeCell["CodeCell\nmodel-authored exec cell"]
     TerminalOperation["TerminalOperation\ncommand/write/poll"]
     InteractionEdge["InteractionEdge\ninformation flow"]
 
@@ -133,26 +129,24 @@ flowchart LR
 
     Reducer --> Conversation
     Reducer --> ToolCall
-    Reducer --> CodeCell
     Reducer --> TerminalOperation
     Reducer --> InteractionEdge
 
-    CodeCell --> ToolCall
     ToolCall --> TerminalOperation
     ToolCall --> InteractionEdge
     Conversation --> InteractionEdge
 ```
 
 This distinction is the reason the model has both raw payload references and
-semantic objects. A code-mode nested tool call, for example, has JSON input and
-output at the JavaScript runtime boundary, but the model-visible transcript only
-contains the surrounding `exec` custom tool call and its eventual output.
+semantic objects. A runtime tool call may have structured input and output at
+the execution boundary while the model-visible transcript only contains the
+surrounding tool call and its eventual output.
 
 The reducer keeps those facts separate:
 
 - `ConversationItem` records what appeared in model-facing requests/responses.
-- `ToolCall`, `CodeCell`, `TerminalOperation`, `InferenceCall`, and
-  `Compaction` record runtime/debug boundaries.
+- `ToolCall`, `TerminalOperation`, `InferenceCall`, and `Compaction` record
+  runtime/debug boundaries.
 - `InteractionEdge` records information flow between objects, such as a
   `spawn_agent` tool call delivering a task into a child thread.
 - `RawPayloadRef` points back to exact evidence when a viewer needs more detail

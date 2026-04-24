@@ -30,7 +30,6 @@ codex-api = { workspace = true }
 codex-app-server-protocol = { workspace = true }
 codex-apply-patch = { workspace = true }
 codex-async-utils = { workspace = true }
-codex-code-mode = { workspace = true }
 codex-connectors = { workspace = true }
 codex-config = { workspace = true }
 codex-core-plugins = { workspace = true }
@@ -73,7 +72,6 @@ codex-secrets = { workspace = true }
 codex-utils-string = { workspace = true }
 codex-utils-stream-parser = { workspace = true }
 codex-utils-template = { workspace = true }
-codex-windows-sandbox = { package = "codex-windows-sandbox", path = "../windows-sandbox-rs" }
 csv = { workspace = true }
 dirs = { workspace = true }
 dunce = { workspace = true }

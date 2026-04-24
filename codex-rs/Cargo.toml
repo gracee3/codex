@@ -17,7 +17,6 @@ members = [
     "features",
     "install-context",
     "codex-backend-openapi-models",
-    "code-mode",
     "cloud-requirements",
     "cloud-tasks",
     "cloud-tasks-client",
@@ -63,7 +62,6 @@ members = [
     "otel",
     "tui",
     "tools",
-    "v8-poc",
     "utils/absolute-path",
     "utils/cargo-bin",
     "git-utils",
@@ -132,7 +130,6 @@ codex-collaboration-mode-templates = { path = "collaboration-mode-templates" }
 codex-cloud-requirements = { path = "cloud-requirements" }
 codex-cloud-tasks-client = { path = "cloud-tasks-client" }
 codex-cloud-tasks-mock-client = { path = "cloud-tasks-mock-client" }
-codex-code-mode = { path = "code-mode" }
 codex-config = { path = "config" }
 codex-connectors = { path = "connectors" }
 codex-core = { path = "core" }
@@ -205,8 +202,6 @@ codex-utils-sleep-inhibitor = { path = "utils/sleep-inhibitor" }
 codex-utils-stream-parser = { path = "utils/stream-parser" }
 codex-utils-string = { path = "utils/string" }
 codex-utils-template = { path = "utils/template" }
-codex-v8-poc = { path = "v8-poc" }
-codex-windows-sandbox = { path = "windows-sandbox-rs" }
 core_test_support = { path = "core/tests/common" }
 mcp_test_support = { path = "mcp-server/tests/common" }
 
@@ -441,7 +436,6 @@ ignored = [
     "openssl-sys",
     "codex-utils-readiness",
     "codex-utils-template",
-    "codex-v8-poc",
 ]
 
 [profile.dev]

@@ -20,7 +20,6 @@ use codex_tools::ToolRegistryPlanParams;
 use codex_tools::ToolUserShellType;
 use codex_tools::ToolsConfig;
 use codex_tools::WaitAgentTimeoutOptions;
-use codex_tools::augment_tool_spec_for_code_mode;
 use codex_tools::build_tool_registry_plan;
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -77,11 +76,7 @@ pub(crate) fn build_specs_with_discoverable_tools(
     dynamic_tools: &[DynamicToolSpec],
 ) -> ToolRegistryBuilder {
     use crate::tools::handlers::ApplyPatchHandler;
-    use crate::tools::handlers::CodeModeExecuteHandler;
-    use crate::tools::handlers::CodeModeWaitHandler;
     use crate::tools::handlers::DynamicToolHandler;
-    use crate::tools::handlers::JsReplHandler;
-    use crate::tools::handlers::JsReplResetHandler;
     use crate::tools::handlers::ListDirHandler;
     use crate::tools::handlers::McpHandler;
     use crate::tools::handlers::McpResourceHandler;
@@ -165,10 +160,6 @@ pub(crate) fn build_specs_with_discoverable_tools(
         .collect::<Vec<_>>();
     let mut tool_search_handler = None;
     let tool_suggest_handler = Arc::new(ToolSuggestHandler);
-    let code_mode_handler = Arc::new(CodeModeExecuteHandler);
-    let code_mode_wait_handler = Arc::new(CodeModeWaitHandler);
-    let js_repl_handler = Arc::new(JsReplHandler);
-    let js_repl_reset_handler = Arc::new(JsReplResetHandler);
     let unavailable_tool_handler = Arc::new(UnavailableToolHandler);
     let mut existing_spec_names = plan
         .specs
@@ -200,23 +191,11 @@ pub(crate) fn build_specs_with_discoverable_tools(
             ToolHandlerKind::CloseAgentV2 => {
                 builder.register_handler(handler.name, Arc::new(CloseAgentHandlerV2));
             }
-            ToolHandlerKind::CodeModeExecute => {
-                builder.register_handler(handler.name, code_mode_handler.clone());
-            }
-            ToolHandlerKind::CodeModeWait => {
-                builder.register_handler(handler.name, code_mode_wait_handler.clone());
-            }
             ToolHandlerKind::DynamicTool => {
                 builder.register_handler(handler.name, dynamic_tool_handler.clone());
             }
             ToolHandlerKind::FollowupTaskV2 => {
                 builder.register_handler(handler.name, Arc::new(FollowupTaskHandlerV2));
-            }
-            ToolHandlerKind::JsRepl => {
-                builder.register_handler(handler.name, js_repl_handler.clone());
-            }
-            ToolHandlerKind::JsReplReset => {
-                builder.register_handler(handler.name, js_repl_reset_handler.clone());
             }
             ToolHandlerKind::ListAgentsV2 => {
                 builder.register_handler(handler.name, Arc::new(ListAgentsHandlerV2));
@@ -320,11 +299,6 @@ pub(crate) fn build_specs_with_discoverable_tools(
                 output_schema: None,
                 defer_loading: None,
             });
-            let spec = if config.code_mode_enabled {
-                augment_tool_spec_for_code_mode(spec)
-            } else {
-                spec
-            };
             builder.push_spec(spec);
         }
         builder.register_handler(unavailable_tool, unavailable_tool_handler.clone());

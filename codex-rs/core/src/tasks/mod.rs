@@ -637,11 +637,7 @@ impl Session {
     }
 
     pub(crate) async fn cleanup_after_interrupt(&self, turn_context: &Arc<TurnContext>) {
-        if let Some(manager) = turn_context.js_repl.manager_if_initialized()
-            && let Err(err) = manager.interrupt_turn_exec(&turn_context.sub_id).await
-        {
-            warn!("failed to interrupt js_repl kernel: {err}");
-        }
+        let _ = turn_context;
     }
 
     async fn handle_task_abort(self: &Arc<Self>, task: RunningTask, reason: TurnAbortReason) {

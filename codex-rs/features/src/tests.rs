@@ -60,33 +60,6 @@ fn image_detail_original_is_removed_and_disabled_by_default() {
 }
 
 #[test]
-fn js_repl_is_experimental_and_user_toggleable() {
-    let spec = Feature::JsRepl.info();
-    let stage = spec.stage;
-    let expected_node_version = include_str!("../../node-version.txt").trim_end();
-
-    assert!(matches!(stage, Stage::Experimental { .. }));
-    assert_eq!(stage.experimental_menu_name(), Some("JavaScript REPL"));
-    assert_eq!(
-        stage.experimental_menu_description().map(str::to_owned),
-        Some(format!(
-            "Enable a persistent Node-backed JavaScript REPL for interactive website debugging and other inline JavaScript execution capabilities. Requires Node >= v{expected_node_version} installed."
-        ))
-    );
-    assert_eq!(Feature::JsRepl.default_enabled(), false);
-}
-
-#[test]
-fn code_mode_only_requires_code_mode() {
-    let mut features = Features::with_defaults();
-    features.enable(Feature::CodeModeOnly);
-    features.normalize_dependencies();
-
-    assert_eq!(features.enabled(Feature::CodeModeOnly), true);
-    assert_eq!(features.enabled(Feature::CodeMode), true);
-}
-
-#[test]
 fn guardian_approval_is_stable_and_enabled_by_default() {
     let spec = Feature::GuardianApproval.info();
 
@@ -305,7 +278,7 @@ fn from_sources_applies_base_profile_and_overrides() {
     };
 
     let mut profile_entries = BTreeMap::new();
-    profile_entries.insert("code_mode_only".to_string(), true);
+    profile_entries.insert("spawn_csv".to_string(), true);
     let profile_features = FeaturesToml {
         entries: profile_entries,
         ..Default::default()
@@ -328,8 +301,8 @@ fn from_sources_applies_base_profile_and_overrides() {
     );
 
     assert_eq!(features.enabled(Feature::Plugins), true);
-    assert_eq!(features.enabled(Feature::CodeModeOnly), true);
-    assert_eq!(features.enabled(Feature::CodeMode), true);
+    assert_eq!(features.enabled(Feature::SpawnCsv), true);
+    assert_eq!(features.enabled(Feature::Collab), true);
     assert_eq!(features.enabled(Feature::ApplyPatchFreeform), true);
     assert_eq!(features.enabled(Feature::WebSearchRequest), false);
 }

@@ -18,19 +18,15 @@ use crate::ToolsConfig;
 use crate::ViewImageToolOptions;
 use crate::WebSearchToolOptions;
 use crate::coalesce_loadable_tool_specs;
-use crate::collect_code_mode_exec_prompt_tool_definitions;
 use crate::collect_tool_search_source_infos;
 use crate::collect_tool_suggest_entries;
 use crate::create_apply_patch_freeform_tool;
 use crate::create_apply_patch_json_tool;
 use crate::create_close_agent_tool_v1;
 use crate::create_close_agent_tool_v2;
-use crate::create_code_mode_tool;
 use crate::create_exec_command_tool;
 use crate::create_followup_task_tool;
 use crate::create_image_generation_tool;
-use crate::create_js_repl_reset_tool;
-use crate::create_js_repl_tool;
 use crate::create_list_agents_tool;
 use crate::create_list_dir_tool;
 use crate::create_list_mcp_resource_templates_tool;
@@ -55,7 +51,6 @@ use crate::create_update_plan_tool;
 use crate::create_view_image_tool;
 use crate::create_wait_agent_tool_v1;
 use crate::create_wait_agent_tool_v2;
-use crate::create_wait_tool;
 use crate::create_web_search_tool;
 use crate::create_write_stdin_tool;
 use crate::default_namespace_description;
@@ -74,65 +69,6 @@ pub fn build_tool_registry_plan(
 ) -> ToolRegistryPlan {
     let mut plan = ToolRegistryPlan::new();
     let exec_permission_approvals_enabled = config.exec_permission_approvals_enabled;
-
-    if config.code_mode_enabled {
-        let namespace_descriptions = params
-            .tool_namespaces
-            .into_iter()
-            .flatten()
-            .map(|(namespace, detail)| {
-                (
-                    namespace.clone(),
-                    codex_code_mode::ToolNamespaceDescription {
-                        name: detail.name.clone(),
-                        description: detail.description.clone().unwrap_or_default(),
-                    },
-                )
-            })
-            .collect::<BTreeMap<_, _>>();
-        let nested_config = config.for_code_mode_nested_tools();
-        let nested_plan = build_tool_registry_plan(
-            &nested_config,
-            ToolRegistryPlanParams {
-                discoverable_tools: None,
-                ..params
-            },
-        );
-        let mut enabled_tools = collect_code_mode_exec_prompt_tool_definitions(
-            nested_plan
-                .specs
-                .iter()
-                .map(|configured_tool| &configured_tool.spec),
-        );
-        enabled_tools
-            .sort_by(|left, right| compare_code_mode_tools(left, right, &namespace_descriptions));
-        plan.push_spec(
-            create_code_mode_tool(
-                &enabled_tools,
-                &namespace_descriptions,
-                config.code_mode_only_enabled,
-                config.search_tool
-                    && params
-                        .deferred_mcp_tools
-                        .is_some_and(|tools| !tools.is_empty()),
-            ),
-            /*supports_parallel_tool_calls*/ false,
-            config.code_mode_enabled,
-        );
-        plan.register_handler(
-            codex_code_mode::PUBLIC_TOOL_NAME,
-            ToolHandlerKind::CodeModeExecute,
-        );
-        plan.push_spec(
-            create_wait_tool(),
-            /*supports_parallel_tool_calls*/ false,
-            config.code_mode_enabled,
-        );
-        plan.register_handler(
-            codex_code_mode::WAIT_TOOL_NAME,
-            ToolHandlerKind::CodeModeWait,
-        );
-    }
 
     if config.has_environment {
         match &config.shell_type {
@@ -217,21 +153,6 @@ pub fn build_tool_registry_plan(
         config.code_mode_enabled,
     );
     plan.register_handler("update_plan", ToolHandlerKind::Plan);
-
-    if config.has_environment && config.js_repl_enabled {
-        plan.push_spec(
-            create_js_repl_tool(),
-            /*supports_parallel_tool_calls*/ false,
-            config.code_mode_enabled,
-        );
-        plan.push_spec(
-            create_js_repl_reset_tool(),
-            /*supports_parallel_tool_calls*/ false,
-            config.code_mode_enabled,
-        );
-        plan.register_handler("js_repl", ToolHandlerKind::JsRepl);
-        plan.register_handler("js_repl_reset", ToolHandlerKind::JsReplReset);
-    }
 
     plan.push_spec(
         create_request_user_input_tool(request_user_input_tool_description(
@@ -583,32 +504,3 @@ pub fn build_tool_registry_plan(
 
     plan
 }
-
-fn compare_code_mode_tools(
-    left: &codex_code_mode::ToolDefinition,
-    right: &codex_code_mode::ToolDefinition,
-    namespace_descriptions: &BTreeMap<String, codex_code_mode::ToolNamespaceDescription>,
-) -> std::cmp::Ordering {
-    let left_namespace = code_mode_namespace_name(left, namespace_descriptions);
-    let right_namespace = code_mode_namespace_name(right, namespace_descriptions);
-
-    left_namespace
-        .cmp(&right_namespace)
-        .then_with(|| left.tool_name.name.cmp(&right.tool_name.name))
-        .then_with(|| left.name.cmp(&right.name))
-}
-
-fn code_mode_namespace_name<'a>(
-    tool: &codex_code_mode::ToolDefinition,
-    namespace_descriptions: &'a BTreeMap<String, codex_code_mode::ToolNamespaceDescription>,
-) -> Option<&'a str> {
-    tool.tool_name
-        .namespace
-        .as_ref()
-        .and_then(|namespace| namespace_descriptions.get(namespace))
-        .map(|namespace_description| namespace_description.name.as_str())
-}
-
-#[cfg(test)]
-#[path = "tool_registry_plan_tests.rs"]
-mod tests;

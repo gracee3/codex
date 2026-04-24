@@ -4,7 +4,6 @@ use crate::ToolName;
 use crate::ToolSpec;
 use crate::ToolsConfig;
 use crate::WaitAgentTimeoutOptions;
-use crate::augment_tool_spec_for_code_mode;
 use codex_protocol::dynamic_tools::DynamicToolSpec;
 use std::collections::HashMap;
 
@@ -14,12 +13,8 @@ pub enum ToolHandlerKind {
     ApplyPatch,
     CloseAgentV1,
     CloseAgentV2,
-    CodeModeExecute,
-    CodeModeWait,
     DynamicTool,
     FollowupTaskV2,
-    JsRepl,
-    JsReplReset,
     ListAgentsV2,
     ListDir,
     Mcp,
@@ -101,13 +96,8 @@ impl ToolRegistryPlan {
         &mut self,
         spec: ToolSpec,
         supports_parallel_tool_calls: bool,
-        code_mode_enabled: bool,
+        _code_mode_enabled: bool,
     ) {
-        let spec = if code_mode_enabled {
-            augment_tool_spec_for_code_mode(spec)
-        } else {
-            spec
-        };
         self.specs
             .push(ConfiguredToolSpec::new(spec, supports_parallel_tool_calls));
     }

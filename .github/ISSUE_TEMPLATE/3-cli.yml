@@ -10,7 +10,7 @@ body:
         Before submitting a new issue, please search for existing issues to see if your issue has already been reported.
         If it has, please add a 👍 reaction (no need to leave a comment) to the existing issue instead of creating a new one.
 
-        Make sure you are running the [latest](https://npmjs.com/package/@openai/codex) version of Codex CLI. The bug you are experiencing may already have been fixed.
+        Make sure you are running the latest release or a recent source build of Codex CLI. The bug you are experiencing may already have been fixed.
 
   - type: input
     id: version
@@ -35,15 +35,13 @@ body:
     attributes:
       label: What platform is your computer?
       description: |
-        For macOS and Linux: copy the output of `uname -mprs`
-        For Windows: copy the output of `"$([Environment]::OSVersion | ForEach-Object VersionString) $(if ([Environment]::Is64BitOperatingSystem) { "x64" } else { "x86" })"` in the PowerShell console
+        For Linux: copy the output of `uname -mprs`
   - type: input
     id: terminal
     attributes:
       label: What terminal emulator and version are you using (if applicable)?
-      description: Also note any multiplexer in use (screen / tmux / zellij)
       description: |
-        E.g, VSCode, Terminal.app, iTerm2, Ghostty, Windows Terminal (WSL / PowerShell)
+        Also note any multiplexer in use (screen / tmux / zellij)
   - type: textarea
     id: actual
     attributes:
