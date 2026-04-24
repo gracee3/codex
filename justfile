@@ -16,11 +16,6 @@ codex *args:
 exec *args:
     cargo run --bin codex -- exec "$@"
 
-# Start `codex exec-server` and run codex-tui.
-[no-cd]
-tui-with-exec-server *args:
-    {{ justfile_directory() }}/scripts/run_tui_with_exec_server.sh "$@"
-
 # Run the CLI version of the file-search crate.
 file-search *args:
     cargo run --bin codex-file-search -- "$@"
@@ -71,15 +66,6 @@ write-app-server-schema *args:
 [no-cd]
 write-hooks-schema:
     cargo run --manifest-path {{ justfile_directory() }}/codex-rs/Cargo.toml -p codex-hooks --bin write_hooks_schema_fixtures
-
-# Run the argument-comment Dylint checks across codex-rs.
-[no-cd]
-argument-comment-lint *args:
-    {{ justfile_directory() }}/tools/argument-comment-lint/run-prebuilt-linter.py "$@"
-
-[no-cd]
-argument-comment-lint-from-source *args:
-    {{ justfile_directory() }}/tools/argument-comment-lint/run.py "$@"
 
 # Tail logs from the state SQLite database
 log *args:

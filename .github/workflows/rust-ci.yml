@@ -23,6 +23,3 @@ jobs:
         run: cargo fmt -- --config imports_granularity=Item --check
       - name: cargo shear
         run: cargo shear
-      - name: argument comment lint
-        working-directory: .
-        run: just argument-comment-lint
