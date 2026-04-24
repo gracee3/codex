@@ -1,7 +1,4 @@
 use super::*;
-use codex_feedback::FeedbackRequestTags;
-use codex_feedback::emit_feedback_request_tags;
-use codex_feedback::emit_feedback_request_tags_with_auth_env;
 use codex_login::AuthEnvTelemetry;
 use std::collections::BTreeMap;
 use std::sync::Arc;

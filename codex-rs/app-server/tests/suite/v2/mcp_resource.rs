@@ -25,7 +25,6 @@ use codex_core::config::ConfigBuilder;
 use codex_core::config_loader::CloudRequirementsLoader;
 use codex_core::config_loader::LoaderOverrides;
 use codex_exec_server::EnvironmentManager;
-use codex_feedback::CodexFeedback;
 use codex_protocol::protocol::SessionSource;
 use core_test_support::responses;
 use pretty_assertions::assert_eq;
@@ -202,8 +201,6 @@ async fn mcp_resource_read_returns_error_for_unknown_thread() -> Result<()> {
         loader_overrides,
         cloud_requirements: CloudRequirementsLoader::default(),
         thread_config_loader: Arc::new(codex_config::NoopThreadConfigLoader),
-        feedback: CodexFeedback::new(),
-        log_db: None,
         environment_manager: Arc::new(EnvironmentManager::default_for_tests()),
         config_warnings: Vec::new(),
         session_source: SessionSource::Cli,

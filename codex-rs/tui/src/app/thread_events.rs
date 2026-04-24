@@ -20,15 +20,6 @@ pub(super) enum ThreadBufferedEvent {
     Notification(ServerNotification),
     Request(ServerRequest),
     HistoryEntryResponse(GetHistoryEntryResponseEvent),
-    FeedbackSubmission(FeedbackThreadEvent),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct FeedbackThreadEvent {
-    pub(super) category: FeedbackCategory,
-    pub(super) include_logs: bool,
-    pub(super) feedback_audience: FeedbackAudience,
-    pub(super) result: Result<String, String>,
 }
 
 #[derive(Debug)]
@@ -50,7 +41,6 @@ impl ThreadEventStore {
             ThreadBufferedEvent::Request(_)
                 | ThreadBufferedEvent::Notification(ServerNotification::HookStarted(_))
                 | ThreadBufferedEvent::Notification(ServerNotification::HookCompleted(_))
-                | ThreadBufferedEvent::FeedbackSubmission(_)
         )
     }
 
@@ -151,8 +141,7 @@ impl ThreadEventStore {
                 }
                 ThreadBufferedEvent::Request(_)
                 | ThreadBufferedEvent::Notification(_)
-                | ThreadBufferedEvent::HistoryEntryResponse(_)
-                | ThreadBufferedEvent::FeedbackSubmission(_) => None,
+                | ThreadBufferedEvent::HistoryEntryResponse(_) => None,
             })
             .collect()
     }
@@ -178,8 +167,7 @@ impl ThreadEventStore {
                         .pending_interactive_replay
                         .should_replay_snapshot_request(request),
                     ThreadBufferedEvent::Notification(_)
-                    | ThreadBufferedEvent::HistoryEntryResponse(_)
-                    | ThreadBufferedEvent::FeedbackSubmission(_) => true,
+                    | ThreadBufferedEvent::HistoryEntryResponse(_) => true,
                 })
                 .cloned()
                 .collect(),

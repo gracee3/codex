@@ -49,7 +49,6 @@ pub enum SlashCommand {
     Logout,
     Quit,
     Exit,
-    Feedback,
     Rollout,
     Ps,
     #[strum(to_string = "stop", serialize = "clean")]
@@ -72,7 +71,6 @@ impl SlashCommand {
     /// User-visible description shown in the popup.
     pub fn description(self) -> &'static str {
         match self {
-            SlashCommand::Feedback => "send logs to maintainers",
             SlashCommand::New => "start a new chat during a conversation",
             SlashCommand::Init => "create an AGENTS.md file with instructions for Codex",
             SlashCommand::Compact => "summarize conversation to prevent hitting the context limit",
@@ -189,7 +187,6 @@ impl SlashCommand {
             | SlashCommand::Mcp
             | SlashCommand::Apps
             | SlashCommand::Plugins
-            | SlashCommand::Feedback
             | SlashCommand::Quit
             | SlashCommand::Exit
             | SlashCommand::Side => true,

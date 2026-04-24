@@ -10,8 +10,6 @@ use codex_api::TransportError;
 use codex_api::auth_header_telemetry;
 use codex_api::map_api_error;
 use codex_app_server_protocol::AuthMode;
-use codex_feedback::FeedbackRequestTags;
-use codex_feedback::emit_feedback_request_tags_with_auth_env;
 use codex_login::AuthEnvTelemetry;
 use codex_login::AuthManager;
 use codex_login::CodexAuth;
@@ -114,25 +112,6 @@ impl RequestTelemetry for ModelsRequestTelemetry {
             auth.error = response_debug.auth_error.as_deref(),
             auth.error_code = response_debug.auth_error_code.as_deref(),
             auth.mode = self.auth_mode.as_deref(),
-        );
-        emit_feedback_request_tags_with_auth_env(
-            &FeedbackRequestTags {
-                endpoint: MODELS_ENDPOINT,
-                auth_header_attached: self.auth_header_attached,
-                auth_header_name: self.auth_header_name,
-                auth_mode: self.auth_mode.as_deref(),
-                auth_retry_after_unauthorized: None,
-                auth_recovery_mode: None,
-                auth_recovery_phase: None,
-                auth_connection_reused: None,
-                auth_request_id: response_debug.request_id.as_deref(),
-                auth_cf_ray: response_debug.cf_ray.as_deref(),
-                auth_error: response_debug.auth_error.as_deref(),
-                auth_error_code: response_debug.auth_error_code.as_deref(),
-                auth_recovery_followup_success: None,
-                auth_recovery_followup_status: None,
-            },
-            &self.auth_env,
         );
     }
 }

@@ -13,7 +13,6 @@ members = [
     "debug-client",
     "apply-patch",
     "arg0",
-    "feedback",
     "features",
     "install-context",
     "codex-backend-openapi-models",
@@ -139,7 +138,6 @@ codex-exec-server = { path = "exec-server" }
 codex-execpolicy = { path = "execpolicy" }
 codex-experimental-api-macros = { path = "codex-experimental-api-macros" }
 codex-features = { path = "features" }
-codex-feedback = { path = "feedback" }
 codex-install-context = { path = "install-context" }
 codex-file-search = { path = "file-search" }
 codex-git-utils = { path = "git-utils" }

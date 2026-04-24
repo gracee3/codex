@@ -82,10 +82,8 @@ use codex_core::config::Config;
 use codex_core::config_loader::CloudRequirementsLoader;
 use codex_core::config_loader::LoaderOverrides;
 use codex_exec_server::EnvironmentManager;
-use codex_feedback::CodexFeedback;
 use codex_login::AuthManager;
 use codex_protocol::protocol::SessionSource;
-pub use codex_state::log_db::LogDbLayer;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 use tokio::time::timeout;
@@ -121,10 +119,6 @@ pub struct InProcessStartArgs {
     pub cloud_requirements: CloudRequirementsLoader,
     /// Loader used to fetch typed thread config sources before a thread starts.
     pub thread_config_loader: Arc<dyn ThreadConfigLoader>,
-    /// Feedback sink used by app-server/core telemetry and logs.
-    pub feedback: CodexFeedback,
-    /// SQLite tracing layer used to flush recently emitted logs before feedback upload.
-    pub log_db: Option<LogDbLayer>,
     /// Environment manager used by core execution and filesystem operations.
     pub environment_manager: Arc<EnvironmentManager>,
     /// Startup warnings emitted after initialize succeeds.
@@ -408,8 +402,6 @@ fn start_uninitialized(args: InProcessStartArgs) -> InProcessClientHandle {
                 config: args.config,
                 config_manager,
                 environment_manager: args.environment_manager,
-                feedback: args.feedback,
-                log_db: args.log_db,
                 config_warnings: args.config_warnings,
                 session_source: args.session_source,
                 auth_manager,
@@ -748,8 +740,6 @@ mod tests {
             loader_overrides: LoaderOverrides::default(),
             cloud_requirements: CloudRequirementsLoader::default(),
             thread_config_loader: Arc::new(codex_config::NoopThreadConfigLoader),
-            feedback: CodexFeedback::new(),
-            log_db: None,
             environment_manager: Arc::new(EnvironmentManager::default_for_tests()),
             config_warnings: Vec::new(),
             session_source,

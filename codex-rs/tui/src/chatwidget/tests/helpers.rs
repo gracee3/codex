@@ -289,7 +289,6 @@ pub(super) async fn make_chatwidget_manual(
         last_separator_elapsed_secs: None,
         turn_runtime_metrics: RuntimeMetricsSummary::default(),
         last_rendered_width: std::cell::Cell::new(None),
-        feedback: codex_feedback::CodexFeedback::new(),
         current_rollout_path: None,
         current_cwd: None,
         instruction_source_paths: Vec::new(),

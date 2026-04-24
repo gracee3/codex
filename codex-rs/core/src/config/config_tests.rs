@@ -31,7 +31,6 @@ use codex_config::profile_toml::ConfigProfile;
 use codex_config::types::AppToolApproval;
 use codex_config::types::ApprovalsReviewer;
 use codex_config::types::BundledSkillsConfig;
-use codex_config::types::FeedbackConfigToml;
 use codex_config::types::HistoryPersistence;
 use codex_config::types::McpServerEnvVar;
 use codex_config::types::McpServerToolConfig;
@@ -2000,26 +1999,6 @@ fn local_dev_builds_force_file_mcp_oauth_store_modes() {
         resolve_mcp_oauth_credentials_store_mode(OAuthCredentialsStoreMode::Keyring, "1.2.3"),
         OAuthCredentialsStoreMode::Keyring,
     );
-}
-
-#[tokio::test]
-async fn feedback_enabled_defaults_to_true() -> std::io::Result<()> {
-    let codex_home = TempDir::new()?;
-    let cfg = ConfigToml {
-        feedback: Some(FeedbackConfigToml::default()),
-        ..Default::default()
-    };
-
-    let config = Config::load_from_base_config_with_overrides(
-        cfg,
-        ConfigOverrides::default(),
-        codex_home.abs(),
-    )
-    .await?;
-
-    assert_eq!(config.feedback_enabled, true);
-
-    Ok(())
 }
 
 #[test]
@@ -5264,7 +5243,6 @@ async fn test_precedence_fixture_with_o3_profile() -> std::io::Result<()> {
             show_tooltips: true,
             model_availability_nux: ModelAvailabilityNuxConfig::default(),
             analytics_enabled: Some(true),
-            feedback_enabled: true,
             tool_suggest: ToolSuggestConfig::default(),
             tui_alternate_screen: AltScreenMode::Auto,
             tui_status_line: None,
@@ -5458,7 +5436,6 @@ async fn test_precedence_fixture_with_gpt3_profile() -> std::io::Result<()> {
         show_tooltips: true,
         model_availability_nux: ModelAvailabilityNuxConfig::default(),
         analytics_enabled: Some(true),
-        feedback_enabled: true,
         tool_suggest: ToolSuggestConfig::default(),
         tui_alternate_screen: AltScreenMode::Auto,
         tui_status_line: None,
@@ -5606,7 +5583,6 @@ async fn test_precedence_fixture_with_zdr_profile() -> std::io::Result<()> {
         show_tooltips: true,
         model_availability_nux: ModelAvailabilityNuxConfig::default(),
         analytics_enabled: Some(false),
-        feedback_enabled: true,
         tool_suggest: ToolSuggestConfig::default(),
         tui_alternate_screen: AltScreenMode::Auto,
         tui_status_line: None,
@@ -5739,7 +5715,6 @@ async fn test_precedence_fixture_with_gpt5_profile() -> std::io::Result<()> {
         show_tooltips: true,
         model_availability_nux: ModelAvailabilityNuxConfig::default(),
         analytics_enabled: Some(true),
-        feedback_enabled: true,
         tool_suggest: ToolSuggestConfig::default(),
         tui_alternate_screen: AltScreenMode::Auto,
         tui_status_line: None,

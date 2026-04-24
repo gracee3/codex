@@ -98,13 +98,6 @@ pub(crate) use list_selection_view::SideContentWidth;
 pub(crate) use list_selection_view::popup_content_width;
 pub(crate) use list_selection_view::side_by_side_layout_widths;
 pub(crate) use memories_settings_view::MemoriesSettingsView;
-mod feedback_view;
-pub(crate) use feedback_view::FeedbackAudience;
-pub(crate) use feedback_view::feedback_classification;
-pub(crate) use feedback_view::feedback_disabled_params;
-pub(crate) use feedback_view::feedback_selection_params;
-pub(crate) use feedback_view::feedback_success_cell;
-pub(crate) use feedback_view::feedback_upload_consent_params;
 pub(crate) use skills_toggle_view::SkillsToggleItem;
 pub(crate) use skills_toggle_view::SkillsToggleView;
 pub(crate) use status_line_setup::StatusLineItem;
@@ -124,7 +117,6 @@ mod selection_popup_common;
 mod selection_tabs;
 mod textarea;
 mod unified_exec_footer;
-pub(crate) use feedback_view::FeedbackNoteView;
 pub(crate) use selection_tabs::SelectionTab;
 
 /// How long the "press again to quit" hint stays visible.

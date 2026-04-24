@@ -36,7 +36,6 @@ codex-core-plugins = { workspace = true }
 codex-core-skills = { workspace = true }
 codex-exec-server = { workspace = true }
 codex-features = { workspace = true }
-codex-feedback = { workspace = true }
 codex-login = { workspace = true }
 codex-mcp = { workspace = true }
 codex-model-provider-info = { workspace = true }

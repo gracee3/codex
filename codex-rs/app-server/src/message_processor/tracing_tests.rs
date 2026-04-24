@@ -32,7 +32,6 @@ use codex_core::config::ConfigBuilder;
 use codex_core::config_loader::CloudRequirementsLoader;
 use codex_core::config_loader::LoaderOverrides;
 use codex_exec_server::EnvironmentManager;
-use codex_feedback::CodexFeedback;
 use codex_login::AuthManager;
 use codex_protocol::protocol::SessionSource;
 use codex_protocol::protocol::W3cTraceContext;
@@ -281,8 +280,6 @@ fn build_test_processor(
         config,
         config_manager,
         environment_manager: Arc::new(EnvironmentManager::default_for_tests()),
-        feedback: CodexFeedback::new(),
-        log_db: None,
         config_warnings: Vec::new(),
         session_source: SessionSource::VSCode,
         auth_manager,

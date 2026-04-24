@@ -166,7 +166,6 @@ async fn helpers_are_available_and_do_not_panic() {
         enhanced_keys_supported: false,
         has_chatgpt_account: false,
         model_catalog: test_model_catalog(&cfg),
-        feedback: codex_feedback::CodexFeedback::new(),
         is_first_run: true,
         status_account_display: None,
         initial_plan_type: None,

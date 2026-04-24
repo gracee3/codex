@@ -24,7 +24,6 @@ use codex_app_server_protocol::ConfigBatchWriteParams;
 use codex_app_server_protocol::ConfigReadParams;
 use codex_app_server_protocol::ConfigValueWriteParams;
 use codex_app_server_protocol::ExperimentalFeatureListParams;
-use codex_app_server_protocol::FeedbackUploadParams;
 use codex_app_server_protocol::FsCopyParams;
 use codex_app_server_protocol::FsCreateDirectoryParams;
 use codex_app_server_protocol::FsGetMetadataParams;
@@ -340,15 +339,6 @@ impl McpProcess {
         };
         let params = Some(serde_json::to_value(params)?);
         self.send_request("account/login/start", params).await
-    }
-
-    /// Send a `feedback/upload` JSON-RPC request.
-    pub async fn send_feedback_upload_request(
-        &mut self,
-        params: FeedbackUploadParams,
-    ) -> anyhow::Result<i64> {
-        let params = Some(serde_json::to_value(params)?);
-        self.send_request("feedback/upload", params).await
     }
 
     /// Send a `thread/start` JSON-RPC request.

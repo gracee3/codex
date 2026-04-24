@@ -71,7 +71,6 @@ use codex_core::ThreadManager;
 use codex_core::config::Config;
 use codex_exec_server::EnvironmentManager;
 use codex_features::Feature;
-use codex_feedback::CodexFeedback;
 use codex_login::AuthManager;
 use codex_login::auth::ExternalAuth;
 use codex_login::auth::ExternalAuthRefreshContext;
@@ -86,7 +85,6 @@ use codex_models_manager::collaboration_mode_presets::CollaborationModesConfig;
 use codex_protocol::ThreadId;
 use codex_protocol::protocol::SessionSource;
 use codex_protocol::protocol::W3cTraceContext;
-use codex_state::log_db::LogDbLayer;
 use futures::FutureExt;
 use tokio::sync::broadcast;
 use tokio::sync::watch;
@@ -253,8 +251,6 @@ pub(crate) struct MessageProcessorArgs {
     pub(crate) config: Arc<Config>,
     pub(crate) config_manager: ConfigManager,
     pub(crate) environment_manager: Arc<EnvironmentManager>,
-    pub(crate) feedback: CodexFeedback,
-    pub(crate) log_db: Option<LogDbLayer>,
     pub(crate) config_warnings: Vec<ConfigWarningNotification>,
     pub(crate) session_source: SessionSource,
     pub(crate) auth_manager: Arc<AuthManager>,
@@ -272,8 +268,6 @@ impl MessageProcessor {
             config,
             config_manager,
             environment_manager,
-            feedback,
-            log_db,
             config_warnings,
             session_source,
             auth_manager,
@@ -312,8 +306,6 @@ impl MessageProcessor {
             arg0_paths,
             config: Arc::clone(&config),
             config_manager: config_manager.clone(),
-            feedback,
-            log_db,
         });
         // Keep plugin startup warmups aligned at app-server startup.
         // TODO(xl): Move into PluginManager once this no longer depends on config feature gating.
