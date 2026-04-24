@@ -25,9 +25,6 @@ async fn malformed_rules_should_not_panic() -> anyhow::Result<()> {
     let cwd = std::env::current_dir()?;
     let config_contents = format!(
         r#"
-# Pick a local provider so the CLI doesn't prompt for OpenAI auth in this test.
-model_provider = "ollama"
-
 [projects]
 "{cwd}" = {{ trust_level = "trusted" }}
 "#,

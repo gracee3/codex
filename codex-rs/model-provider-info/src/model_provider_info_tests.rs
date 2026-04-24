@@ -6,14 +6,14 @@ use std::num::NonZeroU64;
 use tempfile::tempdir;
 
 #[test]
-fn test_deserialize_ollama_model_provider_toml() {
-    let azure_provider_toml = r#"
-name = "Ollama"
-base_url = "http://localhost:11434/v1"
+fn test_deserialize_local_model_provider_toml() {
+    let local_provider_toml = r#"
+name = "Local OSS"
+base_url = "http://localhost:8000/v1"
         "#;
     let expected_provider = ModelProviderInfo {
-        name: "Ollama".into(),
-        base_url: Some("http://localhost:11434/v1".into()),
+        name: "Local OSS".into(),
+        base_url: Some("http://localhost:8000/v1".into()),
         env_key: None,
         env_key_instructions: None,
         experimental_bearer_token: None,
@@ -31,7 +31,7 @@ base_url = "http://localhost:11434/v1"
         supports_websockets: false,
     };
 
-    let provider: ModelProviderInfo = toml::from_str(azure_provider_toml).unwrap();
+    let provider: ModelProviderInfo = toml::from_str(local_provider_toml).unwrap();
     assert_eq!(expected_provider, provider);
 }
 
@@ -278,6 +278,14 @@ fn test_built_in_model_providers_include_amazon_bedrock() {
             .map(ModelProviderInfo::is_amazon_bedrock),
         Some(true)
     );
+}
+
+#[test]
+fn test_built_in_model_providers_exclude_removed_local_backends() {
+    let providers = built_in_model_providers(/*openai_base_url*/ None);
+
+    assert!(!providers.contains_key("ollama"));
+    assert!(!providers.contains_key("lmstudio"));
 }
 
 #[test]

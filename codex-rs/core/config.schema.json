@@ -2898,7 +2898,7 @@
       "type": "string"
     },
     "oss_provider": {
-      "description": "Preferred OSS provider for local models, e.g. \"lmstudio\" or \"ollama\".",
+      "description": "Preferred configured OSS provider for local models.",
       "type": "string"
     },
     "otel": {

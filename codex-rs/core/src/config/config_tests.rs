@@ -51,8 +51,6 @@ use codex_config::types::TuiNotificationSettings;
 use codex_exec_server::LOCAL_FS;
 use codex_features::Feature;
 use codex_features::FeaturesToml;
-use codex_model_provider_info::LMSTUDIO_OSS_PROVIDER_ID;
-use codex_model_provider_info::OLLAMA_OSS_PROVIDER_ID;
 use codex_model_provider_info::WireApi;
 use codex_models_manager::bundled_models_response;
 use codex_protocol::models::FileSystemPermissions;
@@ -5960,31 +5958,30 @@ fn test_set_default_oss_provider() -> std::io::Result<()> {
     let codex_home = temp_dir.path();
     let config_path = codex_home.join(CONFIG_TOML_FILE);
 
-    // Test setting valid provider on empty config
-    set_default_oss_provider(codex_home, OLLAMA_OSS_PROVIDER_ID)?;
+    // Test setting configured provider id on empty config
+    set_default_oss_provider(codex_home, "local-oss")?;
     let content = std::fs::read_to_string(&config_path)?;
-    assert!(content.contains("oss_provider = \"ollama\""));
+    assert!(content.contains("oss_provider = \"local-oss\""));
 
     // Test updating existing config
     std::fs::write(&config_path, "model = \"gpt-4\"\n")?;
-    set_default_oss_provider(codex_home, LMSTUDIO_OSS_PROVIDER_ID)?;
+    set_default_oss_provider(codex_home, "custom-responses")?;
     let content = std::fs::read_to_string(&config_path)?;
-    assert!(content.contains("oss_provider = \"lmstudio\""));
+    assert!(content.contains("oss_provider = \"custom-responses\""));
     assert!(content.contains("model = \"gpt-4\""));
 
     // Test overwriting existing oss_provider
-    set_default_oss_provider(codex_home, OLLAMA_OSS_PROVIDER_ID)?;
+    set_default_oss_provider(codex_home, "local-oss")?;
     let content = std::fs::read_to_string(&config_path)?;
-    assert!(content.contains("oss_provider = \"ollama\""));
-    assert!(!content.contains("oss_provider = \"lmstudio\""));
+    assert!(content.contains("oss_provider = \"local-oss\""));
+    assert!(!content.contains("oss_provider = \"custom-responses\""));
 
-    // Test invalid provider
-    let result = set_default_oss_provider(codex_home, "invalid_provider");
+    // Test empty provider
+    let result = set_default_oss_provider(codex_home, " ");
     assert!(result.is_err());
     let error = result.unwrap_err();
     assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
-    assert!(error.to_string().contains("Invalid OSS provider"));
-    assert!(error.to_string().contains("invalid_provider"));
+    assert!(error.to_string().contains("must not be empty"));
 
     Ok(())
 }
@@ -6030,6 +6027,29 @@ async fn test_load_config_rejects_legacy_ollama_chat_provider_with_helpful_error
             .to_string()
             .contains(OLLAMA_CHAT_PROVIDER_REMOVED_ERROR)
     );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_load_config_treats_removed_local_backends_as_missing_providers() -> std::io::Result<()>
+{
+    let codex_home = TempDir::new()?;
+    let cfg = ConfigToml {
+        model_provider: Some("ollama".to_string()),
+        ..Default::default()
+    };
+
+    let result = Config::load_from_base_config_with_overrides(
+        cfg,
+        ConfigOverrides::default(),
+        codex_home.abs(),
+    )
+    .await;
+    assert!(result.is_err());
+    let error = result.unwrap_err();
+    assert_eq!(error.kind(), std::io::ErrorKind::NotFound);
+    assert_eq!(error.to_string(), "Model provider `ollama` not found");
 
     Ok(())
 }
