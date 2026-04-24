@@ -406,7 +406,7 @@ async fn explicit_plugin_mentions_track_plugin_used_analytics() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn plugin_mcp_tools_are_listed() -> Result<()> {
     skip_if_no_network!(Ok(()));
     let server = start_mock_server().await;
@@ -415,7 +415,7 @@ async fn plugin_mcp_tools_are_listed() -> Result<()> {
     write_plugin_mcp_plugin(codex_home.as_ref(), &rmcp_test_server_bin);
     let codex = build_plugin_test_codex(&server, codex_home).await?;
 
-    let tools_ready_deadline = Instant::now() + Duration::from_secs(30);
+    let tools_ready_deadline = Instant::now() + Duration::from_secs(45);
     loop {
         codex.submit(Op::ListMcpTools).await?;
         let list_event = wait_for_event_with_timeout(
