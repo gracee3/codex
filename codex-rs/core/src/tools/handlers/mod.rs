@@ -31,7 +31,7 @@ use crate::function_tool::FunctionCallError;
 use crate::sandboxing::SandboxPermissions;
 use crate::session::session::Session;
 pub use apply_patch::ApplyPatchHandler;
-use codex_protocol::models::PermissionProfile;
+use codex_protocol::models::AdditionalPermissionProfile;
 use codex_protocol::protocol::AskForApproval;
 pub use dynamic::DynamicToolHandler;
 pub use list_dir::ListDirHandler;
@@ -88,10 +88,10 @@ pub(crate) fn normalize_and_validate_additional_permissions(
     additional_permissions_allowed: bool,
     approval_policy: AskForApproval,
     sandbox_permissions: SandboxPermissions,
-    additional_permissions: Option<PermissionProfile>,
+    additional_permissions: Option<AdditionalPermissionProfile>,
     permissions_preapproved: bool,
     _cwd: &Path,
-) -> Result<Option<PermissionProfile>, String> {
+) -> Result<Option<AdditionalPermissionProfile>, String> {
     let uses_additional_permissions = matches!(
         sandbox_permissions,
         SandboxPermissions::WithAdditionalPermissions
@@ -141,15 +141,15 @@ pub(crate) fn normalize_and_validate_additional_permissions(
 
 pub(super) struct EffectiveAdditionalPermissions {
     pub sandbox_permissions: SandboxPermissions,
-    pub additional_permissions: Option<PermissionProfile>,
+    pub additional_permissions: Option<AdditionalPermissionProfile>,
     pub permissions_preapproved: bool,
 }
 
 pub(super) fn implicit_granted_permissions(
     sandbox_permissions: SandboxPermissions,
-    additional_permissions: Option<&PermissionProfile>,
+    additional_permissions: Option<&AdditionalPermissionProfile>,
     effective_additional_permissions: &EffectiveAdditionalPermissions,
-) -> Option<PermissionProfile> {
+) -> Option<AdditionalPermissionProfile> {
     if !sandbox_permissions.uses_additional_permissions()
         && !matches!(sandbox_permissions, SandboxPermissions::RequireEscalated)
         && additional_permissions.is_none()
@@ -166,7 +166,7 @@ pub(super) async fn apply_granted_turn_permissions(
     session: &Session,
     cwd: &std::path::Path,
     sandbox_permissions: SandboxPermissions,
-    additional_permissions: Option<PermissionProfile>,
+    additional_permissions: Option<AdditionalPermissionProfile>,
 ) -> EffectiveAdditionalPermissions {
     if matches!(sandbox_permissions, SandboxPermissions::RequireEscalated) {
         return EffectiveAdditionalPermissions {
@@ -208,8 +208,8 @@ pub(super) async fn apply_granted_turn_permissions(
 }
 
 fn permissions_are_preapproved(
-    effective_permissions: &PermissionProfile,
-    granted_permissions: PermissionProfile,
+    effective_permissions: &AdditionalPermissionProfile,
+    granted_permissions: AdditionalPermissionProfile,
     cwd: &Path,
 ) -> bool {
     let materialized_effective_permissions = intersect_permission_profiles(
@@ -228,9 +228,9 @@ mod tests {
     use super::normalize_and_validate_additional_permissions;
     use super::permissions_are_preapproved;
     use crate::sandboxing::SandboxPermissions;
+    use codex_protocol::models::AdditionalPermissionProfile;
     use codex_protocol::models::FileSystemPermissions;
     use codex_protocol::models::NetworkPermissions;
-    use codex_protocol::models::PermissionProfile;
     use codex_protocol::permissions::FileSystemAccessMode;
     use codex_protocol::permissions::FileSystemPath;
     use codex_protocol::permissions::FileSystemSandboxEntry;
@@ -243,8 +243,8 @@ mod tests {
     use pretty_assertions::assert_eq;
     use tempfile::tempdir;
 
-    fn network_permissions() -> PermissionProfile {
-        PermissionProfile {
+    fn network_permissions() -> AdditionalPermissionProfile {
+        AdditionalPermissionProfile {
             network: Some(NetworkPermissions {
                 enabled: Some(true),
             }),
@@ -252,8 +252,8 @@ mod tests {
         }
     }
 
-    fn file_system_permissions(path: &std::path::Path) -> PermissionProfile {
-        PermissionProfile {
+    fn file_system_permissions(path: &std::path::Path) -> AdditionalPermissionProfile {
+        AdditionalPermissionProfile {
             file_system: Some(FileSystemPermissions::from_read_write_roots(
                 /*read*/ None,
                 Some(vec![
@@ -345,7 +345,7 @@ mod tests {
     #[test]
     fn relative_deny_glob_grants_remain_preapproved_after_materialization() {
         let cwd = tempdir().expect("tempdir");
-        let requested_permissions = PermissionProfile {
+        let requested_permissions = AdditionalPermissionProfile {
             file_system: Some(FileSystemPermissions {
                 entries: vec![
                     FileSystemSandboxEntry {
