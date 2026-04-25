@@ -266,6 +266,7 @@ async fn explicit_plugin_mentions_inject_plugin_guidance() -> Result<()> {
     let codex =
         build_apps_enabled_plugin_test_codex(&server, codex_home, apps_server.chatgpt_base_url)
             .await?;
+    wait_for_sample_plugin_mcp_tools(&codex).await?;
 
     codex
         .submit(Op::UserInput {
@@ -415,6 +416,12 @@ async fn plugin_mcp_tools_are_listed() -> Result<()> {
     write_plugin_mcp_plugin(codex_home.as_ref(), &rmcp_test_server_bin);
     let codex = build_plugin_test_codex(&server, codex_home).await?;
 
+    wait_for_sample_plugin_mcp_tools(&codex).await?;
+
+    Ok(())
+}
+
+async fn wait_for_sample_plugin_mcp_tools(codex: &codex_core::CodexThread) -> Result<()> {
     let tools_ready_deadline = Instant::now() + Duration::from_secs(45);
     loop {
         codex.submit(Op::ListMcpTools).await?;

@@ -278,7 +278,7 @@ fn from_sources_applies_base_profile_and_overrides() {
     };
 
     let mut profile_entries = BTreeMap::new();
-    profile_entries.insert("spawn_csv".to_string(), true);
+    profile_entries.insert("enable_fanout".to_string(), true);
     let profile_features = FeaturesToml {
         entries: profile_entries,
         ..Default::default()
