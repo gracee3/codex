@@ -144,9 +144,10 @@ fn run_thread_list() -> Result<()> {
             .map(|pid| pid.to_string())
             .unwrap_or_else(|| "<none>".to_string());
         println!(
-            "  - {} {} location={} name={} pid={} cwd={}",
+            "  - {} {} activation={} location={} name={} pid={} cwd={}",
             thread.role.as_str(),
             thread.thread_id,
+            thread.activation.as_str(),
             location,
             name,
             pid,
@@ -259,9 +260,10 @@ fn print_thread_registry_summary(project: &TtProject, worktrees: &[WorktreeInfo]
                 .map(|pid| pid.to_string())
                 .unwrap_or_else(|| "<none>".to_string());
             println!(
-                "  - {} {} location={} name={} pid={} cwd={}",
+                "  - {} {} activation={} location={} name={} pid={} cwd={}",
                 thread.role.as_str(),
                 thread.thread_id,
+                thread.activation.as_str(),
                 location,
                 name,
                 pid,

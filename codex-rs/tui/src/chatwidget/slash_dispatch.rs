@@ -8,6 +8,8 @@
 use super::*;
 use crate::bottom_pane::prompt_args::parse_slash_name;
 use crate::bottom_pane::slash_commands;
+use codex_tt_core::TtThreadRole;
+use std::path::Path;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum SlashCommandDispatchSource {
@@ -210,6 +212,9 @@ impl ChatWidget {
                     return;
                 }
                 self.open_collaboration_modes_popup();
+            }
+            SlashCommand::Tt => {
+                self.show_tt_status();
             }
             SlashCommand::Side => {
                 self.request_empty_side_conversation();
@@ -547,6 +552,9 @@ impl ChatWidget {
                 "verbose" => self.add_mcp_output(McpServerStatusDetail::Full),
                 _ => self.add_error_message("Usage: /mcp [verbose]".to_string()),
             },
+            SlashCommand::Tt => {
+                self.dispatch_tt_command(trimmed);
+            }
             SlashCommand::Rename if !trimmed.is_empty() => {
                 if !self.ensure_thread_rename_allowed() {
                     return;
@@ -712,6 +720,111 @@ impl ChatWidget {
         }
     }
 
+    fn tt_cwd(&self) -> &Path {
+        self.current_cwd
+            .as_deref()
+            .unwrap_or(self.config.cwd.as_path())
+    }
+
+    fn tt_thread_id(&self) -> Option<String> {
+        self.thread_id.map(|thread_id| thread_id.to_string())
+    }
+
+    fn show_tt_status(&mut self) {
+        let thread_id = self.tt_thread_id();
+        match crate::tt::status_for_cwd(self.tt_cwd(), thread_id.as_deref()) {
+            Ok(Some(status)) => {
+                let thread = status.thread.map_or_else(
+                    || "thread: <unregistered>".to_string(),
+                    |thread| {
+                        let name = thread.name.unwrap_or_else(|| "<unnamed>".to_string());
+                        format!(
+                            "thread: {} {} {}",
+                            thread.role.as_str(),
+                            thread.activation.as_str(),
+                            name
+                        )
+                    },
+                );
+                self.add_info_message(
+                    format!(
+                        "TT project: {}\nlocation: {}\n{thread}\nrepos: {}  worktrees: {}  threads: {}",
+                        status.project_name,
+                        status.location,
+                        status.repos_count,
+                        status.worktrees_count,
+                        status.threads_count
+                    ),
+                    Some("Use /tt role supervisor|worker or /tt report on|off.".to_string()),
+                );
+            }
+            Ok(None) => {
+                self.add_info_message("No TT project discovered.".to_string(), /*hint*/ None);
+            }
+            Err(err) => {
+                self.add_error_message(format!("TT status failed: {err:#}"));
+            }
+        }
+    }
+
+    fn dispatch_tt_command(&mut self, args: &str) {
+        let parts = args.split_whitespace().collect::<Vec<_>>();
+        match parts.as_slice() {
+            [] | ["status"] => self.show_tt_status(),
+            ["role", role] => {
+                let role = match *role {
+                    "supervisor" => TtThreadRole::Supervisor,
+                    "worker" => TtThreadRole::Worker,
+                    _ => {
+                        self.add_error_message("Usage: /tt role supervisor|worker".to_string());
+                        return;
+                    }
+                };
+                let Some(thread_id) = self.tt_thread_id() else {
+                    self.add_error_message(
+                        "'/tt role' is unavailable before the session starts.".to_string(),
+                    );
+                    return;
+                };
+                match crate::tt::set_thread_role(self.tt_cwd(), &thread_id, role) {
+                    Ok(message) => self.add_info_message(message, /*hint*/ None),
+                    Err(err) => self.add_error_message(format!("TT role update failed: {err:#}")),
+                }
+            }
+            ["report", value] => {
+                let reporting = match *value {
+                    "on" => true,
+                    "off" => false,
+                    "status" => {
+                        self.show_tt_status();
+                        return;
+                    }
+                    _ => {
+                        self.add_error_message("Usage: /tt report on|off|status".to_string());
+                        return;
+                    }
+                };
+                let Some(thread_id) = self.tt_thread_id() else {
+                    self.add_error_message(
+                        "'/tt report' is unavailable before the session starts.".to_string(),
+                    );
+                    return;
+                };
+                match crate::tt::set_thread_reporting(self.tt_cwd(), &thread_id, reporting) {
+                    Ok(message) => self.add_info_message(message, /*hint*/ None),
+                    Err(err) => {
+                        self.add_error_message(format!("TT report update failed: {err:#}"));
+                    }
+                }
+            }
+            _ => self.add_error_message(
+                "Usage: /tt [status] | /tt role supervisor|worker | /tt report on|off|status"
+                    .to_string(),
+            ),
+        }
+        self.refresh_status_surfaces();
+    }
+
     fn queued_command_drain_result(&self, cmd: SlashCommand) -> QueueDrain {
         if self.is_user_turn_pending_or_running() || !self.bottom_pane.no_modal_or_popup_active() {
             return QueueDrain::Stop;
@@ -725,6 +838,7 @@ impl ChatWidget {
             | SlashCommand::MemoryDrop
             | SlashCommand::MemoryUpdate
             | SlashCommand::Mcp
+            | SlashCommand::Tt
             | SlashCommand::Apps
             | SlashCommand::Plugins
             | SlashCommand::Rollout

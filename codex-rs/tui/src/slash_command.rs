@@ -32,6 +32,7 @@ pub enum SlashCommand {
     Compact,
     Plan,
     Collab,
+    Tt,
     Agent,
     Side,
     // Undo,
@@ -105,6 +106,7 @@ impl SlashCommand {
             SlashCommand::Settings => "configure realtime microphone/speaker",
             SlashCommand::Plan => "switch to Plan mode",
             SlashCommand::Collab => "change collaboration mode (experimental)",
+            SlashCommand::Tt => "inspect or update TT project thread state",
             SlashCommand::Agent | SlashCommand::MultiAgents => "switch the active agent thread",
             SlashCommand::Side => "start a side conversation in an ephemeral fork",
             SlashCommand::Approvals => "choose what Codex is allowed to do",
@@ -139,6 +141,7 @@ impl SlashCommand {
                 | SlashCommand::Plan
                 | SlashCommand::Fast
                 | SlashCommand::Mcp
+                | SlashCommand::Tt
                 | SlashCommand::Side
                 | SlashCommand::Resume
                 | SlashCommand::SandboxReadRoot
@@ -187,6 +190,7 @@ impl SlashCommand {
             | SlashCommand::Ps
             | SlashCommand::Stop
             | SlashCommand::Mcp
+            | SlashCommand::Tt
             | SlashCommand::Apps
             | SlashCommand::Plugins
             | SlashCommand::Feedback
@@ -238,5 +242,11 @@ mod tests {
     #[test]
     fn clean_alias_parses_to_stop_command() {
         assert_eq!(SlashCommand::from_str("clean"), Ok(SlashCommand::Stop));
+    }
+
+    #[test]
+    fn tt_command_supports_inline_args() {
+        assert_eq!(SlashCommand::from_str("tt"), Ok(SlashCommand::Tt));
+        assert!(SlashCommand::Tt.supports_inline_args());
     }
 }

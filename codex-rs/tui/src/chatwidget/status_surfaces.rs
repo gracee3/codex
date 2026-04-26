@@ -492,6 +492,7 @@ impl ChatWidget {
                 let trimmed = name.trim();
                 (!trimmed.is_empty()).then(|| trimmed.to_string())
             }),
+            StatusLineItem::Tt => self.status_line_tt(),
             StatusLineItem::TaskProgress => self.terminal_title_task_progress(),
         }
     }
@@ -520,10 +521,25 @@ impl ChatWidget {
             StatusSurfacePreviewItem::TotalOutputTokens => StatusLineItem::TotalOutputTokens,
             StatusSurfacePreviewItem::SessionId => StatusLineItem::SessionId,
             StatusSurfacePreviewItem::FastMode => StatusLineItem::FastMode,
+            StatusSurfacePreviewItem::Tt => StatusLineItem::Tt,
             StatusSurfacePreviewItem::Model => StatusLineItem::ModelName,
             StatusSurfacePreviewItem::ModelWithReasoning => StatusLineItem::ModelWithReasoning,
         };
         self.status_line_value_for_item(&status_line_item)
+    }
+
+    fn status_line_tt(&mut self) -> Option<String> {
+        let thread_id = self.thread_id.map(|thread_id| thread_id.to_string());
+        let status = crate::tt::status_for_cwd(self.status_line_cwd(), thread_id.as_deref())
+            .ok()
+            .flatten()?;
+        let thread = status.thread?;
+        Some(format!(
+            "TT {} {} {}",
+            thread.role.as_str(),
+            thread.activation.as_str(),
+            status.location
+        ))
     }
 
     /// Resolves one configured terminal-title item into a displayable segment.

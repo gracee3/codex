@@ -100,9 +100,40 @@ impl std::str::FromStr for TtThreadRole {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TtThreadActivation {
+    #[default]
+    Idle,
+    Reporting,
+}
+
+impl TtThreadActivation {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Idle => "idle",
+            Self::Reporting => "reporting",
+        }
+    }
+}
+
+impl std::str::FromStr for TtThreadActivation {
+    type Err = anyhow::Error;
+
+    fn from_str(value: &str) -> Result<Self> {
+        match value {
+            "idle" | "off" => Ok(Self::Idle),
+            "reporting" | "on" => Ok(Self::Reporting),
+            _ => anyhow::bail!("unknown TT thread activation `{value}`"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TtThreadRecord {
     pub role: TtThreadRole,
+    #[serde(default)]
+    pub activation: TtThreadActivation,
     pub thread_id: String,
     pub name: Option<String>,
     pub cwd: PathBuf,
@@ -120,6 +151,7 @@ impl TtThreadRecord {
     ) -> Self {
         Self {
             role,
+            activation: TtThreadActivation::Idle,
             thread_id,
             name,
             cwd,
@@ -303,6 +335,25 @@ pub fn upsert_thread_record(project: &TtProject, record: TtThreadRecord) -> Resu
     let mut registry = load_thread_registry(project)?;
     registry.upsert(record);
     save_thread_registry(project, &registry)
+}
+
+pub fn update_thread_record(
+    project: &TtProject,
+    thread_id: &str,
+    update: impl FnOnce(&mut TtThreadRecord),
+) -> Result<Option<TtThreadRecord>> {
+    let mut registry = load_thread_registry(project)?;
+    let Some(record) = registry
+        .threads
+        .iter_mut()
+        .find(|thread| thread.thread_id == thread_id)
+    else {
+        return Ok(None);
+    };
+    update(record);
+    let updated = record.clone();
+    save_thread_registry(project, &registry)?;
+    Ok(Some(updated))
 }
 
 pub fn discover_repositories(project: &TtProject) -> Result<Vec<RepoInfo>> {
@@ -862,12 +913,51 @@ detached
             TtThreadRegistry {
                 threads: vec![TtThreadRecord {
                     role: TtThreadRole::Supervisor,
+                    activation: TtThreadActivation::Idle,
                     thread_id: "thread-1".to_string(),
                     name: Some("supervisor".to_string()),
                     cwd: PathBuf::from("/tmp/two"),
                     pid: Some(2),
                     registered_at_unix_secs: registry.threads[0].registered_at_unix_secs,
                 }]
+            }
+        );
+    }
+
+    #[test]
+    fn update_thread_record_mutates_existing_thread() {
+        let temp = TempDir::new().expect("tempdir");
+        let summary = init_project(InitOptions {
+            project_root: temp.path().to_path_buf(),
+            worktrees_dir: PathBuf::from("worktrees"),
+        })
+        .expect("init project");
+        let record = TtThreadRecord::new(
+            TtThreadRole::Worker,
+            "thread-1".to_string(),
+            None,
+            temp.path().to_path_buf(),
+            None,
+        );
+        upsert_thread_record(&summary.project, record).expect("upsert thread");
+
+        let updated = update_thread_record(&summary.project, "thread-1", |record| {
+            record.role = TtThreadRole::Supervisor;
+            record.activation = TtThreadActivation::Reporting;
+        })
+        .expect("update thread")
+        .expect("thread exists");
+
+        assert_eq!(
+            updated,
+            TtThreadRecord {
+                role: TtThreadRole::Supervisor,
+                activation: TtThreadActivation::Reporting,
+                thread_id: "thread-1".to_string(),
+                name: None,
+                cwd: temp.path().to_path_buf(),
+                pid: None,
+                registered_at_unix_secs: updated.registered_at_unix_secs,
             }
         );
     }

@@ -161,6 +161,7 @@ mod terminal_title;
 mod text_formatting;
 mod theme_picker;
 mod tooltips;
+mod tt;
 mod tui;
 mod ui_consts;
 pub(crate) mod update_action;

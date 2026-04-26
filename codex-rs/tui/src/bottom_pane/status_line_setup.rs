@@ -112,6 +112,9 @@ pub(crate) enum StatusLineItem {
     /// Current thread title (if set by user).
     ThreadTitle,
 
+    /// TT project role/location (if in a TT project).
+    Tt,
+
     /// Latest checklist task progress from `update_plan` (if available).
     TaskProgress,
 }
@@ -150,6 +153,7 @@ impl StatusLineItem {
             }
             StatusLineItem::FastMode => "Whether Fast mode is currently active",
             StatusLineItem::ThreadTitle => "Current thread title (omitted when unavailable)",
+            StatusLineItem::Tt => "TT project role and location (omitted when unavailable)",
             StatusLineItem::TaskProgress => {
                 "Latest task progress from update_plan (omitted until available)"
             }
@@ -176,6 +180,7 @@ impl StatusLineItem {
             StatusLineItem::SessionId => StatusSurfacePreviewItem::SessionId,
             StatusLineItem::FastMode => StatusSurfacePreviewItem::FastMode,
             StatusLineItem::ThreadTitle => StatusSurfacePreviewItem::ThreadTitle,
+            StatusLineItem::Tt => StatusSurfacePreviewItem::Tt,
             StatusLineItem::TaskProgress => StatusSurfacePreviewItem::TaskProgress,
         }
     }
