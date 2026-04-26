@@ -62,6 +62,7 @@ members = [
     "otel",
     "tui",
     "tools",
+    "tt-core",
     "utils/absolute-path",
     "utils/cargo-bin",
     "git-utils",
@@ -179,6 +180,7 @@ codex-test-binary-support = { path = "test-binary-support" }
 codex-thread-store = { path = "thread-store" }
 codex-tools = { path = "tools" }
 codex-tui = { path = "tui" }
+codex-tt-core = { path = "tt-core" }
 codex-uds = { path = "uds" }
 codex-utils-absolute-path = { path = "utils/absolute-path" }
 codex-utils-approval-presets = { path = "utils/approval-presets" }

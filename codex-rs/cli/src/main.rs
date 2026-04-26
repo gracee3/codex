@@ -42,6 +42,7 @@ mod desktop_app;
 mod marketplace_cmd;
 mod mcp_cmd;
 mod responses_cmd;
+mod tt_cmd;
 #[cfg(not(windows))]
 mod wsl_paths;
 
@@ -49,6 +50,8 @@ use crate::marketplace_cmd::MarketplaceCli;
 use crate::mcp_cmd::McpCli;
 use crate::responses_cmd::ResponsesCommand;
 use crate::responses_cmd::run_responses_command;
+use crate::tt_cmd::TtCli;
+use crate::tt_cmd::run_tt_command;
 
 use codex_core::build_models_manager;
 use codex_core::clear_memory_roots_contents;
@@ -174,6 +177,9 @@ enum Subcommand {
 
     /// Inspect feature flags.
     Features(FeaturesCli),
+
+    /// Manage TT project orchestration.
+    Tt(TtCli),
 }
 
 #[derive(Debug, Parser)]
@@ -1179,6 +1185,14 @@ async fn cli_main(arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()> {
                 disable_feature_in_config(&interactive, &feature).await?;
             }
         },
+        Some(Subcommand::Tt(tt_cli)) => {
+            reject_remote_mode_for_subcommand(
+                root_remote.as_deref(),
+                root_remote_auth_token_env.as_deref(),
+                "tt",
+            )?;
+            run_tt_command(tt_cli)?;
+        }
     }
 
     Ok(())
@@ -2420,6 +2434,30 @@ mod tests {
             panic!("expected features disable");
         };
         assert_eq!(feature, "shell_tool");
+    }
+
+    #[test]
+    fn tt_init_parses() {
+        let cli = MultitoolCli::try_parse_from([
+            "codex",
+            "tt",
+            "init",
+            "--primary-repo",
+            "repo-name",
+            "--worktrees-dir",
+            "worktrees",
+        ])
+        .expect("parse should succeed");
+
+        assert!(matches!(cli.subcommand, Some(Subcommand::Tt(_))));
+    }
+
+    #[test]
+    fn tt_status_parses() {
+        let cli =
+            MultitoolCli::try_parse_from(["codex", "tt", "status"]).expect("parse should succeed");
+
+        assert!(matches!(cli.subcommand, Some(Subcommand::Tt(_))));
     }
 
     #[test]
