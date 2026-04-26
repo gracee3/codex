@@ -43,6 +43,7 @@ mod marketplace_cmd;
 mod mcp_cmd;
 mod responses_cmd;
 mod tt_cmd;
+mod tt_runtime;
 #[cfg(not(windows))]
 mod wsl_paths;
 
@@ -52,6 +53,7 @@ use crate::responses_cmd::ResponsesCommand;
 use crate::responses_cmd::run_responses_command;
 use crate::tt_cmd::TtCli;
 use crate::tt_cmd::run_tt_command;
+use crate::tt_runtime::maybe_resolve_tt_app_server;
 
 use codex_core::build_models_manager;
 use codex_core::clear_memory_roots_contents;
@@ -1477,7 +1479,7 @@ fn read_remote_auth_token_from_env_var(env_var_name: &str) -> anyhow::Result<Str
 
 async fn run_interactive_tui(
     mut interactive: TuiCli,
-    remote: Option<String>,
+    mut remote: Option<String>,
     remote_auth_token_env: Option<String>,
     arg0_paths: Arg0DispatchPaths,
 ) -> std::io::Result<AppExitInfo> {
@@ -1501,6 +1503,19 @@ async fn run_interactive_tui(
             return Ok(AppExitInfo::fatal(
                 "Refusing to start the interactive TUI because TERM is set to \"dumb\". Run in a supported terminal or unset TERM.",
             ));
+        }
+    }
+
+    if remote.is_none() {
+        let cwd = match interactive.cwd.clone() {
+            Some(cwd) => cwd,
+            None => std::env::current_dir()?,
+        };
+        if let Some(connection) = maybe_resolve_tt_app_server(&cwd, &arg0_paths).await? {
+            remote = Some(connection.websocket_url);
+            if interactive.cwd.is_none() {
+                interactive.cwd = Some(cwd);
+            }
         }
     }
 
