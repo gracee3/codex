@@ -10,6 +10,7 @@ use clap::Subcommand;
 use codex_tt_core::DEFAULT_WORKTREES_DIR;
 use codex_tt_core::InitOptions;
 use codex_tt_core::TtProject;
+use codex_tt_core::discover_worktrees;
 use codex_tt_core::init_project;
 use codex_tt_core::read_runtime_registration;
 
@@ -95,6 +96,27 @@ fn run_status() -> Result<()> {
     println!("primary: {}", project.primary_repo().display());
     println!("worktrees: {}", project.worktrees_dir().display());
     println!("config: {}", project.config_path().display());
+    match discover_worktrees(&project) {
+        Ok(worktrees) if worktrees.is_empty() => {
+            println!("git_worktrees: <none>");
+        }
+        Ok(worktrees) => {
+            println!("git_worktrees:");
+            for worktree in worktrees {
+                let role = if worktree.is_primary {
+                    "primary"
+                } else {
+                    "worktree"
+                };
+                let branch = worktree.branch.as_deref().unwrap_or("<detached>");
+                let head = worktree.head.as_deref().unwrap_or("<unknown>");
+                println!("  - {role} {branch} {head} {}", worktree.path.display());
+            }
+        }
+        Err(err) => {
+            println!("git_worktrees: unavailable: {err:#}");
+        }
+    }
     match read_runtime_registration(&project)? {
         Some(registration) => {
             println!("runtime: {}", registration.endpoint);
