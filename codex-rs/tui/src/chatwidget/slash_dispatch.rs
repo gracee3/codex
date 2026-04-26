@@ -829,58 +829,6 @@ impl ChatWidget {
         }
     }
 
-    fn send_tt_ack(&mut self, note: Option<&str>) {
-        let Some(worker_thread_id) = self.tt_thread_id() else {
-            self.add_error_message(
-                "'/tt ack' is unavailable before the session starts.".to_string(),
-            );
-            return;
-        };
-        let target = match crate::tt::supervisor_target_for_cwd(self.tt_cwd(), &worker_thread_id) {
-            Ok(Some(target)) => target,
-            Ok(None) => {
-                self.add_error_message("No TT supervisor thread is registered.".to_string());
-                return;
-            }
-            Err(err) => {
-                self.add_error_message(format!("TT supervisor discovery failed: {err:#}"));
-                return;
-            }
-        };
-        let supervisor_thread_id = match ThreadId::from_string(&target.thread_id) {
-            Ok(thread_id) => thread_id,
-            Err(err) => {
-                self.add_error_message(format!(
-                    "TT supervisor thread id {} is invalid: {err}",
-                    target.thread_id
-                ));
-                return;
-            }
-        };
-        let body = match crate::tt::worker_ack_body(self.tt_cwd(), &worker_thread_id, note) {
-            Ok(body) => body,
-            Err(err) => {
-                self.add_error_message(format!("TT ack failed: {err:#}"));
-                return;
-            }
-        };
-        let op = match self.tt_user_turn_op(target.cwd.clone(), body) {
-            Ok(op) => op,
-            Err(message) => {
-                self.add_error_message(message);
-                return;
-            }
-        };
-        self.app_event_tx.send(AppEvent::SubmitThreadOp {
-            thread_id: supervisor_thread_id,
-            op,
-        });
-        self.add_info_message(
-            format!("TT ack sent to {} at {}.", target.name, target.location),
-            /*hint*/ None,
-        );
-    }
-
     pub(crate) fn tt_user_turn_op(&self, cwd: PathBuf, body: String) -> Result<Op, String> {
         let effective_mode = self.effective_collaboration_mode();
         if effective_mode.model().trim().is_empty() {
@@ -979,11 +927,6 @@ impl ChatWidget {
             [] | ["status"] => self.show_tt_status(),
             ["threads"] => self.show_tt_roster(crate::tt::TtRosterScope::All),
             ["workers"] => self.show_tt_roster(crate::tt::TtRosterScope::Workers),
-            ["ack"] => self.send_tt_ack(/*note*/ None),
-            ["ack", ..] => {
-                let note = args.strip_prefix("ack").map(str::trim).filter(|note| !note.is_empty());
-                self.send_tt_ack(note);
-            }
             ["role", role] => {
                 let role = match *role {
                     "supervisor" => TtThreadRole::Supervisor,
@@ -1031,7 +974,7 @@ impl ChatWidget {
                 }
             }
             _ => self.add_error_message(
-                "Usage: /tt [status] | /tt threads | /tt workers | /tt ack [note] | /tt role supervisor|worker | /tt report on|off|status"
+                "Usage: /tt [status] | /tt threads | /tt workers | /tt role supervisor|worker | /tt report on|off|status"
                     .to_string(),
             ),
         }

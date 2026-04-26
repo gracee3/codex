@@ -139,18 +139,14 @@ pub(crate) fn supervisor_target_for_cwd(
     Ok(supervisors.into_iter().next())
 }
 
-pub(crate) fn worker_ack_body(cwd: &Path, _thread_id: &str, note: Option<&str>) -> Result<String> {
+fn worker_relay_body(cwd: &Path, note: &str) -> Result<String> {
     let Some(project) = TtProject::discover_from(cwd)? else {
         anyhow::bail!("no TT project discovered from {}", cwd.display());
     };
     let repos = discover_repositories(&project)?;
     let worktrees = discover_worktrees_for_repositories(&repos)?;
     let location = thread_label_for_cwd(&project, cwd, &worktrees);
-    let body = match note.map(str::trim).filter(|note| !note.is_empty()) {
-        Some(note) => format!("TT from {location}:\n{note}"),
-        None => format!("TT from {location}: available"),
-    };
-    Ok(body)
+    Ok(format!("TT from {location}:\n{}", note.trim()))
 }
 
 pub(crate) fn reporting_worker_relay(
@@ -180,10 +176,7 @@ pub(crate) fn reporting_worker_relay(
     let Some(target) = target else {
         return Ok(None);
     };
-    Ok(Some((
-        target,
-        worker_ack_body(cwd, current_thread_id, Some(message))?,
-    )))
+    Ok(Some((target, worker_relay_body(cwd, message)?)))
 }
 
 pub(crate) fn supervisor_assignment(
@@ -594,7 +587,7 @@ mod tests {
     }
 
     #[test]
-    fn supervisor_target_skips_current_thread_and_formats_ack() {
+    fn supervisor_target_skips_current_thread() {
         let temp = tt_project();
         auto_register_thread(temp.path(), "supervisor").expect("supervisor");
         set_thread_reporting(temp.path(), "worker", /*reporting*/ true).expect("worker");
@@ -602,8 +595,6 @@ mod tests {
         let target = supervisor_target_for_cwd(temp.path(), "worker")
             .expect("target")
             .expect("supervisor target");
-        let body =
-            worker_ack_body(temp.path(), "worker", Some("ready for tests")).expect("ack body");
         let project_name = temp
             .path()
             .file_name()
@@ -619,7 +610,6 @@ mod tests {
                 cwd: temp.path().to_path_buf(),
             }
         );
-        assert_eq!(body, format!("TT from {project_name}:\nready for tests"));
     }
 
     #[test]
