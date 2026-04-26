@@ -2453,16 +2453,9 @@ mod tests {
 
     #[test]
     fn tt_init_parses() {
-        let cli = MultitoolCli::try_parse_from([
-            "codex",
-            "tt",
-            "init",
-            "--primary-repo",
-            "repo-name",
-            "--worktrees-dir",
-            "worktrees",
-        ])
-        .expect("parse should succeed");
+        let cli =
+            MultitoolCli::try_parse_from(["codex", "tt", "init", "--worktrees-dir", "worktrees"])
+                .expect("parse should succeed");
 
         assert!(matches!(cli.subcommand, Some(Subcommand::Tt(_))));
     }

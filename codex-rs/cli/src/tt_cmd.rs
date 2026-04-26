@@ -13,13 +13,14 @@ use codex_tt_core::TtProject;
 use codex_tt_core::TtThreadRecord;
 use codex_tt_core::TtThreadRole;
 use codex_tt_core::WorktreeInfo;
-use codex_tt_core::discover_worktrees;
+use codex_tt_core::discover_repositories;
+use codex_tt_core::discover_worktrees_for_repositories;
 use codex_tt_core::init_project;
 use codex_tt_core::load_thread_registry;
 use codex_tt_core::read_runtime_registration;
+use codex_tt_core::thread_label_for_cwd;
 use codex_tt_core::thread_name_for_cwd;
 use codex_tt_core::upsert_thread_record;
-use codex_tt_core::worktree_label_for_cwd;
 
 #[derive(Debug, Parser)]
 #[command(bin_name = "codex tt")]
@@ -48,10 +49,6 @@ struct TtInitArgs {
     /// TT project root. Defaults to the parent of the current git repo.
     #[arg(long)]
     project_root: Option<PathBuf>,
-
-    /// Primary repo path relative to the TT project root.
-    #[arg(long)]
-    primary_repo: Option<PathBuf>,
 
     /// Worktrees directory relative to the TT project root.
     #[arg(long, default_value = DEFAULT_WORKTREES_DIR)]
@@ -101,25 +98,14 @@ pub(crate) fn run_tt_command(cli: TtCli) -> Result<()> {
 fn run_init(args: TtInitArgs) -> Result<()> {
     let defaults = infer_init_defaults()?;
     let project_root = args.project_root.unwrap_or(defaults.project_root);
-    let primary_repo = match args.primary_repo {
-        Some(primary_repo) => primary_repo,
-        None => relative_path(&project_root, &defaults.primary_repo).with_context(|| {
-            format!(
-                "infer primary repo path relative to {}",
-                project_root.display()
-            )
-        })?,
-    };
 
     let summary = init_project(InitOptions {
         project_root,
-        primary_repo,
         worktrees_dir: args.worktrees_dir,
     })?;
 
     println!("TT project initialized");
     println!("root: {}", summary.project.root().display());
-    println!("primary: {}", summary.project.primary_repo().display());
     println!("worktrees: {}", summary.project.worktrees_dir().display());
     if summary.created_paths.is_empty() {
         println!("created: <none>");
@@ -146,21 +132,22 @@ fn run_thread_list() -> Result<()> {
         println!("threads: <none>");
         return Ok(());
     }
-    let worktrees = discover_worktrees(&project).unwrap_or_default();
+    let repos = discover_repositories(&project).unwrap_or_default();
+    let worktrees = discover_worktrees_for_repositories(&repos).unwrap_or_default();
 
     println!("threads:");
     for thread in registry.threads {
         let name = thread.name.as_deref().unwrap_or("<unnamed>");
-        let branch = worktree_label_for_cwd(&thread.cwd, &worktrees);
+        let location = thread_label_for_cwd(&project, &thread.cwd, &worktrees);
         let pid = thread
             .pid
             .map(|pid| pid.to_string())
             .unwrap_or_else(|| "<none>".to_string());
         println!(
-            "  - {} {} branch={} name={} pid={} cwd={}",
+            "  - {} {} location={} name={} pid={} cwd={}",
             thread.role.as_str(),
             thread.thread_id,
-            branch,
+            location,
             name,
             pid,
             thread.cwd.display()
@@ -175,10 +162,11 @@ fn run_thread_register(args: TtThreadRegisterArgs) -> Result<()> {
         Some(cwd) => cwd,
         None => std::env::current_dir().context("resolve current directory")?,
     };
-    let worktrees = discover_worktrees(&project).unwrap_or_default();
+    let repos = discover_repositories(&project).unwrap_or_default();
+    let worktrees = discover_worktrees_for_repositories(&repos).unwrap_or_default();
     let name = args
         .name
-        .or_else(|| Some(thread_name_for_cwd(args.role, &cwd, &worktrees)));
+        .or_else(|| Some(thread_name_for_cwd(&project, args.role, &cwd, &worktrees)));
     let record = TtThreadRecord::new(
         args.role,
         args.thread_id,
@@ -195,10 +183,20 @@ fn run_status() -> Result<()> {
     let project = discover_project_from_current_dir()?;
 
     println!("root: {}", project.root().display());
-    println!("primary: {}", project.primary_repo().display());
     println!("worktrees: {}", project.worktrees_dir().display());
     println!("config: {}", project.config_path().display());
-    let discovered_worktrees = match discover_worktrees(&project) {
+    let repos = discover_repositories(&project)?;
+    if repos.is_empty() {
+        println!("repos: <none>");
+    } else {
+        println!("repos:");
+        for repo in &repos {
+            let branch = repo.branch.as_deref().unwrap_or("<detached>");
+            let head = repo.head.as_deref().unwrap_or("<unknown>");
+            println!("  - {} {branch} {head} {}", repo.name, repo.path.display());
+        }
+    }
+    let discovered_worktrees = match discover_worktrees_for_repositories(&repos) {
         Ok(worktrees) if worktrees.is_empty() => {
             println!("git_worktrees: <none>");
             Vec::new()
@@ -206,14 +204,18 @@ fn run_status() -> Result<()> {
         Ok(worktrees) => {
             println!("git_worktrees:");
             for worktree in &worktrees {
-                let role = if worktree.is_primary {
-                    "primary"
+                let role = if worktree.is_repo_root {
+                    "repo"
                 } else {
                     "worktree"
                 };
                 let branch = worktree.branch.as_deref().unwrap_or("<detached>");
                 let head = worktree.head.as_deref().unwrap_or("<unknown>");
-                println!("  - {role} {branch} {head} {}", worktree.path.display());
+                println!(
+                    "  - {} {role} {branch} {head} {}",
+                    worktree.repo_name,
+                    worktree.path.display()
+                );
             }
             worktrees
         }
@@ -251,16 +253,16 @@ fn print_thread_registry_summary(project: &TtProject, worktrees: &[WorktreeInfo]
         println!("threads:");
         for thread in registry.threads {
             let name = thread.name.as_deref().unwrap_or("<unnamed>");
-            let branch = worktree_label_for_cwd(&thread.cwd, worktrees);
+            let location = thread_label_for_cwd(project, &thread.cwd, worktrees);
             let pid = thread
                 .pid
                 .map(|pid| pid.to_string())
                 .unwrap_or_else(|| "<none>".to_string());
             println!(
-                "  - {} {} branch={} name={} pid={} cwd={}",
+                "  - {} {} location={} name={} pid={} cwd={}",
                 thread.role.as_str(),
                 thread.thread_id,
-                branch,
+                location,
                 name,
                 pid,
                 thread.cwd.display()
@@ -272,7 +274,6 @@ fn print_thread_registry_summary(project: &TtProject, worktrees: &[WorktreeInfo]
 
 struct InitDefaults {
     project_root: PathBuf,
-    primary_repo: PathBuf,
 }
 
 fn infer_init_defaults() -> Result<InitDefaults> {
@@ -282,16 +283,10 @@ fn infer_init_defaults() -> Result<InitDefaults> {
             .parent()
             .map(Path::to_path_buf)
             .with_context(|| format!("git root has no parent: {}", git_root.display()))?;
-        return Ok(InitDefaults {
-            project_root,
-            primary_repo: git_root,
-        });
+        return Ok(InitDefaults { project_root });
     }
 
-    Ok(InitDefaults {
-        project_root: cwd,
-        primary_repo: PathBuf::from("primary"),
-    })
+    Ok(InitDefaults { project_root: cwd })
 }
 
 fn git_root_for(cwd: &Path) -> Result<Option<PathBuf>> {
@@ -309,26 +304,4 @@ fn git_root_for(cwd: &Path) -> Result<Option<PathBuf>> {
         return Ok(None);
     }
     Ok(Some(PathBuf::from(root)))
-}
-
-fn relative_path(root: &Path, path: &Path) -> Result<PathBuf> {
-    let root = canonical_or_logical(root)?;
-    let path = canonical_or_logical(path)?;
-    Ok(path
-        .strip_prefix(&root)
-        .with_context(|| format!("{} is not inside {}", path.display(), root.display()))?
-        .to_path_buf())
-}
-
-fn canonical_or_logical(path: &Path) -> Result<PathBuf> {
-    if path.exists() {
-        return std::fs::canonicalize(path)
-            .with_context(|| format!("canonicalize {}", path.display()));
-    }
-    if path.is_absolute() {
-        return Ok(path.to_path_buf());
-    }
-    Ok(std::env::current_dir()
-        .context("resolve current directory")?
-        .join(path))
 }

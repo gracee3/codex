@@ -79,7 +79,7 @@ async fn spawn_tt_app_server(
         .arg("app-server")
         .arg("--listen")
         .arg(TT_APP_SERVER_LISTEN_URL)
-        .current_dir(project.primary_repo())
+        .current_dir(project.root())
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::piped())

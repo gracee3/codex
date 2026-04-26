@@ -26,23 +26,18 @@ pub struct TtProject {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TtConfig {
-    pub primary_repo: PathBuf,
     pub worktrees_dir: PathBuf,
 }
 
 impl TtConfig {
-    pub fn new(primary_repo: PathBuf, worktrees_dir: PathBuf) -> Self {
-        Self {
-            primary_repo,
-            worktrees_dir,
-        }
+    pub fn new(worktrees_dir: PathBuf) -> Self {
+        Self { worktrees_dir }
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InitOptions {
     pub project_root: PathBuf,
-    pub primary_repo: PathBuf,
     pub worktrees_dir: PathBuf,
 }
 
@@ -61,11 +56,20 @@ pub struct RuntimeRegistration {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct WorktreeInfo {
+pub struct RepoInfo {
+    pub name: String,
     pub path: PathBuf,
     pub branch: Option<String>,
     pub head: Option<String>,
-    pub is_primary: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorktreeInfo {
+    pub repo_name: String,
+    pub path: PathBuf,
+    pub branch: Option<String>,
+    pub head: Option<String>,
+    pub is_repo_root: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -187,10 +191,6 @@ impl TtProject {
         self.tt_dir().join(CONFIG_FILE)
     }
 
-    pub fn primary_repo(&self) -> PathBuf {
-        self.root.join(&self.config.primary_repo)
-    }
-
     pub fn worktrees_dir(&self) -> PathBuf {
         self.root.join(&self.config.worktrees_dir)
     }
@@ -224,17 +224,14 @@ impl TtProject {
 pub fn init_project(options: InitOptions) -> Result<InitSummary> {
     let project_root = absolute_logical_path(&options.project_root)
         .with_context(|| format!("resolve project root {}", options.project_root.display()))?;
-    let primary_repo = normalize_relative_path(&options.primary_repo)
-        .context("primary repo path must be relative to the TT project root")?;
     let worktrees_dir = normalize_relative_path(&options.worktrees_dir)
         .context("worktrees dir must be relative to the TT project root")?;
-    let config = TtConfig::new(primary_repo, worktrees_dir);
+    let config = TtConfig::new(worktrees_dir);
     let project = TtProject::new(project_root, config);
 
     let mut created_paths = Vec::new();
     create_dir_if_missing(&project.tt_dir(), &mut created_paths)?;
     create_dir_if_missing(&project.codex_home(), &mut created_paths)?;
-    create_dir_if_missing(&project.primary_repo(), &mut created_paths)?;
     create_dir_if_missing(&project.worktrees_dir(), &mut created_paths)?;
     create_dir_if_missing(&project.runtime_dir(), &mut created_paths)?;
 
@@ -308,25 +305,77 @@ pub fn upsert_thread_record(project: &TtProject, record: TtThreadRecord) -> Resu
     save_thread_registry(project, &registry)
 }
 
+pub fn discover_repositories(project: &TtProject) -> Result<Vec<RepoInfo>> {
+    let mut repos = Vec::new();
+    for entry in fs::read_dir(project.root())
+        .with_context(|| format!("read TT project root {}", project.root().display()))?
+    {
+        let entry =
+            entry.with_context(|| format!("read entry under {}", project.root().display()))?;
+        let file_type = entry
+            .file_type()
+            .with_context(|| format!("read file type for {}", entry.path().display()))?;
+        if !file_type.is_dir() {
+            continue;
+        }
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else {
+            continue;
+        };
+        if is_reserved_project_dir(project, name, &entry.path()) {
+            continue;
+        }
+        let path = entry.path();
+        if !is_git_repo_root(&path) {
+            continue;
+        }
+        repos.push(RepoInfo {
+            name: name.to_string(),
+            branch: git_branch_for(&path)?,
+            head: git_head_for(&path)?,
+            path,
+        });
+    }
+    repos.sort_by(|left, right| left.name.cmp(&right.name));
+    Ok(repos)
+}
+
 pub fn discover_worktrees(project: &TtProject) -> Result<Vec<WorktreeInfo>> {
+    let repos = discover_repositories(project)?;
+    discover_worktrees_for_repositories(&repos)
+}
+
+pub fn discover_worktrees_for_repositories(repos: &[RepoInfo]) -> Result<Vec<WorktreeInfo>> {
+    let mut worktrees = Vec::new();
+    for repo in repos {
+        worktrees.extend(discover_worktrees_for_repository(repo)?);
+    }
+    worktrees.sort_by(|left, right| {
+        left.repo_name
+            .cmp(&right.repo_name)
+            .then_with(|| left.branch.cmp(&right.branch))
+            .then_with(|| left.path.cmp(&right.path))
+    });
+    Ok(worktrees)
+}
+
+fn discover_worktrees_for_repository(repo: &RepoInfo) -> Result<Vec<WorktreeInfo>> {
     let output = Command::new("git")
         .args(["worktree", "list", "--porcelain"])
-        .current_dir(project.primary_repo())
+        .current_dir(&repo.path)
         .output()
         .with_context(|| {
             format!(
-                "list git worktrees from primary repo {}",
-                project.primary_repo().display()
+                "list git worktrees from repo {} at {}",
+                repo.name,
+                repo.path.display()
             )
         })?;
     if !output.status.success() {
-        anyhow::bail!(
-            "git worktree list failed for {}",
-            project.primary_repo().display()
-        );
+        anyhow::bail!("git worktree list failed for {}", repo.path.display());
     }
     let stdout = String::from_utf8(output.stdout).context("parse git worktree list as utf-8")?;
-    parse_git_worktree_porcelain(&stdout, &project.primary_repo())
+    parse_git_worktree_porcelain(&stdout, repo)
 }
 
 pub fn worktree_for_cwd<'a>(worktrees: &'a [WorktreeInfo], cwd: &Path) -> Option<&'a WorktreeInfo> {
@@ -342,25 +391,43 @@ pub fn worktree_for_cwd<'a>(worktrees: &'a [WorktreeInfo], cwd: &Path) -> Option
         .map(|(_, worktree)| worktree)
 }
 
-pub fn thread_name_for_cwd(role: TtThreadRole, cwd: &Path, worktrees: &[WorktreeInfo]) -> String {
+pub fn thread_name_for_cwd(
+    project: &TtProject,
+    role: TtThreadRole,
+    cwd: &Path,
+    worktrees: &[WorktreeInfo],
+) -> String {
     let role_name = match role {
         TtThreadRole::Supervisor => "Supervisor",
         TtThreadRole::Worker => "Worker",
     };
     format!(
         "TT {role_name} - {}",
-        worktree_label_for_cwd(cwd, worktrees)
+        thread_label_for_cwd(project, cwd, worktrees)
     )
+}
+
+pub fn thread_label_for_cwd(project: &TtProject, cwd: &Path, worktrees: &[WorktreeInfo]) -> String {
+    let cwd = normalize_existing_path(cwd);
+    if cwd == normalize_existing_path(project.root()) {
+        return project_name(project).to_string();
+    }
+    worktree_label_for_cwd(&cwd, worktrees)
 }
 
 pub fn worktree_label_for_cwd(cwd: &Path, worktrees: &[WorktreeInfo]) -> String {
     if let Some(worktree) = worktree_for_cwd(worktrees, cwd) {
-        if let Some(branch) = worktree.branch.as_deref() {
-            return branch.to_string();
-        }
-        if let Some(head) = worktree.head.as_deref() {
-            return format!("detached@{}", short_commit(head));
-        }
+        let branch = worktree.branch.as_deref().map(str::to_string).or_else(|| {
+            worktree
+                .head
+                .as_deref()
+                .map(|head| format!("detached@{}", short_commit(head)))
+        });
+        return format!(
+            "{}:{}",
+            worktree.repo_name,
+            branch.unwrap_or_else(|| "unknown".to_string())
+        );
     }
 
     cwd.file_name()
@@ -381,16 +448,13 @@ fn read_project_at(root: &Path) -> Result<Option<TtProject>> {
             Err(_) => return Ok(None),
         }
     } else {
-        TtConfig::new(
-            PathBuf::from("primary"),
-            PathBuf::from(DEFAULT_WORKTREES_DIR),
-        )
+        TtConfig::new(PathBuf::from(DEFAULT_WORKTREES_DIR))
     };
     Ok(Some(TtProject::new(root, config)))
 }
 
-fn parse_git_worktree_porcelain(contents: &str, primary_repo: &Path) -> Result<Vec<WorktreeInfo>> {
-    let primary_repo = normalize_existing_path(primary_repo);
+fn parse_git_worktree_porcelain(contents: &str, repo: &RepoInfo) -> Result<Vec<WorktreeInfo>> {
+    let repo_path = normalize_existing_path(&repo.path);
     let mut worktrees = Vec::new();
     let mut current_path: Option<PathBuf> = None;
     let mut current_branch: Option<String> = None;
@@ -401,7 +465,8 @@ fn parse_git_worktree_porcelain(contents: &str, primary_repo: &Path) -> Result<V
             if let Some(path) = current_path.take() {
                 let normalized_path = normalize_existing_path(&path);
                 worktrees.push(WorktreeInfo {
-                    is_primary: normalized_path == primary_repo,
+                    repo_name: repo.name.clone(),
+                    is_repo_root: normalized_path == repo_path,
                     path,
                     branch: current_branch.take(),
                     head: current_head.take(),
@@ -433,6 +498,62 @@ fn short_branch_name(branch: &str) -> String {
 
 fn short_commit(head: &str) -> &str {
     head.get(..7).unwrap_or(head)
+}
+
+fn git_branch_for(repo: &Path) -> Result<Option<String>> {
+    let output = Command::new("git")
+        .args(["symbolic-ref", "--quiet", "--short", "HEAD"])
+        .current_dir(repo)
+        .output()
+        .with_context(|| format!("read git branch for {}", repo.display()))?;
+    if !output.status.success() {
+        return Ok(None);
+    }
+    let stdout = String::from_utf8(output.stdout).context("parse git branch as utf-8")?;
+    let branch = stdout.trim();
+    if branch.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(branch.to_string()))
+    }
+}
+
+fn git_head_for(repo: &Path) -> Result<Option<String>> {
+    let output = Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(repo)
+        .output()
+        .with_context(|| format!("read git HEAD for {}", repo.display()))?;
+    if !output.status.success() {
+        return Ok(None);
+    }
+    let stdout = String::from_utf8(output.stdout).context("parse git HEAD as utf-8")?;
+    let head = stdout.trim();
+    if head.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(head.to_string()))
+    }
+}
+
+fn is_git_repo_root(path: &Path) -> bool {
+    path.join(".git").exists()
+}
+
+fn is_reserved_project_dir(project: &TtProject, name: &str, path: &Path) -> bool {
+    name == TT_DIR
+        || name == CODEX_DIR
+        || normalize_existing_path(path) == normalize_existing_path(&project.worktrees_dir())
+        || name.starts_with('.')
+}
+
+fn project_name(project: &TtProject) -> &str {
+    project
+        .root()
+        .file_name()
+        .and_then(|name| name.to_str())
+        .filter(|name| !name.is_empty())
+        .unwrap_or("ttproj")
 }
 
 fn normalize_existing_path(path: &Path) -> PathBuf {
@@ -498,15 +619,10 @@ mod tests {
         let temp = TempDir::new().expect("tempdir");
         let summary = init_project(InitOptions {
             project_root: temp.path().to_path_buf(),
-            primary_repo: PathBuf::from("repo-name"),
             worktrees_dir: PathBuf::from("worktrees"),
         })
         .expect("init project");
 
-        assert_eq!(
-            summary.project.primary_repo(),
-            temp.path().join("repo-name")
-        );
         assert_eq!(
             summary.project.worktrees_dir(),
             temp.path().join("worktrees")
@@ -521,7 +637,6 @@ mod tests {
         let temp = TempDir::new().expect("tempdir");
         init_project(InitOptions {
             project_root: temp.path().to_path_buf(),
-            primary_repo: PathBuf::from("repo-name"),
             worktrees_dir: PathBuf::from("worktrees"),
         })
         .expect("init project");
@@ -533,7 +648,7 @@ mod tests {
             .expect("project discovered");
 
         assert_eq!(project.root(), temp.path());
-        assert_eq!(project.config().primary_repo, PathBuf::from("repo-name"));
+        assert_eq!(project.config().worktrees_dir, PathBuf::from("worktrees"));
     }
 
     #[test]
@@ -541,7 +656,6 @@ mod tests {
         let temp = TempDir::new().expect("tempdir");
         let summary = init_project(InitOptions {
             project_root: temp.path().to_path_buf(),
-            primary_repo: PathBuf::from("repo-name"),
             worktrees_dir: PathBuf::from("worktrees"),
         })
         .expect("init project");
@@ -565,7 +679,6 @@ mod tests {
         let temp = TempDir::new().expect("tempdir");
         let summary = init_project(InitOptions {
             project_root: temp.path().to_path_buf(),
-            primary_repo: PathBuf::from("repo-name"),
             worktrees_dir: PathBuf::from("worktrees"),
         })
         .expect("init project");
@@ -581,7 +694,12 @@ mod tests {
 
     #[test]
     fn parses_git_worktree_porcelain() {
-        let primary = PathBuf::from("/tmp/ttproj/repo-name");
+        let repo = RepoInfo {
+            name: "repo-name".to_string(),
+            path: PathBuf::from("/tmp/ttproj/repo-name"),
+            branch: Some("main".to_string()),
+            head: Some("abc123".to_string()),
+        };
         let worktrees = parse_git_worktree_porcelain(
             "\
 worktree /tmp/ttproj/repo-name
@@ -596,7 +714,7 @@ worktree /tmp/ttproj/worktrees/detached
 HEAD fedcba
 detached
 ",
-            &primary,
+            &repo,
         )
         .expect("parse worktree porcelain");
 
@@ -604,22 +722,25 @@ detached
             worktrees,
             vec![
                 WorktreeInfo {
+                    repo_name: "repo-name".to_string(),
                     path: PathBuf::from("/tmp/ttproj/repo-name"),
                     branch: Some("main".to_string()),
                     head: Some("abc123".to_string()),
-                    is_primary: true,
+                    is_repo_root: true,
                 },
                 WorktreeInfo {
+                    repo_name: "repo-name".to_string(),
                     path: PathBuf::from("/tmp/ttproj/worktrees/feature-a"),
                     branch: Some("tt/feature/a".to_string()),
                     head: Some("def456".to_string()),
-                    is_primary: false,
+                    is_repo_root: false,
                 },
                 WorktreeInfo {
+                    repo_name: "repo-name".to_string(),
                     path: PathBuf::from("/tmp/ttproj/worktrees/detached"),
                     branch: None,
                     head: Some("fedcba".to_string()),
-                    is_primary: false,
+                    is_repo_root: false,
                 },
             ]
         );
@@ -629,16 +750,18 @@ detached
     fn worktree_for_cwd_selects_deepest_matching_worktree() {
         let worktrees = vec![
             WorktreeInfo {
+                repo_name: "repo-name".to_string(),
                 path: PathBuf::from("/tmp/ttproj/repo-name"),
                 branch: Some("main".to_string()),
                 head: Some("abc123".to_string()),
-                is_primary: true,
+                is_repo_root: true,
             },
             WorktreeInfo {
+                repo_name: "repo-name".to_string(),
                 path: PathBuf::from("/tmp/ttproj/repo-name/nested"),
                 branch: Some("nested".to_string()),
                 head: Some("def456".to_string()),
-                is_primary: false,
+                is_repo_root: false,
             },
         ];
 
@@ -650,42 +773,68 @@ detached
 
     #[test]
     fn thread_name_for_cwd_prefers_branch_name() {
+        let project = TtProject::new(
+            PathBuf::from("/tmp/ttproj"),
+            TtConfig::new(PathBuf::from("worktrees")),
+        );
         let worktrees = vec![WorktreeInfo {
+            repo_name: "repo-name".to_string(),
             path: PathBuf::from("/tmp/ttproj/worktrees/feature-a"),
             branch: Some("tt/feature/a".to_string()),
             head: Some("def456".to_string()),
-            is_primary: false,
+            is_repo_root: false,
         }];
 
         assert_eq!(
             thread_name_for_cwd(
+                &project,
                 TtThreadRole::Worker,
                 Path::new("/tmp/ttproj/worktrees/feature-a/codex-rs"),
                 &worktrees
             ),
-            "TT Worker - tt/feature/a"
+            "TT Worker - repo-name:tt/feature/a"
         );
     }
 
     #[test]
-    fn thread_name_for_cwd_uses_detached_head_or_directory_fallback() {
+    fn thread_name_for_cwd_uses_project_root_detached_head_or_directory_fallback() {
+        let project = TtProject::new(
+            PathBuf::from("/tmp/ttproj"),
+            TtConfig::new(PathBuf::from("worktrees")),
+        );
         let worktrees = vec![WorktreeInfo {
+            repo_name: "repo-name".to_string(),
             path: PathBuf::from("/tmp/ttproj/worktrees/detached"),
             branch: None,
             head: Some("fedcba9876543210".to_string()),
-            is_primary: false,
+            is_repo_root: false,
         }];
 
         assert_eq!(
             thread_name_for_cwd(
+                &project,
+                TtThreadRole::Supervisor,
+                Path::new("/tmp/ttproj"),
+                &worktrees
+            ),
+            "TT Supervisor - ttproj"
+        );
+        assert_eq!(
+            thread_name_for_cwd(
+                &project,
                 TtThreadRole::Supervisor,
                 Path::new("/tmp/ttproj/worktrees/detached"),
                 &worktrees
             ),
-            "TT Supervisor - detached@fedcba9"
+            "TT Supervisor - repo-name:detached@fedcba9"
         );
         assert_eq!(
-            thread_name_for_cwd(TtThreadRole::Worker, Path::new("/tmp/outside"), &worktrees),
+            thread_name_for_cwd(
+                &project,
+                TtThreadRole::Worker,
+                Path::new("/tmp/outside"),
+                &worktrees
+            ),
             "TT Worker - outside"
         );
     }
@@ -728,7 +877,6 @@ detached
         let temp = TempDir::new().expect("tempdir");
         let summary = init_project(InitOptions {
             project_root: temp.path().to_path_buf(),
-            primary_repo: PathBuf::from("repo-name"),
             worktrees_dir: PathBuf::from("worktrees"),
         })
         .expect("init project");
