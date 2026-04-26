@@ -15,6 +15,7 @@ pub const CODEX_DIR: &str = ".codex";
 pub const CONFIG_FILE: &str = "config.toml";
 pub const RUNTIME_DIR: &str = "runtime";
 pub const RUNTIME_FILE: &str = "app-server.json";
+pub const THREADS_FILE: &str = "threads.json";
 pub const DEFAULT_WORKTREES_DIR: &str = "worktrees";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -67,6 +68,89 @@ pub struct WorktreeInfo {
     pub is_primary: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TtThreadRole {
+    Supervisor,
+    Worker,
+}
+
+impl TtThreadRole {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Supervisor => "supervisor",
+            Self::Worker => "worker",
+        }
+    }
+}
+
+impl std::str::FromStr for TtThreadRole {
+    type Err = anyhow::Error;
+
+    fn from_str(value: &str) -> Result<Self> {
+        match value {
+            "supervisor" => Ok(Self::Supervisor),
+            "worker" => Ok(Self::Worker),
+            _ => anyhow::bail!("unknown TT thread role `{value}`"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TtThreadRecord {
+    pub role: TtThreadRole,
+    pub thread_id: String,
+    pub name: Option<String>,
+    pub cwd: PathBuf,
+    pub pid: Option<u32>,
+    pub registered_at_unix_secs: u64,
+}
+
+impl TtThreadRecord {
+    pub fn new(
+        role: TtThreadRole,
+        thread_id: String,
+        name: Option<String>,
+        cwd: PathBuf,
+        pid: Option<u32>,
+    ) -> Self {
+        Self {
+            role,
+            thread_id,
+            name,
+            cwd,
+            pid,
+            registered_at_unix_secs: unix_timestamp_secs(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TtThreadRegistry {
+    pub threads: Vec<TtThreadRecord>,
+}
+
+impl TtThreadRegistry {
+    pub fn upsert(&mut self, record: TtThreadRecord) {
+        if let Some(existing) = self
+            .threads
+            .iter_mut()
+            .find(|thread| thread.thread_id == record.thread_id)
+        {
+            *existing = record;
+        } else {
+            self.threads.push(record);
+        }
+        self.threads.sort_by(|left, right| {
+            left.role
+                .as_str()
+                .cmp(right.role.as_str())
+                .then_with(|| left.name.cmp(&right.name))
+                .then_with(|| left.thread_id.cmp(&right.thread_id))
+        });
+    }
+}
+
 impl RuntimeRegistration {
     pub fn new(pid: u32, endpoint: String) -> Self {
         Self {
@@ -117,6 +201,10 @@ impl TtProject {
 
     pub fn runtime_registration_path(&self) -> PathBuf {
         self.runtime_dir().join(RUNTIME_FILE)
+    }
+
+    pub fn thread_registry_path(&self) -> PathBuf {
+        self.runtime_dir().join(THREADS_FILE)
     }
 
     pub fn discover_from(start: &Path) -> Result<Option<Self>> {
@@ -186,6 +274,36 @@ pub fn write_runtime_registration(
             project.runtime_registration_path().display()
         )
     })
+}
+
+pub fn load_thread_registry(project: &TtProject) -> Result<TtThreadRegistry> {
+    let path = project.thread_registry_path();
+    if !path.exists() {
+        return Ok(TtThreadRegistry::default());
+    }
+    let contents = fs::read_to_string(&path)
+        .with_context(|| format!("read TT thread registry {}", path.display()))?;
+    serde_json::from_str(&contents)
+        .with_context(|| format!("parse TT thread registry {}", path.display()))
+}
+
+pub fn save_thread_registry(project: &TtProject, registry: &TtThreadRegistry) -> Result<()> {
+    fs::create_dir_all(project.runtime_dir())
+        .with_context(|| format!("create TT runtime dir {}", project.runtime_dir().display()))?;
+    let contents =
+        serde_json::to_string_pretty(registry).context("serialize TT thread registry")?;
+    fs::write(project.thread_registry_path(), format!("{contents}\n")).with_context(|| {
+        format!(
+            "write TT thread registry {}",
+            project.thread_registry_path().display()
+        )
+    })
+}
+
+pub fn upsert_thread_record(project: &TtProject, record: TtThreadRecord) -> Result<()> {
+    let mut registry = load_thread_registry(project)?;
+    registry.upsert(record);
+    save_thread_registry(project, &registry)
 }
 
 pub fn discover_worktrees(project: &TtProject) -> Result<Vec<WorktreeInfo>> {
@@ -431,6 +549,66 @@ detached
                     is_primary: false,
                 },
             ]
+        );
+    }
+
+    #[test]
+    fn thread_registry_upsert_replaces_existing_thread() {
+        let mut registry = TtThreadRegistry::default();
+        registry.upsert(TtThreadRecord::new(
+            TtThreadRole::Worker,
+            "thread-1".to_string(),
+            Some("first".to_string()),
+            PathBuf::from("/tmp/one"),
+            Some(1),
+        ));
+        registry.upsert(TtThreadRecord::new(
+            TtThreadRole::Supervisor,
+            "thread-1".to_string(),
+            Some("supervisor".to_string()),
+            PathBuf::from("/tmp/two"),
+            Some(2),
+        ));
+
+        assert_eq!(
+            registry,
+            TtThreadRegistry {
+                threads: vec![TtThreadRecord {
+                    role: TtThreadRole::Supervisor,
+                    thread_id: "thread-1".to_string(),
+                    name: Some("supervisor".to_string()),
+                    cwd: PathBuf::from("/tmp/two"),
+                    pid: Some(2),
+                    registered_at_unix_secs: registry.threads[0].registered_at_unix_secs,
+                }]
+            }
+        );
+    }
+
+    #[test]
+    fn thread_registry_round_trips() {
+        let temp = TempDir::new().expect("tempdir");
+        let summary = init_project(InitOptions {
+            project_root: temp.path().to_path_buf(),
+            primary_repo: PathBuf::from("repo-name"),
+            worktrees_dir: PathBuf::from("worktrees"),
+        })
+        .expect("init project");
+        let record = TtThreadRecord::new(
+            TtThreadRole::Supervisor,
+            "thread-supervisor".to_string(),
+            None,
+            temp.path().join("repo-name"),
+            None,
+        );
+
+        upsert_thread_record(&summary.project, record.clone()).expect("upsert thread");
+
+        assert_eq!(
+            load_thread_registry(&summary.project).expect("load registry"),
+            TtThreadRegistry {
+                threads: vec![record]
+            }
         );
     }
 }

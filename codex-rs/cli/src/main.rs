@@ -2476,6 +2476,33 @@ mod tests {
     }
 
     #[test]
+    fn tt_thread_list_parses() {
+        let cli = MultitoolCli::try_parse_from(["codex", "tt", "thread", "list"])
+            .expect("parse should succeed");
+
+        assert!(matches!(cli.subcommand, Some(Subcommand::Tt(_))));
+    }
+
+    #[test]
+    fn tt_thread_register_parses() {
+        let cli = MultitoolCli::try_parse_from([
+            "codex",
+            "tt",
+            "thread",
+            "register",
+            "--role",
+            "supervisor",
+            "--thread-id",
+            "thread-1",
+            "--name",
+            "operator",
+        ])
+        .expect("parse should succeed");
+
+        assert!(matches!(cli.subcommand, Some(Subcommand::Tt(_))));
+    }
+
+    #[test]
     fn feature_toggles_known_features_generate_overrides() {
         let toggles = FeatureToggles {
             enable: vec!["web_search_request".to_string()],

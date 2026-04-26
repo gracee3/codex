@@ -10,9 +10,13 @@ use clap::Subcommand;
 use codex_tt_core::DEFAULT_WORKTREES_DIR;
 use codex_tt_core::InitOptions;
 use codex_tt_core::TtProject;
+use codex_tt_core::TtThreadRecord;
+use codex_tt_core::TtThreadRole;
 use codex_tt_core::discover_worktrees;
 use codex_tt_core::init_project;
+use codex_tt_core::load_thread_registry;
 use codex_tt_core::read_runtime_registration;
+use codex_tt_core::upsert_thread_record;
 
 #[derive(Debug, Parser)]
 #[command(bin_name = "codex tt")]
@@ -28,6 +32,12 @@ enum TtSubcommand {
 
     /// Show the discovered TT project state.
     Status,
+
+    /// List or register TT thread records.
+    Thread {
+        #[command(subcommand)]
+        command: TtThreadCommand,
+    },
 }
 
 #[derive(Debug, Args)]
@@ -45,10 +55,43 @@ struct TtInitArgs {
     worktrees_dir: PathBuf,
 }
 
+#[derive(Debug, Subcommand)]
+enum TtThreadCommand {
+    /// List registered TT threads.
+    List,
+
+    /// Register or update a TT thread record.
+    Register(TtThreadRegisterArgs),
+}
+
+#[derive(Debug, Args)]
+struct TtThreadRegisterArgs {
+    /// Thread role in the TT project.
+    #[arg(long)]
+    role: TtThreadRole,
+
+    /// App-server thread id.
+    #[arg(long)]
+    thread_id: String,
+
+    /// Optional display name.
+    #[arg(long)]
+    name: Option<String>,
+
+    /// Thread working directory. Defaults to the current directory.
+    #[arg(long)]
+    cwd: Option<PathBuf>,
+
+    /// Process id for the Codex process that owns this registration.
+    #[arg(long)]
+    pid: Option<u32>,
+}
+
 pub(crate) fn run_tt_command(cli: TtCli) -> Result<()> {
     match cli.command {
         TtSubcommand::Init(args) => run_init(args),
         TtSubcommand::Status => run_status(),
+        TtSubcommand::Thread { command } => run_thread_command(command),
     }
 }
 
@@ -86,11 +129,60 @@ fn run_init(args: TtInitArgs) -> Result<()> {
     Ok(())
 }
 
-fn run_status() -> Result<()> {
-    let cwd = std::env::current_dir().context("resolve current directory")?;
-    let Some(project) = TtProject::discover_from(&cwd)? else {
-        anyhow::bail!("no TT project discovered from {}", cwd.display());
+fn run_thread_command(command: TtThreadCommand) -> Result<()> {
+    match command {
+        TtThreadCommand::List => run_thread_list(),
+        TtThreadCommand::Register(args) => run_thread_register(args),
+    }
+}
+
+fn run_thread_list() -> Result<()> {
+    let project = discover_project_from_current_dir()?;
+    let registry = load_thread_registry(&project)?;
+    if registry.threads.is_empty() {
+        println!("threads: <none>");
+        return Ok(());
+    }
+
+    println!("threads:");
+    for thread in registry.threads {
+        let name = thread.name.as_deref().unwrap_or("<unnamed>");
+        let pid = thread
+            .pid
+            .map(|pid| pid.to_string())
+            .unwrap_or_else(|| "<none>".to_string());
+        println!(
+            "  - {} {} name={} pid={} cwd={}",
+            thread.role.as_str(),
+            thread.thread_id,
+            name,
+            pid,
+            thread.cwd.display()
+        );
+    }
+    Ok(())
+}
+
+fn run_thread_register(args: TtThreadRegisterArgs) -> Result<()> {
+    let project = discover_project_from_current_dir()?;
+    let cwd = match args.cwd {
+        Some(cwd) => cwd,
+        None => std::env::current_dir().context("resolve current directory")?,
     };
+    let record = TtThreadRecord::new(
+        args.role,
+        args.thread_id,
+        args.name,
+        cwd,
+        args.pid.or_else(|| Some(std::process::id())),
+    );
+    upsert_thread_record(&project, record)?;
+    println!("thread registered");
+    Ok(())
+}
+
+fn run_status() -> Result<()> {
+    let project = discover_project_from_current_dir()?;
 
     println!("root: {}", project.root().display());
     println!("primary: {}", project.primary_repo().display());
@@ -125,6 +217,25 @@ fn run_status() -> Result<()> {
         None => {
             println!("runtime: <not registered>");
         }
+    }
+    print_thread_registry_summary(&project)?;
+    Ok(())
+}
+
+fn discover_project_from_current_dir() -> Result<TtProject> {
+    let cwd = std::env::current_dir().context("resolve current directory")?;
+    let Some(project) = TtProject::discover_from(&cwd)? else {
+        anyhow::bail!("no TT project discovered from {}", cwd.display());
+    };
+    Ok(project)
+}
+
+fn print_thread_registry_summary(project: &TtProject) -> Result<()> {
+    let registry = load_thread_registry(project)?;
+    if registry.threads.is_empty() {
+        println!("threads: <none>");
+    } else {
+        println!("threads: {}", registry.threads.len());
     }
     Ok(())
 }
