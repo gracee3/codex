@@ -51,6 +51,14 @@ pub(crate) struct TtRosterView {
     pub(crate) threads: Vec<TtRosterThreadView>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TtSupervisorTarget {
+    pub(crate) thread_id: String,
+    pub(crate) name: String,
+    pub(crate) location: String,
+    pub(crate) cwd: std::path::PathBuf,
+}
+
 pub(crate) fn status_for_cwd(cwd: &Path, thread_id: Option<&str>) -> Result<Option<TtStatusView>> {
     let Some(project) = TtProject::discover_from(cwd)? else {
         return Ok(None);
@@ -78,6 +86,63 @@ pub(crate) fn status_for_cwd(cwd: &Path, thread_id: Option<&str>) -> Result<Opti
         worktrees_count: worktrees.len(),
         threads_count: registry.threads.len(),
     }))
+}
+
+pub(crate) fn supervisor_target_for_cwd(
+    cwd: &Path,
+    current_thread_id: &str,
+) -> Result<Option<TtSupervisorTarget>> {
+    let Some(project) = TtProject::discover_from(cwd)? else {
+        return Ok(None);
+    };
+    let repos = discover_repositories(&project)?;
+    let worktrees = discover_worktrees_for_repositories(&repos)?;
+    let registry = load_thread_registry(&project)?;
+    let mut supervisors = registry
+        .threads
+        .into_iter()
+        .filter(|thread| {
+            thread.role == TtThreadRole::Supervisor && thread.thread_id != current_thread_id
+        })
+        .map(|thread| TtSupervisorTarget {
+            thread_id: thread.thread_id,
+            name: thread.name.unwrap_or_else(|| "TT Supervisor".to_string()),
+            location: thread_label_for_cwd(&project, &thread.cwd, &worktrees),
+            cwd: thread.cwd,
+        })
+        .collect::<Vec<_>>();
+    supervisors.sort_by(|left, right| {
+        left.location
+            .cmp(&right.location)
+            .then_with(|| left.name.cmp(&right.name))
+            .then_with(|| left.thread_id.cmp(&right.thread_id))
+    });
+    Ok(supervisors.into_iter().next())
+}
+
+pub(crate) fn worker_ack_body(cwd: &Path, thread_id: &str, note: Option<&str>) -> Result<String> {
+    let Some(project) = TtProject::discover_from(cwd)? else {
+        anyhow::bail!("no TT project discovered from {}", cwd.display());
+    };
+    let repos = discover_repositories(&project)?;
+    let worktrees = discover_worktrees_for_repositories(&repos)?;
+    let registry = load_thread_registry(&project)?;
+    let name = registry
+        .threads
+        .iter()
+        .find(|thread| thread.thread_id == thread_id)
+        .and_then(|thread| thread.name.clone())
+        .unwrap_or_else(|| thread_id.to_string());
+    let location = thread_label_for_cwd(&project, cwd, &worktrees);
+    let mut body = format!(
+        "TT worker ack\nworker: {name}\nthread: {thread_id}\nlocation: {location}\ncwd: {}\nstatus: available\n\nI am available for supervisor-directed work. Please acknowledge when ready.",
+        cwd.display()
+    );
+    if let Some(note) = note.map(str::trim).filter(|note| !note.is_empty()) {
+        body.push_str("\n\nnote: ");
+        body.push_str(note);
+    }
+    Ok(body)
 }
 
 pub(crate) fn roster_for_cwd(cwd: &Path, scope: TtRosterScope) -> Result<Option<TtRosterView>> {
@@ -359,6 +424,41 @@ mod tests {
                     name: "TT Worker - idle".to_string(),
                 },
             ]
+        );
+    }
+
+    #[test]
+    fn supervisor_target_skips_current_thread_and_formats_ack() {
+        let temp = tt_project();
+        auto_register_thread(temp.path(), "supervisor").expect("supervisor");
+        set_thread_reporting(temp.path(), "worker", /*reporting*/ true).expect("worker");
+
+        let target = supervisor_target_for_cwd(temp.path(), "worker")
+            .expect("target")
+            .expect("supervisor target");
+        let body =
+            worker_ack_body(temp.path(), "worker", Some("ready for tests")).expect("ack body");
+        let project_name = temp
+            .path()
+            .file_name()
+            .and_then(|name| name.to_str())
+            .expect("project name");
+
+        assert_eq!(
+            target,
+            TtSupervisorTarget {
+                thread_id: "supervisor".to_string(),
+                name: format!("TT Supervisor - {project_name}"),
+                location: project_name.to_string(),
+                cwd: temp.path().to_path_buf(),
+            }
+        );
+        assert_eq!(
+            body,
+            format!(
+                "TT worker ack\nworker: TT Worker - {project_name}\nthread: worker\nlocation: {project_name}\ncwd: {}\nstatus: available\n\nI am available for supervisor-directed work. Please acknowledge when ready.\n\nnote: ready for tests",
+                temp.path().display()
+            )
         );
     }
 

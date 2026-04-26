@@ -827,12 +827,112 @@ impl ChatWidget {
         }
     }
 
+    fn send_tt_ack(&mut self, note: Option<&str>) {
+        let Some(worker_thread_id) = self.tt_thread_id() else {
+            self.add_error_message(
+                "'/tt ack' is unavailable before the session starts.".to_string(),
+            );
+            return;
+        };
+        let target = match crate::tt::supervisor_target_for_cwd(self.tt_cwd(), &worker_thread_id) {
+            Ok(Some(target)) => target,
+            Ok(None) => {
+                self.add_error_message("No TT supervisor thread is registered.".to_string());
+                return;
+            }
+            Err(err) => {
+                self.add_error_message(format!("TT supervisor discovery failed: {err:#}"));
+                return;
+            }
+        };
+        let supervisor_thread_id = match ThreadId::from_string(&target.thread_id) {
+            Ok(thread_id) => thread_id,
+            Err(err) => {
+                self.add_error_message(format!(
+                    "TT supervisor thread id {} is invalid: {err}",
+                    target.thread_id
+                ));
+                return;
+            }
+        };
+        let body = match crate::tt::worker_ack_body(self.tt_cwd(), &worker_thread_id, note) {
+            Ok(body) => body,
+            Err(err) => {
+                self.add_error_message(format!("TT ack failed: {err:#}"));
+                return;
+            }
+        };
+        let effective_mode = self.effective_collaboration_mode();
+        if effective_mode.model().trim().is_empty() {
+            self.add_error_message(
+                "Thread model is unavailable; wait for session sync before sending TT ack."
+                    .to_string(),
+            );
+            return;
+        }
+        let collaboration_mode = if self.collaboration_modes_enabled() {
+            self.active_collaboration_mask
+                .as_ref()
+                .map(|_| effective_mode.clone())
+        } else {
+            None
+        };
+        let personality = self
+            .config
+            .personality
+            .filter(|_| self.config.features.enabled(Feature::Personality))
+            .filter(|_| self.current_model_supports_personality());
+        let service_tier = match self.config.service_tier {
+            Some(service_tier) => Some(Some(service_tier)),
+            None if self.config.notices.fast_default_opt_out == Some(true) => Some(None),
+            None => None,
+        };
+        let permission_profile = if matches!(
+            self.config.permissions.sandbox_policy.get(),
+            SandboxPolicy::ExternalSandbox { .. }
+        ) {
+            None
+        } else {
+            Some(self.config.permissions.permission_profile())
+        };
+        let op = AppCommand::user_turn(
+            vec![UserInput::Text {
+                text: body,
+                text_elements: Vec::new(),
+            }],
+            target.cwd.clone(),
+            self.config.permissions.approval_policy.value(),
+            self.config.permissions.sandbox_policy.get().clone(),
+            permission_profile,
+            effective_mode.model().to_string(),
+            effective_mode.reasoning_effort(),
+            /*summary*/ None,
+            service_tier,
+            /*final_output_json_schema*/ None,
+            collaboration_mode,
+            personality,
+        );
+        self.app_event_tx.send(AppEvent::SubmitThreadOp {
+            thread_id: supervisor_thread_id,
+            op: op.into_core(),
+        });
+        self.add_info_message(
+            format!("TT ack sent to {} at {}.", target.name, target.location),
+            /*hint*/ None,
+        );
+    }
+
     fn dispatch_tt_command(&mut self, args: &str) {
         let parts = args.split_whitespace().collect::<Vec<_>>();
         match parts.as_slice() {
             [] | ["status"] => self.show_tt_status(),
             ["threads"] => self.show_tt_roster(crate::tt::TtRosterScope::All),
             ["workers"] => self.show_tt_roster(crate::tt::TtRosterScope::Workers),
+            ["ack"] => self.send_tt_ack(/*note*/ None),
+            ["ack", ..] => {
+                let note = args.strip_prefix("ack").map(str::trim).filter(|note| !note.is_empty());
+                self.send_tt_ack(note);
+            }
             ["role", role] => {
                 let role = match *role {
                     "supervisor" => TtThreadRole::Supervisor,
@@ -880,7 +980,7 @@ impl ChatWidget {
                 }
             }
             _ => self.add_error_message(
-                "Usage: /tt [status] | /tt threads | /tt workers | /tt role supervisor|worker | /tt report on|off|status"
+                "Usage: /tt [status] | /tt threads | /tt workers | /tt ack [note] | /tt role supervisor|worker | /tt report on|off|status"
                     .to_string(),
             ),
         }
