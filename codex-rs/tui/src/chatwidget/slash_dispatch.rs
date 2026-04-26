@@ -777,10 +777,62 @@ impl ChatWidget {
         }
     }
 
+    fn show_tt_roster(&mut self, scope: crate::tt::TtRosterScope) {
+        match crate::tt::roster_for_cwd(self.tt_cwd(), scope) {
+            Ok(Some(roster)) => {
+                let title = match scope {
+                    crate::tt::TtRosterScope::All => "TT threads",
+                    crate::tt::TtRosterScope::Workers => "TT workers",
+                };
+                let mut lines = vec![format!("{title}: {}", roster.project_name)];
+                if roster.threads.is_empty() {
+                    lines.push("none registered".to_string());
+                } else {
+                    let role_width = roster
+                        .threads
+                        .iter()
+                        .map(|thread| thread.role.as_str().len())
+                        .max()
+                        .unwrap_or(0);
+                    let activation_width = roster
+                        .threads
+                        .iter()
+                        .map(|thread| thread.activation.as_str().len())
+                        .max()
+                        .unwrap_or(0);
+                    let location_width = roster
+                        .threads
+                        .iter()
+                        .map(|thread| thread.location.len())
+                        .max()
+                        .unwrap_or(0);
+                    for thread in roster.threads {
+                        lines.push(format!(
+                            "{role:<role_width$} {activation:<activation_width$} {location:<location_width$}  {name}",
+                            role = thread.role.as_str(),
+                            activation = thread.activation.as_str(),
+                            location = thread.location,
+                            name = thread.name,
+                        ));
+                    }
+                }
+                self.add_info_message(lines.join("\n"), /*hint*/ None);
+            }
+            Ok(None) => {
+                self.add_info_message("No TT project discovered.".to_string(), /*hint*/ None);
+            }
+            Err(err) => {
+                self.add_error_message(format!("TT roster failed: {err:#}"));
+            }
+        }
+    }
+
     fn dispatch_tt_command(&mut self, args: &str) {
         let parts = args.split_whitespace().collect::<Vec<_>>();
         match parts.as_slice() {
             [] | ["status"] => self.show_tt_status(),
+            ["threads"] => self.show_tt_roster(crate::tt::TtRosterScope::All),
+            ["workers"] => self.show_tt_roster(crate::tt::TtRosterScope::Workers),
             ["role", role] => {
                 let role = match *role {
                     "supervisor" => TtThreadRole::Supervisor,
@@ -828,7 +880,7 @@ impl ChatWidget {
                 }
             }
             _ => self.add_error_message(
-                "Usage: /tt [status] | /tt role supervisor|worker | /tt report on|off|status"
+                "Usage: /tt [status] | /tt threads | /tt workers | /tt role supervisor|worker | /tt report on|off|status"
                     .to_string(),
             ),
         }

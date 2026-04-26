@@ -31,6 +31,26 @@ pub(crate) struct TtStatusView {
     pub(crate) threads_count: usize,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TtRosterScope {
+    All,
+    Workers,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TtRosterThreadView {
+    pub(crate) role: TtThreadRole,
+    pub(crate) activation: TtThreadActivation,
+    pub(crate) location: String,
+    pub(crate) name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TtRosterView {
+    pub(crate) project_name: String,
+    pub(crate) threads: Vec<TtRosterThreadView>,
+}
+
 pub(crate) fn status_for_cwd(cwd: &Path, thread_id: Option<&str>) -> Result<Option<TtStatusView>> {
     let Some(project) = TtProject::discover_from(cwd)? else {
         return Ok(None);
@@ -57,6 +77,39 @@ pub(crate) fn status_for_cwd(cwd: &Path, thread_id: Option<&str>) -> Result<Opti
         repos_count: repos.len(),
         worktrees_count: worktrees.len(),
         threads_count: registry.threads.len(),
+    }))
+}
+
+pub(crate) fn roster_for_cwd(cwd: &Path, scope: TtRosterScope) -> Result<Option<TtRosterView>> {
+    let Some(project) = TtProject::discover_from(cwd)? else {
+        return Ok(None);
+    };
+    let repos = discover_repositories(&project)?;
+    let worktrees = discover_worktrees_for_repositories(&repos)?;
+    let registry = load_thread_registry(&project)?;
+    let mut threads = registry
+        .threads
+        .into_iter()
+        .filter(|thread| match scope {
+            TtRosterScope::All => true,
+            TtRosterScope::Workers => thread.role == TtThreadRole::Worker,
+        })
+        .map(|thread| TtRosterThreadView {
+            role: thread.role,
+            activation: thread.activation,
+            location: thread_label_for_cwd(&project, &thread.cwd, &worktrees),
+            name: thread.name.unwrap_or(thread.thread_id),
+        })
+        .collect::<Vec<_>>();
+    threads.sort_by(|left, right| {
+        roster_sort_key(left)
+            .cmp(&roster_sort_key(right))
+            .then_with(|| left.location.cmp(&right.location))
+            .then_with(|| left.name.cmp(&right.name))
+    });
+    Ok(Some(TtRosterView {
+        project_name: project_name(&project),
+        threads,
     }))
 }
 
@@ -197,6 +250,18 @@ fn default_role_for_cwd(project: &TtProject, cwd: &Path) -> TtThreadRole {
     }
 }
 
+fn roster_sort_key(thread: &TtRosterThreadView) -> (u8, u8) {
+    let role = match thread.role {
+        TtThreadRole::Supervisor => 0,
+        TtThreadRole::Worker => 1,
+    };
+    let activation = match thread.activation {
+        TtThreadActivation::Reporting => 0,
+        TtThreadActivation::Idle => 1,
+    };
+    (role, activation)
+}
+
 fn project_name(project: &TtProject) -> String {
     project
         .root()
@@ -255,6 +320,46 @@ mod tests {
 
         assert_eq!(thread.role, TtThreadRole::Worker);
         assert_eq!(thread.activation, TtThreadActivation::Reporting);
+    }
+
+    #[test]
+    fn roster_for_cwd_lists_reporting_workers_first() {
+        let temp = tt_project();
+        let worker_idle = temp.path().join("worktrees/repo/idle");
+        let worker_reporting = temp.path().join("worktrees/repo/reporting");
+        std::fs::create_dir_all(&worker_idle).expect("idle worker dir");
+        std::fs::create_dir_all(&worker_reporting).expect("reporting worker dir");
+        auto_register_thread(temp.path(), "supervisor").expect("supervisor");
+        set_thread_reporting(&worker_idle, "worker-idle", /*reporting*/ false)
+            .expect("idle worker");
+        set_thread_reporting(
+            &worker_reporting,
+            "worker-reporting",
+            /*reporting*/ true,
+        )
+        .expect("reporting worker");
+
+        let roster = roster_for_cwd(temp.path(), TtRosterScope::Workers)
+            .expect("roster")
+            .expect("tt roster");
+
+        assert_eq!(
+            roster.threads,
+            vec![
+                TtRosterThreadView {
+                    role: TtThreadRole::Worker,
+                    activation: TtThreadActivation::Reporting,
+                    location: "reporting".to_string(),
+                    name: "TT Worker - reporting".to_string(),
+                },
+                TtRosterThreadView {
+                    role: TtThreadRole::Worker,
+                    activation: TtThreadActivation::Idle,
+                    location: "idle".to_string(),
+                    name: "TT Worker - idle".to_string(),
+                },
+            ]
+        );
     }
 
     fn tt_project() -> TempDir {
