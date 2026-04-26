@@ -1084,10 +1084,14 @@ fn thread_start_params_from_config(
         .is_none()
         .then(|| sandbox_mode_from_policy(config.permissions.sandbox_policy.get().clone()))
         .flatten();
+    let cwd = thread_cwd_from_config(config, thread_params_mode, remote_cwd_override);
+    let dynamic_tools = cwd
+        .as_deref()
+        .and_then(|cwd| crate::tt::supervisor_dynamic_tools_for_cwd(std::path::Path::new(cwd)));
     ThreadStartParams {
         model: config.model.clone(),
         model_provider: thread_params_mode.model_provider_from_config(config),
-        cwd: thread_cwd_from_config(config, thread_params_mode, remote_cwd_override),
+        cwd,
         approval_policy: Some(config.permissions.approval_policy.value().into()),
         approvals_reviewer: approvals_reviewer_override_from_config(config),
         sandbox,
@@ -1095,6 +1099,7 @@ fn thread_start_params_from_config(
         config: config_request_overrides_from_config(config),
         ephemeral: Some(config.ephemeral),
         session_start_source,
+        dynamic_tools,
         persist_extended_history: true,
         ..ThreadStartParams::default()
     }

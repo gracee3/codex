@@ -2575,6 +2575,9 @@ impl ChatWidget {
                 }
             })
             .unwrap_or_default();
+        if !from_replay {
+            self.maybe_relay_tt_worker_response(&notification_response);
+        }
         self.saw_copy_source_this_turn = false;
         // If a stream is currently active, finalize it.
         self.flush_answer_stream_with_separator();

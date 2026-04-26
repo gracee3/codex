@@ -8,8 +8,10 @@
 use super::*;
 use crate::bottom_pane::prompt_args::parse_slash_name;
 use crate::bottom_pane::slash_commands;
+use codex_protocol::protocol::Op;
 use codex_tt_core::TtThreadRole;
 use std::path::Path;
+use std::path::PathBuf;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum SlashCommandDispatchSource {
@@ -862,13 +864,30 @@ impl ChatWidget {
                 return;
             }
         };
+        let op = match self.tt_user_turn_op(target.cwd.clone(), body) {
+            Ok(op) => op,
+            Err(message) => {
+                self.add_error_message(message);
+                return;
+            }
+        };
+        self.app_event_tx.send(AppEvent::SubmitThreadOp {
+            thread_id: supervisor_thread_id,
+            op,
+        });
+        self.add_info_message(
+            format!("TT ack sent to {} at {}.", target.name, target.location),
+            /*hint*/ None,
+        );
+    }
+
+    pub(crate) fn tt_user_turn_op(&self, cwd: PathBuf, body: String) -> Result<Op, String> {
         let effective_mode = self.effective_collaboration_mode();
         if effective_mode.model().trim().is_empty() {
-            self.add_error_message(
-                "Thread model is unavailable; wait for session sync before sending TT ack."
+            return Err(
+                "Thread model is unavailable; wait for session sync before sending TT turn."
                     .to_string(),
             );
-            return;
         }
         let collaboration_mode = if self.collaboration_modes_enabled() {
             self.active_collaboration_mask
@@ -895,12 +914,12 @@ impl ChatWidget {
         } else {
             Some(self.config.permissions.permission_profile())
         };
-        let op = AppCommand::user_turn(
+        Ok(AppCommand::user_turn(
             vec![UserInput::Text {
                 text: body,
                 text_elements: Vec::new(),
             }],
-            target.cwd.clone(),
+            cwd,
             self.config.permissions.approval_policy.value(),
             self.config.permissions.sandbox_policy.get().clone(),
             permission_profile,
@@ -911,15 +930,47 @@ impl ChatWidget {
             /*final_output_json_schema*/ None,
             collaboration_mode,
             personality,
-        );
+        )
+        .into_core())
+    }
+
+    pub(crate) fn maybe_relay_tt_worker_response(&mut self, message: &str) {
+        let Some(worker_thread_id) = self.tt_thread_id() else {
+            return;
+        };
+        let relay =
+            match crate::tt::reporting_worker_relay(self.tt_cwd(), &worker_thread_id, message) {
+                Ok(relay) => relay,
+                Err(err) => {
+                    tracing::warn!(%err, "failed to prepare TT worker relay");
+                    return;
+                }
+            };
+        let Some((target, body)) = relay else {
+            return;
+        };
+        let supervisor_thread_id = match ThreadId::from_string(&target.thread_id) {
+            Ok(thread_id) => thread_id,
+            Err(err) => {
+                tracing::warn!(
+                    supervisor_thread_id = target.thread_id,
+                    %err,
+                    "invalid TT supervisor thread id"
+                );
+                return;
+            }
+        };
+        let op = match self.tt_user_turn_op(target.cwd, body) {
+            Ok(op) => op,
+            Err(message) => {
+                tracing::warn!(message, "failed to build TT worker relay turn");
+                return;
+            }
+        };
         self.app_event_tx.send(AppEvent::SubmitThreadOp {
             thread_id: supervisor_thread_id,
-            op: op.into_core(),
+            op,
         });
-        self.add_info_message(
-            format!("TT ack sent to {} at {}.", target.name, target.location),
-            /*hint*/ None,
-        );
     }
 
     fn dispatch_tt_command(&mut self, args: &str) {

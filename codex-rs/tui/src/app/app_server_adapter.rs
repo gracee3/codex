@@ -21,6 +21,9 @@ use crate::app_server_session::status_account_display_from_auth_mode;
 use crate::exec_command::split_command_string;
 use codex_app_server_client::AppServerEvent;
 use codex_app_server_protocol::AuthMode;
+use codex_app_server_protocol::DynamicToolCallOutputContentItem;
+use codex_app_server_protocol::DynamicToolCallParams;
+use codex_app_server_protocol::DynamicToolCallResponse;
 use codex_app_server_protocol::JSONRPCErrorError;
 use codex_app_server_protocol::ServerNotification;
 use codex_app_server_protocol::ServerRequest;
@@ -105,6 +108,7 @@ use codex_protocol::protocol::TurnAbortedEvent;
 use codex_protocol::protocol::TurnCompleteEvent;
 #[cfg(test)]
 use codex_protocol::protocol::TurnStartedEvent;
+use serde::Deserialize;
 #[cfg(test)]
 use std::time::Duration;
 
@@ -240,6 +244,34 @@ impl App {
         app_server_client: &AppServerSession,
         request: ServerRequest,
     ) {
+        if let ServerRequest::DynamicToolCall { request_id, params } = &request
+            && params.namespace.as_deref() == Some("tt")
+            && params.tool == "dispatch"
+        {
+            let (text, success) = match self.handle_tt_dispatch_tool(params).await {
+                Ok(text) => (text, true),
+                Err(message) => (message, false),
+            };
+            let response = DynamicToolCallResponse {
+                content_items: vec![DynamicToolCallOutputContentItem::InputText { text }],
+                success,
+            };
+            match serde_json::to_value(response) {
+                Ok(result) => {
+                    if let Err(err) = app_server_client
+                        .resolve_server_request(request_id.clone(), result)
+                        .await
+                    {
+                        tracing::warn!("failed to resolve TT dispatch dynamic tool call: {err}");
+                    }
+                }
+                Err(err) => {
+                    tracing::warn!("failed to serialize TT dispatch dynamic tool response: {err}");
+                }
+            }
+            return;
+        }
+
         if let Some(unsupported) = self
             .pending_app_server_requests
             .note_server_request(&request)
@@ -279,6 +311,41 @@ impl App {
             tracing::warn!("failed to enqueue app-server request: {err}");
         }
     }
+
+    async fn handle_tt_dispatch_tool(
+        &mut self,
+        params: &DynamicToolCallParams,
+    ) -> Result<String, String> {
+        let thread_id = ThreadId::from_string(&params.thread_id)
+            .map_err(|err| format!("invalid TT supervisor thread id: {err}"))?;
+        let args: TtDispatchArgs = serde_json::from_value(params.arguments.clone())
+            .map_err(|err| format!("invalid TT dispatch arguments: {err}"))?;
+        let cwd = self
+            .thread_cwd(thread_id)
+            .await
+            .ok_or_else(|| "TT supervisor cwd is unavailable.".to_string())?;
+        let assignment = crate::tt::supervisor_assignment(
+            cwd.as_path(),
+            &params.thread_id,
+            &args.worker,
+            &args.message,
+        )
+        .map_err(|err| format!("TT dispatch failed: {err:#}"))?;
+        let worker_thread_id = ThreadId::from_string(&assignment.worker.thread_id)
+            .map_err(|err| format!("invalid TT worker thread id: {err}"))?;
+        let op = self
+            .chat_widget
+            .tt_user_turn_op(assignment.worker.cwd.clone(), assignment.body)
+            .map_err(|message| format!("TT dispatch failed: {message}"))?;
+        self.app_event_tx.send(AppEvent::SubmitThreadOp {
+            thread_id: worker_thread_id,
+            op,
+        });
+        Ok(format!(
+            "sent to {} ({})",
+            assignment.worker.name, assignment.worker.location
+        ))
+    }
     async fn reject_app_server_request(
         &self,
         app_server_client: &AppServerSession,
@@ -297,6 +364,12 @@ impl App {
             .await
             .map_err(|err| format!("failed to reject app-server request: {err}"))
     }
+}
+
+#[derive(Deserialize)]
+struct TtDispatchArgs {
+    worker: String,
+    message: String,
 }
 
 fn server_request_thread_id(request: &ServerRequest) -> Option<ThreadId> {

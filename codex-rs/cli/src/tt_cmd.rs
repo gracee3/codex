@@ -25,7 +25,8 @@ use codex_tt_core::load_thread_registry;
 use codex_tt_core::read_runtime_registration;
 use codex_tt_core::thread_label_for_cwd;
 use codex_tt_core::thread_name_for_cwd;
-use codex_tt_core::upsert_thread_record;
+use codex_tt_core::thread_record_is_alive;
+use codex_tt_core::upsert_thread_record_pruning_dead;
 
 #[derive(Debug, Parser)]
 #[command(bin_name = "codex tt")]
@@ -181,6 +182,7 @@ fn run_thread_list_filtered(role: Option<TtThreadRole>) -> Result<()> {
     let mut threads = registry
         .threads
         .into_iter()
+        .filter(thread_record_is_alive)
         .filter(|thread| role.is_none_or(|role| thread.role == role))
         .collect::<Vec<_>>();
     sort_threads_for_roster(&mut threads);
@@ -231,7 +233,7 @@ fn run_thread_register(args: TtThreadRegisterArgs) -> Result<()> {
         cwd,
         args.pid.or_else(|| Some(std::process::id())),
     );
-    upsert_thread_record(&project, record)?;
+    upsert_thread_record_pruning_dead(&project, record)?;
     println!("thread registered");
     Ok(())
 }
@@ -301,11 +303,16 @@ fn discover_project_from_current_dir() -> Result<TtProject> {
 
 fn print_thread_registry_summary(project: &TtProject, worktrees: &[WorktreeInfo]) -> Result<()> {
     let registry = load_thread_registry(project)?;
-    if registry.threads.is_empty() {
+    let threads = registry
+        .threads
+        .into_iter()
+        .filter(thread_record_is_alive)
+        .collect::<Vec<_>>();
+    if threads.is_empty() {
         println!("threads: <none>");
     } else {
         println!("threads:");
-        for thread in registry.threads {
+        for thread in threads {
             let name = thread.name.as_deref().unwrap_or("<unnamed>");
             let location = thread_label_for_cwd(project, &thread.cwd, worktrees);
             let pid = thread

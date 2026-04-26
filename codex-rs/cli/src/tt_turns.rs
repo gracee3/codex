@@ -23,6 +23,7 @@ use codex_tt_core::discover_repositories;
 use codex_tt_core::discover_worktrees_for_repositories;
 use codex_tt_core::load_thread_registry;
 use codex_tt_core::thread_label_for_cwd;
+use codex_tt_core::thread_record_is_alive;
 
 pub(crate) async fn run_ack(args: TtAckArgs, arg0_paths: &Arg0DispatchPaths) -> Result<()> {
     let cwd = std::env::current_dir().context("resolve current directory")?;
@@ -114,6 +115,7 @@ fn resolve_current_thread<'a>(
     let thread = if let Some(thread_id) = explicit_thread_id {
         threads
             .iter()
+            .filter(|thread| thread_record_is_alive(thread))
             .find(|thread| thread.thread_id == thread_id)
             .with_context(|| format!("unknown TT thread {thread_id}"))?
     } else {
@@ -139,6 +141,7 @@ fn resolve_supervisor_thread<'a>(
 ) -> Result<&'a TtThreadRecord> {
     let mut supervisors = threads
         .iter()
+        .filter(|thread| thread_record_is_alive(thread))
         .filter(|thread| {
             thread.role == TtThreadRole::Supervisor
                 && Some(thread.thread_id.as_str()) != exclude_thread_id
@@ -164,6 +167,7 @@ fn resolve_worker_ref<'a>(
 ) -> Result<&'a TtThreadRecord> {
     let mut matches = threads
         .iter()
+        .filter(|thread| thread_record_is_alive(thread))
         .filter(|thread| thread.role == TtThreadRole::Worker)
         .filter(|thread| {
             thread.thread_id == worker_ref
@@ -187,6 +191,7 @@ fn best_thread_for_cwd<'a>(
     let cwd = normalize_existing_path(cwd);
     threads
         .iter()
+        .filter(|thread| thread_record_is_alive(thread))
         .filter_map(|thread| {
             let thread_cwd = normalize_existing_path(&thread.cwd);
             cwd.starts_with(&thread_cwd)
@@ -247,36 +252,22 @@ fn worker_ack_body(
     worker: &TtThreadRecord,
     note: Option<&str>,
 ) -> String {
-    let mut body = format!(
-        "TT worker ack\nworker: {}\nthread: {}\nlocation: {}\ncwd: {}\nstatus: available\n\nI am available for supervisor-directed work. Please acknowledge when ready.",
-        thread_display_name(worker),
-        worker.thread_id,
-        thread_label_for_cwd(project, &worker.cwd, worktrees),
-        worker.cwd.display()
-    );
-    if let Some(note) = note.map(str::trim).filter(|note| !note.is_empty()) {
-        body.push_str("\n\nnote: ");
-        body.push_str(note);
+    let location = thread_label_for_cwd(project, &worker.cwd, worktrees);
+    match note.map(str::trim).filter(|note| !note.is_empty()) {
+        Some(note) => format!("TT from {location}:\n{note}"),
+        None => format!("TT from {location}: available"),
     }
-    body
 }
 
 fn assignment_body(
     project: &TtProject,
     worktrees: &[WorktreeInfo],
     supervisor: &TtThreadRecord,
-    worker: &TtThreadRecord,
+    _worker: &TtThreadRecord,
     prompt: &str,
 ) -> String {
-    format!(
-        "TT supervisor assignment\nsupervisor: {}\nworker: {}\nworker_thread: {}\nworker_location: {}\nworker_cwd: {}\n\nTask:\n{}\n\nPlease reply in this worker thread with status, result, blockers, and changed files.",
-        thread_display_name(supervisor),
-        thread_display_name(worker),
-        worker.thread_id,
-        thread_label_for_cwd(project, &worker.cwd, worktrees),
-        worker.cwd.display(),
-        prompt.trim()
-    )
+    let location = thread_label_for_cwd(project, &supervisor.cwd, worktrees);
+    format!("TT assignment from {location}:\n{}", prompt.trim())
 }
 
 fn thread_display_name(thread: &TtThreadRecord) -> String {

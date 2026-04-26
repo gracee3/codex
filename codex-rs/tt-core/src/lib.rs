@@ -185,6 +185,16 @@ impl TtThreadRegistry {
                 .then_with(|| left.thread_id.cmp(&right.thread_id))
         });
     }
+
+    pub fn prune_dead_records_for(&mut self, role: TtThreadRole, cwd: &Path) -> bool {
+        let original_len = self.threads.len();
+        let cwd = normalize_existing_path(cwd);
+        self.threads.retain(|thread| {
+            let same_slot = thread.role == role && normalize_existing_path(&thread.cwd) == cwd;
+            !same_slot || thread_record_is_alive(thread)
+        });
+        self.threads.len() != original_len
+    }
 }
 
 impl RuntimeRegistration {
@@ -333,6 +343,16 @@ pub fn save_thread_registry(project: &TtProject, registry: &TtThreadRegistry) ->
 
 pub fn upsert_thread_record(project: &TtProject, record: TtThreadRecord) -> Result<()> {
     let mut registry = load_thread_registry(project)?;
+    registry.upsert(record);
+    save_thread_registry(project, &registry)
+}
+
+pub fn upsert_thread_record_pruning_dead(
+    project: &TtProject,
+    record: TtThreadRecord,
+) -> Result<()> {
+    let mut registry = load_thread_registry(project)?;
+    registry.prune_dead_records_for(record.role, &record.cwd);
     registry.upsert(record);
     save_thread_registry(project, &registry)
 }
@@ -609,6 +629,23 @@ fn project_name(project: &TtProject) -> &str {
 
 fn normalize_existing_path(path: &Path) -> PathBuf {
     fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+}
+
+pub fn thread_record_is_alive(thread: &TtThreadRecord) -> bool {
+    let Some(pid) = thread.pid else {
+        return true;
+    };
+    process_is_alive(pid)
+}
+
+#[cfg(target_os = "linux")]
+pub fn process_is_alive(pid: u32) -> bool {
+    PathBuf::from(format!("/proc/{pid}")).exists()
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn process_is_alive(_pid: u32) -> bool {
+    true
 }
 
 fn write_config(path: &Path, config: &TtConfig) -> Result<()> {
@@ -921,6 +958,37 @@ detached
                     registered_at_unix_secs: registry.threads[0].registered_at_unix_secs,
                 }]
             }
+        );
+    }
+
+    #[test]
+    fn thread_registry_prunes_dead_records_for_same_slot() {
+        let mut registry = TtThreadRegistry::default();
+        let cwd = PathBuf::from("/tmp/worker");
+        registry.upsert(TtThreadRecord::new(
+            TtThreadRole::Worker,
+            "dead-worker".to_string(),
+            Some("dead".to_string()),
+            cwd.clone(),
+            Some(u32::MAX),
+        ));
+        registry.upsert(TtThreadRecord::new(
+            TtThreadRole::Supervisor,
+            "dead-supervisor".to_string(),
+            Some("dead supervisor".to_string()),
+            cwd.clone(),
+            Some(u32::MAX),
+        ));
+
+        assert!(registry.prune_dead_records_for(TtThreadRole::Worker, &cwd));
+
+        assert_eq!(
+            registry
+                .threads
+                .iter()
+                .map(|thread| thread.thread_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["dead-supervisor"]
         );
     }
 
