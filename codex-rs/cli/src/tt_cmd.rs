@@ -12,11 +12,14 @@ use codex_tt_core::InitOptions;
 use codex_tt_core::TtProject;
 use codex_tt_core::TtThreadRecord;
 use codex_tt_core::TtThreadRole;
+use codex_tt_core::WorktreeInfo;
 use codex_tt_core::discover_worktrees;
 use codex_tt_core::init_project;
 use codex_tt_core::load_thread_registry;
 use codex_tt_core::read_runtime_registration;
+use codex_tt_core::thread_name_for_cwd;
 use codex_tt_core::upsert_thread_record;
+use codex_tt_core::worktree_label_for_cwd;
 
 #[derive(Debug, Parser)]
 #[command(bin_name = "codex tt")]
@@ -143,18 +146,21 @@ fn run_thread_list() -> Result<()> {
         println!("threads: <none>");
         return Ok(());
     }
+    let worktrees = discover_worktrees(&project).unwrap_or_default();
 
     println!("threads:");
     for thread in registry.threads {
         let name = thread.name.as_deref().unwrap_or("<unnamed>");
+        let branch = worktree_label_for_cwd(&thread.cwd, &worktrees);
         let pid = thread
             .pid
             .map(|pid| pid.to_string())
             .unwrap_or_else(|| "<none>".to_string());
         println!(
-            "  - {} {} name={} pid={} cwd={}",
+            "  - {} {} branch={} name={} pid={} cwd={}",
             thread.role.as_str(),
             thread.thread_id,
+            branch,
             name,
             pid,
             thread.cwd.display()
@@ -169,10 +175,14 @@ fn run_thread_register(args: TtThreadRegisterArgs) -> Result<()> {
         Some(cwd) => cwd,
         None => std::env::current_dir().context("resolve current directory")?,
     };
+    let worktrees = discover_worktrees(&project).unwrap_or_default();
+    let name = args
+        .name
+        .or_else(|| Some(thread_name_for_cwd(args.role, &cwd, &worktrees)));
     let record = TtThreadRecord::new(
         args.role,
         args.thread_id,
-        args.name,
+        name,
         cwd,
         args.pid.or_else(|| Some(std::process::id())),
     );
@@ -188,13 +198,14 @@ fn run_status() -> Result<()> {
     println!("primary: {}", project.primary_repo().display());
     println!("worktrees: {}", project.worktrees_dir().display());
     println!("config: {}", project.config_path().display());
-    match discover_worktrees(&project) {
+    let discovered_worktrees = match discover_worktrees(&project) {
         Ok(worktrees) if worktrees.is_empty() => {
             println!("git_worktrees: <none>");
+            Vec::new()
         }
         Ok(worktrees) => {
             println!("git_worktrees:");
-            for worktree in worktrees {
+            for worktree in &worktrees {
                 let role = if worktree.is_primary {
                     "primary"
                 } else {
@@ -204,11 +215,13 @@ fn run_status() -> Result<()> {
                 let head = worktree.head.as_deref().unwrap_or("<unknown>");
                 println!("  - {role} {branch} {head} {}", worktree.path.display());
             }
+            worktrees
         }
         Err(err) => {
             println!("git_worktrees: unavailable: {err:#}");
+            Vec::new()
         }
-    }
+    };
     match read_runtime_registration(&project)? {
         Some(registration) => {
             println!("runtime: {}", registration.endpoint);
@@ -218,7 +231,7 @@ fn run_status() -> Result<()> {
             println!("runtime: <not registered>");
         }
     }
-    print_thread_registry_summary(&project)?;
+    print_thread_registry_summary(&project, &discovered_worktrees)?;
     Ok(())
 }
 
@@ -230,12 +243,29 @@ fn discover_project_from_current_dir() -> Result<TtProject> {
     Ok(project)
 }
 
-fn print_thread_registry_summary(project: &TtProject) -> Result<()> {
+fn print_thread_registry_summary(project: &TtProject, worktrees: &[WorktreeInfo]) -> Result<()> {
     let registry = load_thread_registry(project)?;
     if registry.threads.is_empty() {
         println!("threads: <none>");
     } else {
-        println!("threads: {}", registry.threads.len());
+        println!("threads:");
+        for thread in registry.threads {
+            let name = thread.name.as_deref().unwrap_or("<unnamed>");
+            let branch = worktree_label_for_cwd(&thread.cwd, worktrees);
+            let pid = thread
+                .pid
+                .map(|pid| pid.to_string())
+                .unwrap_or_else(|| "<none>".to_string());
+            println!(
+                "  - {} {} branch={} name={} pid={} cwd={}",
+                thread.role.as_str(),
+                thread.thread_id,
+                branch,
+                name,
+                pid,
+                thread.cwd.display()
+            );
+        }
     }
     Ok(())
 }

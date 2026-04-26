@@ -213,7 +213,9 @@ impl TtProject {
             if !tt_dir.is_dir() {
                 continue;
             }
-            return read_project_at(ancestor).map(Some);
+            if let Some(project) = read_project_at(ancestor)? {
+                return Ok(Some(project));
+            }
         }
         Ok(None)
     }
@@ -327,21 +329,64 @@ pub fn discover_worktrees(project: &TtProject) -> Result<Vec<WorktreeInfo>> {
     parse_git_worktree_porcelain(&stdout, &project.primary_repo())
 }
 
-fn read_project_at(root: &Path) -> Result<TtProject> {
+pub fn worktree_for_cwd<'a>(worktrees: &'a [WorktreeInfo], cwd: &Path) -> Option<&'a WorktreeInfo> {
+    let cwd = normalize_existing_path(cwd);
+    worktrees
+        .iter()
+        .filter_map(|worktree| {
+            let path = normalize_existing_path(&worktree.path);
+            cwd.starts_with(&path)
+                .then_some((path.components().count(), worktree))
+        })
+        .max_by_key(|(component_count, _)| *component_count)
+        .map(|(_, worktree)| worktree)
+}
+
+pub fn thread_name_for_cwd(role: TtThreadRole, cwd: &Path, worktrees: &[WorktreeInfo]) -> String {
+    let role_name = match role {
+        TtThreadRole::Supervisor => "Supervisor",
+        TtThreadRole::Worker => "Worker",
+    };
+    format!(
+        "TT {role_name} - {}",
+        worktree_label_for_cwd(cwd, worktrees)
+    )
+}
+
+pub fn worktree_label_for_cwd(cwd: &Path, worktrees: &[WorktreeInfo]) -> String {
+    if let Some(worktree) = worktree_for_cwd(worktrees, cwd) {
+        if let Some(branch) = worktree.branch.as_deref() {
+            return branch.to_string();
+        }
+        if let Some(head) = worktree.head.as_deref() {
+            return format!("detached@{}", short_commit(head));
+        }
+    }
+
+    cwd.file_name()
+        .and_then(|name| name.to_str())
+        .filter(|name| !name.is_empty())
+        .unwrap_or("unknown")
+        .to_string()
+}
+
+fn read_project_at(root: &Path) -> Result<Option<TtProject>> {
     let root = absolute_logical_path(root)?;
     let config_path = root.join(TT_DIR).join(CONFIG_FILE);
     let config = if config_path.exists() {
         let contents = fs::read_to_string(&config_path)
             .with_context(|| format!("read TT config {}", config_path.display()))?;
-        toml::from_str(&contents)
-            .with_context(|| format!("parse TT config {}", config_path.display()))?
+        match toml::from_str(&contents) {
+            Ok(config) => config,
+            Err(_) => return Ok(None),
+        }
     } else {
         TtConfig::new(
             PathBuf::from("primary"),
             PathBuf::from(DEFAULT_WORKTREES_DIR),
         )
     };
-    Ok(TtProject::new(root, config))
+    Ok(Some(TtProject::new(root, config)))
 }
 
 fn parse_git_worktree_porcelain(contents: &str, primary_repo: &Path) -> Result<Vec<WorktreeInfo>> {
@@ -384,6 +429,10 @@ fn short_branch_name(branch: &str) -> String {
         .strip_prefix("refs/heads/")
         .unwrap_or(branch)
         .to_string()
+}
+
+fn short_commit(head: &str) -> &str {
+    head.get(..7).unwrap_or(head)
 }
 
 fn normalize_existing_path(path: &Path) -> PathBuf {
@@ -488,6 +537,30 @@ mod tests {
     }
 
     #[test]
+    fn discover_from_skips_incompatible_tt_config() {
+        let temp = TempDir::new().expect("tempdir");
+        let summary = init_project(InitOptions {
+            project_root: temp.path().to_path_buf(),
+            primary_repo: PathBuf::from("repo-name"),
+            worktrees_dir: PathBuf::from("worktrees"),
+        })
+        .expect("init project");
+        let nested = temp.path().join("repo-name/src");
+        fs::create_dir_all(nested.join(TT_DIR)).expect("nested tt dir");
+        fs::write(
+            nested.join(TT_DIR).join(CONFIG_FILE),
+            "[tt]\nlegacy = true\n",
+        )
+        .expect("write incompatible config");
+
+        let project = TtProject::discover_from(&nested)
+            .expect("discover result")
+            .expect("project discovered");
+
+        assert_eq!(project, summary.project);
+    }
+
+    #[test]
     fn runtime_registration_round_trips() {
         let temp = TempDir::new().expect("tempdir");
         let summary = init_project(InitOptions {
@@ -549,6 +622,71 @@ detached
                     is_primary: false,
                 },
             ]
+        );
+    }
+
+    #[test]
+    fn worktree_for_cwd_selects_deepest_matching_worktree() {
+        let worktrees = vec![
+            WorktreeInfo {
+                path: PathBuf::from("/tmp/ttproj/repo-name"),
+                branch: Some("main".to_string()),
+                head: Some("abc123".to_string()),
+                is_primary: true,
+            },
+            WorktreeInfo {
+                path: PathBuf::from("/tmp/ttproj/repo-name/nested"),
+                branch: Some("nested".to_string()),
+                head: Some("def456".to_string()),
+                is_primary: false,
+            },
+        ];
+
+        let selected = worktree_for_cwd(&worktrees, Path::new("/tmp/ttproj/repo-name/nested/src"))
+            .expect("matching worktree");
+
+        assert_eq!(selected.branch.as_deref(), Some("nested"));
+    }
+
+    #[test]
+    fn thread_name_for_cwd_prefers_branch_name() {
+        let worktrees = vec![WorktreeInfo {
+            path: PathBuf::from("/tmp/ttproj/worktrees/feature-a"),
+            branch: Some("tt/feature/a".to_string()),
+            head: Some("def456".to_string()),
+            is_primary: false,
+        }];
+
+        assert_eq!(
+            thread_name_for_cwd(
+                TtThreadRole::Worker,
+                Path::new("/tmp/ttproj/worktrees/feature-a/codex-rs"),
+                &worktrees
+            ),
+            "TT Worker - tt/feature/a"
+        );
+    }
+
+    #[test]
+    fn thread_name_for_cwd_uses_detached_head_or_directory_fallback() {
+        let worktrees = vec![WorktreeInfo {
+            path: PathBuf::from("/tmp/ttproj/worktrees/detached"),
+            branch: None,
+            head: Some("fedcba9876543210".to_string()),
+            is_primary: false,
+        }];
+
+        assert_eq!(
+            thread_name_for_cwd(
+                TtThreadRole::Supervisor,
+                Path::new("/tmp/ttproj/worktrees/detached"),
+                &worktrees
+            ),
+            "TT Supervisor - detached@fedcba9"
+        );
+        assert_eq!(
+            thread_name_for_cwd(TtThreadRole::Worker, Path::new("/tmp/outside"), &worktrees),
+            "TT Worker - outside"
         );
     }
 
