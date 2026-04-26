@@ -44,6 +44,7 @@ mod mcp_cmd;
 mod responses_cmd;
 mod tt_cmd;
 mod tt_runtime;
+mod tt_turns;
 #[cfg(not(windows))]
 mod wsl_paths;
 
@@ -1193,7 +1194,7 @@ async fn cli_main(arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()> {
                 root_remote_auth_token_env.as_deref(),
                 "tt",
             )?;
-            run_tt_command(tt_cli)?;
+            run_tt_command(tt_cli, &arg0_paths).await?;
         }
     }
 
@@ -2491,6 +2492,31 @@ mod tests {
             "operator",
         ])
         .expect("parse should succeed");
+
+        assert!(matches!(cli.subcommand, Some(Subcommand::Tt(_))));
+    }
+
+    #[test]
+    fn tt_workers_parses() {
+        let cli =
+            MultitoolCli::try_parse_from(["codex", "tt", "workers"]).expect("parse should succeed");
+
+        assert!(matches!(cli.subcommand, Some(Subcommand::Tt(_))));
+    }
+
+    #[test]
+    fn tt_ack_parses_note() {
+        let cli = MultitoolCli::try_parse_from(["codex", "tt", "ack", "ready", "now"])
+            .expect("parse should succeed");
+
+        assert!(matches!(cli.subcommand, Some(Subcommand::Tt(_))));
+    }
+
+    #[test]
+    fn tt_assign_parses_worker_and_prompt() {
+        let cli =
+            MultitoolCli::try_parse_from(["codex", "tt", "assign", "worker-1", "please", "test"])
+                .expect("parse should succeed");
 
         assert!(matches!(cli.subcommand, Some(Subcommand::Tt(_))));
     }

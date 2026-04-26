@@ -2,11 +2,16 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
 
+use crate::tt_turns::discover_project_from;
+use crate::tt_turns::run_ack;
+use crate::tt_turns::run_assign;
+use crate::tt_turns::sort_threads_for_roster;
 use anyhow::Context;
 use anyhow::Result;
 use clap::Args;
 use clap::Parser;
 use clap::Subcommand;
+use codex_arg0::Arg0DispatchPaths;
 use codex_tt_core::DEFAULT_WORKTREES_DIR;
 use codex_tt_core::InitOptions;
 use codex_tt_core::TtProject;
@@ -37,6 +42,18 @@ enum TtSubcommand {
     /// Show the discovered TT project state.
     Status,
 
+    /// List registered TT threads.
+    Threads,
+
+    /// List registered worker threads.
+    Workers,
+
+    /// Send a normal turn from this worker to the supervisor thread.
+    Ack(TtAckArgs),
+
+    /// Send a normal assignment turn from the supervisor to a worker thread.
+    Assign(TtAssignArgs),
+
     /// List or register TT thread records.
     Thread {
         #[command(subcommand)]
@@ -53,6 +70,31 @@ struct TtInitArgs {
     /// Worktrees directory relative to the TT project root.
     #[arg(long, default_value = DEFAULT_WORKTREES_DIR)]
     worktrees_dir: PathBuf,
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct TtAckArgs {
+    /// Override the sender thread id. Defaults to the registered thread for the current cwd.
+    #[arg(long)]
+    pub(crate) from_thread_id: Option<String>,
+
+    /// Optional note to include in the ack turn.
+    #[arg(trailing_var_arg = true)]
+    pub(crate) note: Vec<String>,
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct TtAssignArgs {
+    /// Override the supervisor thread id. Defaults to the registered supervisor for the current cwd.
+    #[arg(long)]
+    pub(crate) from_thread_id: Option<String>,
+
+    /// Worker thread id/name/location/id-prefix.
+    pub(crate) worker: String,
+
+    /// Assignment prompt.
+    #[arg(required = true, trailing_var_arg = true)]
+    pub(crate) prompt: Vec<String>,
 }
 
 #[derive(Debug, Subcommand)]
@@ -87,10 +129,14 @@ struct TtThreadRegisterArgs {
     pid: Option<u32>,
 }
 
-pub(crate) fn run_tt_command(cli: TtCli) -> Result<()> {
+pub(crate) async fn run_tt_command(cli: TtCli, arg0_paths: &Arg0DispatchPaths) -> Result<()> {
     match cli.command {
         TtSubcommand::Init(args) => run_init(args),
         TtSubcommand::Status => run_status(),
+        TtSubcommand::Threads => run_thread_list(),
+        TtSubcommand::Workers => run_thread_list_filtered(Some(TtThreadRole::Worker)),
+        TtSubcommand::Ack(args) => run_ack(args, arg0_paths).await,
+        TtSubcommand::Assign(args) => run_assign(args, arg0_paths).await,
         TtSubcommand::Thread { command } => run_thread_command(command),
     }
 }
@@ -126,9 +172,19 @@ fn run_thread_command(command: TtThreadCommand) -> Result<()> {
 }
 
 fn run_thread_list() -> Result<()> {
+    run_thread_list_filtered(/*role*/ None)
+}
+
+fn run_thread_list_filtered(role: Option<TtThreadRole>) -> Result<()> {
     let project = discover_project_from_current_dir()?;
     let registry = load_thread_registry(&project)?;
-    if registry.threads.is_empty() {
+    let mut threads = registry
+        .threads
+        .into_iter()
+        .filter(|thread| role.is_none_or(|role| thread.role == role))
+        .collect::<Vec<_>>();
+    sort_threads_for_roster(&mut threads);
+    if threads.is_empty() {
         println!("threads: <none>");
         return Ok(());
     }
@@ -136,7 +192,7 @@ fn run_thread_list() -> Result<()> {
     let worktrees = discover_worktrees_for_repositories(&repos).unwrap_or_default();
 
     println!("threads:");
-    for thread in registry.threads {
+    for thread in threads {
         let name = thread.name.as_deref().unwrap_or("<unnamed>");
         let location = thread_label_for_cwd(&project, &thread.cwd, &worktrees);
         let pid = thread
@@ -240,10 +296,7 @@ fn run_status() -> Result<()> {
 
 fn discover_project_from_current_dir() -> Result<TtProject> {
     let cwd = std::env::current_dir().context("resolve current directory")?;
-    let Some(project) = TtProject::discover_from(&cwd)? else {
-        anyhow::bail!("no TT project discovered from {}", cwd.display());
-    };
-    Ok(project)
+    discover_project_from(&cwd)
 }
 
 fn print_thread_registry_summary(project: &TtProject, worktrees: &[WorktreeInfo]) -> Result<()> {
