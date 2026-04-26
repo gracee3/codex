@@ -60,6 +60,46 @@ pub(crate) fn status_for_cwd(cwd: &Path, thread_id: Option<&str>) -> Result<Opti
     }))
 }
 
+pub(crate) fn auto_register_thread(cwd: &Path, thread_id: &str) -> Result<Option<String>> {
+    let Some(project) = TtProject::discover_from(cwd)? else {
+        return Ok(None);
+    };
+    let registry = load_thread_registry(&project)?;
+    if let Some(existing) = registry
+        .threads
+        .iter()
+        .find(|thread| thread.thread_id == thread_id)
+    {
+        let (name, _location) = thread_name_and_location(&project, cwd, existing.role)?;
+        let Some(record) = update_thread_record(&project, thread_id, |record| {
+            record.cwd = cwd.to_path_buf();
+            record.pid = Some(std::process::id());
+            record.name = Some(name);
+        })?
+        else {
+            return Ok(None);
+        };
+        return Ok(Some(format!(
+            "TT {} {} is {}.",
+            record.role.as_str(),
+            record.thread_id,
+            record.activation.as_str()
+        )));
+    }
+
+    let role = default_role_for_cwd(&project, cwd);
+    let (name, location) = thread_name_and_location(&project, cwd, role)?;
+    let record = build_thread_record(cwd, thread_id, role, TtThreadActivation::Idle, name);
+    let message = format!(
+        "TT {} {} registered at {}.",
+        record.role.as_str(),
+        record.thread_id,
+        location
+    );
+    upsert_thread_record(&project, record)?;
+    Ok(Some(message))
+}
+
 pub(crate) fn set_thread_role(cwd: &Path, thread_id: &str, role: TtThreadRole) -> Result<String> {
     let Some(project) = TtProject::discover_from(cwd)? else {
         anyhow::bail!("no TT project discovered from {}", cwd.display());
@@ -75,7 +115,8 @@ pub(crate) fn set_thread_role(cwd: &Path, thread_id: &str, role: TtThreadRole) -
         ));
     }
 
-    let record = build_thread_record(&project, cwd, thread_id, role, TtThreadActivation::Idle)?;
+    let (name, _location) = thread_name_and_location(&project, cwd, role)?;
+    let record = build_thread_record(cwd, thread_id, role, TtThreadActivation::Idle, name);
     let message = format!(
         "TT {} {} is {}.",
         record.role.as_str(),
@@ -106,7 +147,8 @@ pub(crate) fn set_thread_reporting(cwd: &Path, thread_id: &str, reporting: bool)
         ));
     }
 
-    let record = build_thread_record(&project, cwd, thread_id, TtThreadRole::Worker, activation)?;
+    let (name, _location) = thread_name_and_location(&project, cwd, TtThreadRole::Worker)?;
+    let record = build_thread_record(cwd, thread_id, TtThreadRole::Worker, activation, name);
     let message = format!(
         "TT worker {} is {}.",
         record.thread_id,
@@ -117,23 +159,42 @@ pub(crate) fn set_thread_reporting(cwd: &Path, thread_id: &str, reporting: bool)
 }
 
 fn build_thread_record(
-    project: &TtProject,
     cwd: &Path,
     thread_id: &str,
     role: TtThreadRole,
     activation: TtThreadActivation,
-) -> Result<TtThreadRecord> {
-    let repos = discover_repositories(project)?;
-    let worktrees = discover_worktrees_for_repositories(&repos)?;
+    name: String,
+) -> TtThreadRecord {
     let mut record = TtThreadRecord::new(
         role,
         thread_id.to_string(),
-        Some(thread_name_for_cwd(project, role, cwd, &worktrees)),
+        Some(name),
         cwd.to_path_buf(),
         Some(std::process::id()),
     );
     record.activation = activation;
-    Ok(record)
+    record
+}
+
+fn thread_name_and_location(
+    project: &TtProject,
+    cwd: &Path,
+    role: TtThreadRole,
+) -> Result<(String, String)> {
+    let repos = discover_repositories(project)?;
+    let worktrees = discover_worktrees_for_repositories(&repos)?;
+    Ok((
+        thread_name_for_cwd(project, role, cwd, &worktrees),
+        thread_label_for_cwd(project, cwd, &worktrees),
+    ))
+}
+
+fn default_role_for_cwd(project: &TtProject, cwd: &Path) -> TtThreadRole {
+    if normalize_existing_path(cwd) == normalize_existing_path(project.root()) {
+        TtThreadRole::Supervisor
+    } else {
+        TtThreadRole::Worker
+    }
 }
 
 fn project_name(project: &TtProject) -> String {
@@ -145,4 +206,64 @@ fn project_name(project: &TtProject) -> String {
         .map(str::to_string)
         .with_context(|| format!("resolve TT project name for {}", project.root().display()))
         .unwrap_or_else(|_| "ttproj".to_string())
+}
+
+fn normalize_existing_path(path: &Path) -> std::path::PathBuf {
+    std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use codex_tt_core::InitOptions;
+    use codex_tt_core::init_project;
+    use pretty_assertions::assert_eq;
+    use tempfile::TempDir;
+
+    #[test]
+    fn auto_register_thread_registers_project_root_as_supervisor() {
+        let temp = tt_project();
+
+        auto_register_thread(temp.path(), "thread-1").expect("auto-register");
+        let registry = load_thread_registry(
+            &TtProject::discover_from(temp.path())
+                .expect("discover")
+                .expect("project"),
+        )
+        .expect("registry");
+
+        assert_eq!(registry.threads.len(), 1);
+        let record = &registry.threads[0];
+        assert_eq!(record.thread_id, "thread-1");
+        assert_eq!(record.role, TtThreadRole::Supervisor);
+        assert_eq!(record.activation, TtThreadActivation::Idle);
+        assert_eq!(record.cwd, temp.path());
+        assert_eq!(record.pid, Some(std::process::id()));
+    }
+
+    #[test]
+    fn auto_register_thread_preserves_manual_role_and_activation() {
+        let temp = tt_project();
+        set_thread_role(temp.path(), "thread-1", TtThreadRole::Worker).expect("set role");
+        set_thread_reporting(temp.path(), "thread-1", /*reporting*/ true).expect("set reporting");
+
+        auto_register_thread(temp.path(), "thread-1").expect("auto-register");
+        let status = status_for_cwd(temp.path(), Some("thread-1"))
+            .expect("status")
+            .expect("tt status");
+        let thread = status.thread.expect("registered thread");
+
+        assert_eq!(thread.role, TtThreadRole::Worker);
+        assert_eq!(thread.activation, TtThreadActivation::Reporting);
+    }
+
+    fn tt_project() -> TempDir {
+        let temp = TempDir::new().expect("tempdir");
+        init_project(InitOptions {
+            project_root: temp.path().to_path_buf(),
+            worktrees_dir: "worktrees".into(),
+        })
+        .expect("init project");
+        temp
+    }
 }

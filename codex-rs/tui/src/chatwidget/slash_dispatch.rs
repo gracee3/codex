@@ -730,6 +730,16 @@ impl ChatWidget {
         self.thread_id.map(|thread_id| thread_id.to_string())
     }
 
+    pub(super) fn auto_register_tt_thread(&mut self) {
+        let Some(thread_id) = self.tt_thread_id() else {
+            return;
+        };
+        match crate::tt::auto_register_thread(self.tt_cwd(), &thread_id) {
+            Ok(Some(_)) | Ok(None) => {}
+            Err(err) => tracing::warn!(%err, "failed to auto-register TT thread"),
+        }
+    }
+
     fn show_tt_status(&mut self) {
         let thread_id = self.tt_thread_id();
         match crate::tt::status_for_cwd(self.tt_cwd(), thread_id.as_deref()) {
